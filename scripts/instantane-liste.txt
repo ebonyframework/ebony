@@ -46,3 +46,4 @@ docs/guides/statut-et-limites.md
 docs/guides/deployer.md
 docs/guides/depanner.md
 docs/guides/ebony-conf.md
+docs/guides/tests.md

@@ -63,6 +63,7 @@ export default defineConfig({
           { text: 'ebony.conf', link: '/guides/ebony-conf' },
           { text: 'Ajouter une route', link: '/guides/routes' },
           { text: 'Erreurs', link: '/guides/erreurs' },
+          { text: 'Tests', link: '/guides/tests' },
           { text: 'Déployer', link: '/guides/deployer' },
           { text: 'Dépanner', link: '/guides/depanner' },
           { text: 'Journal', link: '/guides/journalisation' },
