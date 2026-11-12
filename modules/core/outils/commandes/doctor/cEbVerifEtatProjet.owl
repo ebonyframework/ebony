@@ -1,0 +1,89 @@
+// Vérifie l'état du projet du dossier courant : ebony.conf lisible, et dossier ebony/ (la bibliothèque, ignorée par git) présent et conforme à la version minimale demandée.
+// Hors d'un projet (pas d'ebony.conf dans le dossier courant, pas de remontée vers les parents) la vérification est sans objet : elle réussit sans avertir, doctor sert aussi hors projet.
+// Décisions du 2026-10-25 : ebony/ absent = avertissement qui indique « ebony restore » (état normal après un git clone) ; ebony.conf illisible ou sans version minimale valide = erreur ;
+// ebony/ qui ne satisfait pas le minimum = avertissement. Quand « ebony restore » serait nécessaire mais refuserait (l'ebony installé ne satisfait pas le minimum), on le dit déjà ici.
+// Ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque.
+cEbVerifEtatProjet est une Classe implemente iEbVerification
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	PROCEDURE PRIVÉE Resultat(statut est un entier, message est une chaîne, correction est une chaîne) : cEbResultatVerification
+		oResultat est un cEbResultatVerification("État du projet", statut, message, correction)
+		RENVOYER oResultat
+	FIN
+
+	// Version de l'ebony installé, ou « » si elle est illisible (la vérification de l'installation s'en plaint déjà : pas de doublon ici).
+	PROCEDURE PRIVÉE VersionInstallee() : chaîne
+		sVersion est une chaîne = ""
+		QUAND EXCEPTION DANS
+			oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+			sVersion = oInstallee.Version()
+		FAIRE
+			sVersion = ""
+		FIN
+		RENVOYER sVersion
+	FIN
+
+	// Pour un ebony/ absent, vide ou inadapté : la correction habituelle, ou le blocage si « ebony restore » refuserait de toute façon.
+	PROCEDURE PRIVÉE ResultatAReparer(message est une chaîne, correction est une chaîne, minimum est une chaîne) : cEbResultatVerification
+		sInstallee est une chaîne = :VersionInstallee()
+		SI sInstallee <> "" ALORS
+			SI PAS EbVersionSatisfait(sInstallee, minimum) ALORS
+				// Plus ancien que le minimum : « ebony upgrade » refuserait aussi (il ne rétrograde jamais). Plus récent mais d'une autre génération : upgrade aligne le projet.
+				sConseil est une chaîne = "Lancez « ebony upgrade » : il aligne la bibliothèque et ebony.conf sur la version installée (" + sInstallee + ")."
+				SI EbCompareVersions(sInstallee, minimum) < 0 ALORS
+					sConseil = "Installez un ebony d'au moins la version " + minimum + " (« ebony upgrade » ne rétrograde jamais un projet)."
+				FIN
+				RENVOYER :Resultat(eEbStatut.avertissement, message + " ; de plus « ebony restore » refuserait : l'ebony installé fournit la version " + sInstallee + ", le projet demande au moins " + minimum + " (même génération)", sConseil)
+			FIN
+		FIN
+		RENVOYER :Resultat(eEbStatut.avertissement, message, correction)
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "etat-projet"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		sConf      est une chaîne = EbJointChemin(sLancement, "ebony.conf")
+		SI PAS :oSysteme.FichierExiste(sConf) ALORS
+			RENVOYER :Resultat(eEbStatut.reussi, "sans objet : ce dossier n'est pas un projet ebony (pas d'ebony.conf dans " + sLancement + ")", "")
+		FIN
+
+		sMinimum est une chaîne = EbVersionDeLaConf(:oSysteme.LitTexte(sConf))
+		SI sMinimum = "" OU PAS EbVersionValide(sMinimum) ALORS
+			RENVOYER :Resultat(eEbStatut.erreur, "ebony.conf ne donne pas une version minimale valide de la bibliothèque (ebony.version) : « " + sMinimum + " »", "Corrigez " + sConf + " : ebony.version entre guillemets, par exemple 0.1.0.")
+		FIN
+
+		sBibliotheque est une chaîne = EbJointChemin(sLancement, "ebony")
+		SI :oSysteme.FichierExiste(sBibliotheque) ALORS
+			RENVOYER :Resultat(eEbStatut.erreur, "un fichier nommé « ebony » occupe la place du dossier de la bibliothèque dans " + sLancement, "Supprimez ce fichier, puis lancez « ebony restore ».")
+		FIN
+		SI PAS :oSysteme.DossierExiste(sBibliotheque) OU :oSysteme.DossierEstVide(sBibliotheque) ALORS
+			RENVOYER :ResultatAReparer("le dossier ebony/ (la bibliothèque) est absent : état normal après un git clone", "Lancez « ebony restore ».", sMinimum)
+		FIN
+
+		sFichierVersion est une chaîne = EbJointChemin(sBibliotheque, "VERSION")
+		sPresente       est une chaîne = ""
+		SI :oSysteme.FichierExiste(sFichierVersion) ALORS
+			sPresente = SansEspace(Remplace(Remplace(:oSysteme.LitTexte(sFichierVersion), Caract(13), ""), Caract(10), ""))
+		FIN
+		sCorrection est une chaîne = "Supprimez le dossier " + sBibliotheque + " (ebony ne supprime rien lui-même), puis lancez « ebony restore »."
+		SI PAS EbVersionValide(sPresente) ALORS
+			SI sPresente = "" ALORS
+				RENVOYER :ResultatAReparer("le dossier ebony/ n'a pas de fichier VERSION lisible : ce n'est pas la bibliothèque d'ebony", sCorrection, sMinimum)
+			FIN
+			RENVOYER :ResultatAReparer("le fichier ebony/VERSION est illisible : « " + sPresente + " »", sCorrection, sMinimum)
+		FIN
+		SI PAS EbVersionSatisfait(sPresente, sMinimum) ALORS
+			RENVOYER :ResultatAReparer("la bibliothèque ebony/ est en version " + sPresente + ", qui ne satisfait pas le minimum " + sMinimum + " demandé par ebony.conf (au moins aussi récente, même génération)", sCorrection, sMinimum)
+		FIN
+		RENVOYER :Resultat(eEbStatut.reussi, "ebony/ est en version " + sPresente + " (minimum demandé : " + sMinimum + ")", "")
+	FIN
+FIN

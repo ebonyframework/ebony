@@ -1,0 +1,15 @@
+EbCommandeInstall est une CollectionDeProcédures
+
+	// Racine de composition de « install » : installe ebony dans le dossier des programmes de l'utilisateur. L'ajout au PATH est fait ensuite par le lanceur (bin\ebony.cmd), qui sait
+	// modifier l'environnement ; OWL, lui, ne le peut pas. Une erreur est une exception (codes 22, 40 à 43), donc code de sortie 1 (70 sans le lanceur) et le lanceur ne touche pas au PATH.
+	PROCEDURE EbExecuteInstall()
+		oSysteme      est un cEbSystemeFichiersReel
+		oInstallation est un cEbInstallationEbony(oSysteme, oSysteme)
+		oInstalle     est un cEbEbonyInstalle                         = oInstallation.Execute()
+		SI oInstalle.DejaInstalle() ALORS
+			Trace("ebony " + oInstalle.Version() + " est déjà installé : " + oInstalle.Racine() + ". Rien n'a été copié.")
+		SINON
+			Trace("ebony " + oInstalle.Version() + " installé : " + oInstalle.Racine() + ".")
+		FIN
+	FIN
+FIN

@@ -1,0 +1,56 @@
+// Contrats (ports) entre ebony et le système. Une interface doit être déclarée dans une Collection pour être reconnue.
+// Un port ne contient que ce dont les consommateurs ont besoin : on l'étend quand une vérification ou une commande l'exige.
+EbContratsSysteme est une CollectionDeProcédures
+
+	// Accès au système de fichiers. Adaptateurs : cEbSystemeFichiersReel (vrai disque), cEbSystemeFichiersFictif (tests).
+	iEbSystemeFichiers est une Interface
+		// Le dossier d'où l'utilisateur a lancé ebony.
+		PROCEDURE PUBLIQUE DossierDeLancement() : chaîne
+		// Le dossier où OWL se trouve réellement. Il devrait être le dossier de lancement ; ce n'est pas le cas quand
+		// OWL n'a pas pu s'y placer (chemin avec un caractère non ASCII) : il reste alors dans le dossier du projet d'ebony.
+		PROCEDURE PUBLIQUE DossierActif() : chaîne
+		// Le dossier d'installation d'ebony (celui qui contient bin/, src/ et modules/), transmis par le lanceur. Vide si inconnu.
+		PROCEDURE PUBLIQUE DossierInstallation() : chaîne
+		// Le même dossier sous son nom LONG, pour les messages (le nom court 8.3 utilisé pour ouvrir les fichiers est illisible : 0170E4~1.0 pour 0.1.0). Ne sert jamais à ouvrir un fichier.
+		// Retombe sur DossierInstallation() si le lanceur ne le transmet pas.
+		PROCEDURE PUBLIQUE DossierInstallationAffiche() : chaîne
+		// Le dossier des programmes de l'utilisateur (sous Windows %LOCALAPPDATA%\Programs), transmis par le lanceur : « ebony install » y installe ebony. Vide si inconnu.
+		PROCEDURE PUBLIQUE DossierProgrammes() : chaîne
+		// Vrai si le dossier existe et qu'OWL peut l'ouvrir (faux aussi quand le chemin contient un caractère non ASCII).
+		PROCEDURE PUBLIQUE DossierExiste(chemin est une chaîne) : booléen
+		// Écrit un petit fichier de test. LÈVE une exception (cause comprise) si l'écriture échoue : OWL, lui, renvoie seulement Faux.
+		PROCEDURE PUBLIQUE EcritFichierTemoin(chemin est une chaîne)
+		// Supprime un fichier. Vrai si c'est fait.
+		PROCEDURE PUBLIQUE SupprimeFichier(chemin est une chaîne) : booléen
+		// Vrai si le fichier existe.
+		PROCEDURE PUBLIQUE FichierExiste(chemin est une chaîne) : booléen
+		// Vrai si le dossier ne contient ni fichier (cachés compris : .gitkeep) ni sous-dossier (même vide). Un dossier absent est « vide » : tester DossierExiste d'abord.
+		PROCEDURE PUBLIQUE DossierEstVide(chemin est une chaîne) : booléen
+		// Les NOMS (sans dossier) des fichiers qui sont directement dans le dossier, sans les sous-dossiers, triés par ordre alphabétique. Vide si le dossier est absent ou vide.
+		PROCEDURE PUBLIQUE ListeFichiers(chemin est une chaîne) : tableau de chaînes
+		// Les NOMS (sans dossier) des sous-dossiers directs du dossier, triés par ordre alphabétique (pas leurs propres sous-dossiers). Vide si le dossier est absent ou n'a pas de sous-dossier.
+		PROCEDURE PUBLIQUE ListeDossiers(chemin est une chaîne) : tableau de chaînes
+		// Contenu d'un fichier texte (UTF-8). LÈVE une exception si le fichier est absent ou illisible : OWL rend alors une chaîne vide, indiscernable d'un fichier vide.
+		PROCEDURE PUBLIQUE LitTexte(chemin est une chaîne) : chaîne
+	FIN
+
+	// Écriture sur le disque, pour les commandes qui génèrent des fichiers. Chaque procédure LÈVE une exception (cause comprise) si elle échoue : OWL, lui, ne lève rien.
+	// Adaptateurs : cEbSystemeFichiersReel (vrai disque), cEbSystemeFichiersFictif (disque en mémoire, pannes injectables).
+	iEbEcritureFichiers est une Interface
+		// Crée le dossier (et ses parents). Lève si le dossier n'existe pas ensuite : fRepCree renvoie Vrai même quand un FICHIER porte déjà ce nom (mesuré).
+		PROCEDURE PUBLIQUE CreeDossier(chemin est une chaîne)
+		// Copie récursivement source vers destination. Exige que la source existe et que le dossier parent de la destination existe ; fusionne avec une destination existante.
+		// (fRepCopie, lui, crée la destination vide quand la source est absente : on vérifie la source avant.)
+		PROCEDURE PUBLIQUE CopieDossier(source est une chaîne, destination est une chaîne)
+		// Copie un fichier octet pour octet, en remplaçant l'existant. Exige que la source soit un fichier et que le dossier parent de la destination existe.
+		PROCEDURE PUBLIQUE CopieFichier(source est une chaîne, destination est une chaîne)
+		// Écrit un fichier texte UTF-8 sans BOM, en remplaçant l'existant. Exige que le dossier parent existe.
+		PROCEDURE PUBLIQUE EcritTexte(chemin est une chaîne, contenu est une chaîne)
+	FIN
+
+	// Ce qu'ebony sait de l'environnement qui l'exécute. Adaptateurs : cEbEnvironnementReel (arguments du lanceur), cEbEnvironnementFictif (tests).
+	iEbEnvironnement est une Interface
+		// La version d'OWL qui exécute ebony, transmise par le lanceur (-owl=), par exemple « 1.5.0 ». Vide si inconnue.
+		PROCEDURE PUBLIQUE VersionOwl() : chaîne
+	FIN
+FIN

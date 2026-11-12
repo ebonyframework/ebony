@@ -1,0 +1,113 @@
+// Tests de EbFormatOwl : l'alignement du code OWL généré reproduit celui de « owl fmt » (OWL 1.7.0).
+// Chaque résultat attendu a été obtenu en passant le même texte à « owl fmt » (2026-11-03), pas écrit de tête.
+// Dans les textes : « ~ » = tabulation, « | » = fin de ligne, « § » = guillemet, « ¬ » = apostrophe inversée.
+
+PROCEDURE EbTestFormatBrut(sTexte est une chaîne) : chaîne
+	RENVOYER Remplace(Remplace(Remplace(Remplace(sTexte, "~", Caract(9)), "|", Caract(10)), "§", Caract(34)), "¬", Caract(96))
+FIN
+
+PROCEDURE EbTestFormatVerifie(sEntree est une chaîne, sAttendu est une chaîne, sLibelle est une chaîne)
+	dbgVérifieEgalité(EbAligneDeclarations(EbTestFormatBrut(sEntree)), EbTestFormatBrut(sAttendu), sLibelle)
+FIN
+
+// Des déclarations consécutives sont alignées sur le nom le plus long, puis sur le type le plus long.
+PROCEDURE scenario_declarations_consecutives()
+	EbTestFormatVerifie("~a est un entier = 0|~bbbb est une chaîne = §§|~cc est un booléen = Faux", "~a    est un entier  = 0|~bbbb est une chaîne = §§|~cc   est un booléen = Faux", "bloc simple")
+FIN
+
+// Une ligne vide ou un commentaire coupe le bloc.
+PROCEDURE scenario_ligne_vide_et_commentaire_coupent()
+	EbTestFormatVerifie("~a est un entier = 0||~bbbb est une chaîne = §§|~cc est un booléen = Faux", "~a est un entier = 0||~bbbb est une chaîne = §§|~cc   est un booléen = Faux", "ligne vide")
+	EbTestFormatVerifie("~a est un entier = 0|~// note|~bbbb est une chaîne = §§|~cc est un booléen = Faux", "~a est un entier = 0|~// note|~bbbb est une chaîne = §§|~cc   est un booléen = Faux", "commentaire")
+FIN
+
+// Les déclarations sans valeur comptent dans la largeur du type et ne reçoivent pas d'espaces en fin de ligne.
+PROCEDURE scenario_declarations_sans_valeur()
+	EbTestFormatVerifie("~a est un entier|~bbbb est une chaîne = §§|~cc est un tableau de chaînes|~ddddd est un booléen = Faux", "~a     est un entier|~bbbb  est une chaîne            = §§|~cc    est un tableau de chaînes|~ddddd est un booléen            = Faux", "sans valeur")
+FIN
+
+// Un objet construit avec des arguments est une déclaration comme les autres.
+PROCEDURE scenario_objets_avec_arguments()
+	EbTestFormatVerifie("~oX est un cEbX(oY)|~oZZZ est un cEbZ|~n est un entier = 0", "~oX   est un cEbX(oY)|~oZZZ est un cEbZ|~n    est un entier   = 0", "objets")
+FIN
+
+// L'en-tête d'une structure n'est pas une déclaration : il ne compte pas dans la largeur des membres (confronté à owl fmt 1.7.0, 2026-11-06).
+PROCEDURE scenario_entete_de_structure_ne_compte_pas()
+	EbTestFormatVerifie("~stX est une Structure|~~A est une chaîne|~~Bbbbb est un entier|~FIN", "~stX est une Structure|~~A     est une chaîne|~~Bbbbb est un entier|~FIN", "structure")
+FIN
+
+// Une déclaration seule garde ses espaces simples.
+PROCEDURE scenario_declaration_seule_inchangee()
+	EbTestFormatVerifie("~unique est un entier = 0", "~unique est un entier = 0", "une seule ligne")
+FIN
+
+// Un signe « = » dans la valeur ne perturbe pas les colonnes.
+PROCEDURE scenario_egal_dans_la_valeur()
+	EbTestFormatVerifie("~b est un booléen = (a = 1)|~bbbbbb est une chaîne = §x = y§", "~b      est un booléen = (a = 1)|~bbbbbb est une chaîne = §x = y§", "égal dans la valeur")
+FIN
+
+// Une affectation entre deux déclarations coupe le bloc.
+PROCEDURE scenario_affectation_coupe_les_declarations()
+	EbTestFormatVerifie("~a est un entier = 0|~a = 5|~bbbb est une chaîne = §§", "~a est un entier = 0|~a = 5|~bbbb est une chaîne = §§", "affectation entre deux")
+FIN
+
+// Des affectations consécutives à un nom simple sont alignées sur le signe « = ».
+PROCEDURE scenario_affectations_consecutives()
+	EbTestFormatVerifie("~a = 1|~bbbb = 2|~cc = 3", "~a    = 1|~bbbb = 2|~cc   = 3", "affectations")
+FIN
+
+// Les propriétés d'un bloc PROPRIETES sont alignées comme des affectations.
+PROCEDURE scenario_proprietes_alignees()
+	EbTestFormatVerifie("Ebony est un Projet|~PROPRIETES|~~Langues = [langueFrançais]|~~Description = §a = b§|~~Auteur = §E§|~FIN|FIN", "Ebony est un Projet|~PROPRIETES|~~Langues     = [langueFrançais]|~~Description = §a = b§|~~Auteur      = §E§|~FIN|FIN", "propriétés")
+FIN
+
+// Les noms séparés par deux points sont alignés, la largeur se compte en caractères et non en octets.
+PROCEDURE scenario_noms_a_deux_points_et_accents()
+	EbTestFormatVerifie("~MoiMême..Réponse..CodeÉtat = a|~MoiMême..Réponse..Corps = b", "~MoiMême..Réponse..CodeÉtat = a|~MoiMême..Réponse..Corps    = b", "noms à deux points")
+FIN
+
+// Un champ « :x = … », un membre « a.b = … » et un opérateur « += » ne sont pas alignés et coupent le bloc.
+PROCEDURE scenario_formes_non_alignees()
+	EbTestFormatVerifie("~:a = 1|~:bbbbbb = 2|~:cc = 3", "~:a = 1|~:bbbbbb = 2|~:cc = 3", "champs")
+	EbTestFormatVerifie("~j.projet.dossier = 2|~x = 3", "~j.projet.dossier = 2|~x = 3", "membres")
+	EbTestFormatVerifie("~a = 1|~bbbb += 2|~cc = 3", "~a = 1|~bbbb += 2|~cc = 3", "plus égal")
+	EbTestFormatVerifie("~a est un entier = 0|~:bbbb = 5|~cc est un booléen = Faux", "~a est un entier = 0|~:bbbb = 5|~cc est un booléen = Faux", "champ entre deux déclarations")
+FIN
+
+// Un appel de procédure coupe le bloc.
+PROCEDURE scenario_appel_coupe_le_bloc()
+	EbTestFormatVerifie("~a est un entier = 0|~Trace(a)|~bbbb est une chaîne = §§|~cc est un booléen = Faux", "~a est un entier = 0|~Trace(a)|~bbbb est une chaîne = §§|~cc   est un booléen = Faux", "appel")
+FIN
+
+// L'intérieur d'une chaîne multi-lignes n'est jamais touché et coupe le bloc ; la ligne qui l'ouvre fait partie du bloc.
+PROCEDURE scenario_chaine_multi_lignes()
+	EbTestFormatVerifie("~a est un entier = 0|~bbbb est une chaîne = ¬ligne1|x est un entier = 5|mmm = 2¬|~cc est un booléen = Faux", "~a    est un entier  = 0|~bbbb est une chaîne = ¬ligne1|x est un entier = 5|mmm = 2¬|~cc est un booléen = Faux", "chaîne multi-lignes")
+FIN
+
+// Une apostrophe inversée isolée dans un commentaire n'ouvre pas de chaîne (régression : tout le reste du fichier restait non aligné).
+PROCEDURE scenario_apostrophe_dans_un_commentaire()
+	EbTestFormatVerifie("~// refusés : ¬ seule|~sBrut est une chaîne = §x§|~sRes est une chaîne = §§", "~// refusés : ¬ seule|~sBrut est une chaîne = §x§|~sRes  est une chaîne = §§", "commentaire avec apostrophe")
+	EbTestFormatVerifie("~sA est une chaîne = §¬§|~sBbb est une chaîne = §§", "~sA   est une chaîne = §¬§|~sBbb est une chaîne = §§", "apostrophe entre guillemets")
+FIN
+
+// Appliquer deux fois l'alignement donne le même texte qu'une fois.
+PROCEDURE scenario_idempotent()
+	sUneFois est une chaîne = EbAligneDeclarations(EbTestFormatBrut("~a est un entier|~bbbb est une chaîne = §§|~cc est un tableau de chaînes|~ddddd est un booléen = Faux"))
+	dbgVérifieEgalité(EbAligneDeclarations(sUneFois), sUneFois, "deux fois = une fois")
+FIN
+
+// Un texte vide reste vide et la fin de ligne finale est conservée.
+PROCEDURE scenario_texte_vide_et_fin_de_ligne()
+	dbgVérifieEgalité(EbAligneDeclarations(""), "", "texte vide")
+	EbTestFormatVerifie("~a est un entier = 0|~bb est un entier = 1|", "~a  est un entier = 0|~bb est un entier = 1|", "fin de ligne finale")
+FIN
+
+// Seuls les fichiers « .owl » sont alignés, quelle que soit la casse de l'extension.
+PROCEDURE scenario_seuls_les_fichiers_owl()
+	sEntree est une chaîne = EbTestFormatBrut("a est un entier = 0|bb est un entier = 1")
+	sAligne est une chaîne = EbTestFormatBrut("a  est un entier = 0|bb est un entier = 1")
+	dbgVérifieEgalité(EbAligneSiOwl("app/cClient.owl", sEntree), sAligne, ".owl")
+	dbgVérifieEgalité(EbAligneSiOwl("APP/CCLIENT.OWL", sEntree), sAligne, ".OWL")
+	dbgVérifieEgalité(EbAligneSiOwl("README.md", sEntree), sEntree, ".md")
+	dbgVérifieEgalité(EbAligneSiOwl("ebony.conf", sEntree), sEntree, "sans extension owl")
+FIN

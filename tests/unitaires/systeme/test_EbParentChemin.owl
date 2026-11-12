@@ -1,0 +1,38 @@
+// Tests de EbParentChemin : le dossier qui contient un chemin Windows.
+
+// Cas ordinaires.
+PROCEDURE scenario_parent_ordinaire()
+	dbgVérifieEgalité(EbParentChemin("C:\a\b"), "C:\a", "deux niveaux")
+	dbgVérifieEgalité(EbParentChemin("C:\Users\Jose\Projets"), "C:\Users\Jose", "plusieurs niveaux")
+	dbgVérifieEgalité(EbParentChemin("D:\Projets\ElmiraLabs\ebonycore\ebony.conf"), "D:\Projets\ElmiraLabs\ebonycore", "un fichier")
+FIN
+
+// Sous la racine d'un disque, le parent est la racine, avec sa barre.
+PROCEDURE scenario_parent_de_la_racine()
+	dbgVérifieEgalité(EbParentChemin("C:\a"), "C:\", "C:\a")
+	dbgVérifieEgalité(EbParentChemin("D:\fichier.txt"), "D:\", "D:\fichier.txt")
+	dbgVérifieEgalité(EbParentChemin("C:\"), "C:\", "la racine est son propre parent")
+FIN
+
+// Barres obliques et barre finale ne changent rien.
+PROCEDURE scenario_ecritures_equivalentes()
+	dbgVérifieEgalité(EbParentChemin("C:/a/b"), "C:\a", "barres obliques")
+	dbgVérifieEgalité(EbParentChemin("C:\a\b\"), "C:\a", "barre finale")
+	dbgVérifieEgalité(EbParentChemin("C:/a/b/"), "C:\a", "les deux")
+	dbgVérifieEgalité(EbParentChemin("D:/"), "D:\", "racine avec /")
+FIN
+
+// Un nom sans barre n'a pas de parent connu.
+PROCEDURE scenario_sans_parent()
+	dbgVérifieEgalité(EbParentChemin("fichier.txt"), "", "nom seul")
+	dbgVérifieEgalité(EbParentChemin(""), "", "vide")
+FIN
+
+// Un chemin Linux garde son style (« / ») : le parent d'un dossier de premier niveau est la racine « / », pas « ». La forme « \root » (faux disques) donne « \ ».
+PROCEDURE scenario_chemin_linux()
+	dbgVérifieEgalité(EbParentChemin("/root/essai"), "/root", "deux niveaux")
+	dbgVérifieEgalité(EbParentChemin("/root"), "/", "premier niveau : la racine")
+	dbgVérifieEgalité(EbParentChemin("/"), "/", "la racine reste la racine")
+	dbgVérifieEgalité(EbParentChemin("/root/essai/"), "/root", "barre finale")
+	dbgVérifieEgalité(EbParentChemin("\root"), "\", "forme avec barre inverse")
+FIN

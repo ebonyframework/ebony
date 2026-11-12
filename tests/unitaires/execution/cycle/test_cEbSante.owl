@@ -1,0 +1,15 @@
+// Tests de cEbSante : l'état de santé rendu par cEbApplication.Sante() (valeur immuable : saine ou non, et le corps JSON de /api/health).
+
+// Une santé saine garde son corps tel quel.
+PROCEDURE scenario_sante_saine()
+	oSante est un cEbSante(Vrai, `{"statut":"ok"}`)
+	dbgVérifieVrai(oSante.Saine(), "saine")
+	dbgVérifieEgalité(oSante.Corps(), `{"statut":"ok"}`, "le corps")
+FIN
+
+// Une santé dégradée garde aussi son corps : il dit ce qui ne répond pas.
+PROCEDURE scenario_sante_degradee()
+	oSante est un cEbSante(Faux, `{"statut":"degrade","base":"indisponible"}`)
+	dbgVérifieFaux(oSante.Saine(), "pas saine")
+	dbgVérifieEgalité(oSante.Corps(), `{"statut":"degrade","base":"indisponible"}`, "le corps")
+FIN

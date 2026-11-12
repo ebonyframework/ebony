@@ -1,0 +1,16 @@
+// Tests de la correspondance entre la valeur de DB_TLS et le niveau TLS d'OWL : chaque valeur son niveau, et une valeur inconnue ne baisse jamais la garde.
+
+// Les quatre valeurs permises par le schéma de « ebony new ».
+PROCEDURE scenario_chaque_valeur_son_niveau()
+	dbgVérifieEgalité(EbModeTlsDeConfig("verifie"), tlsVerifieComplet, "verifie : certificat et nom vérifiés")
+	dbgVérifieEgalité(EbModeTlsDeConfig("ca"), tlsVerifieCA, "ca : chaîne vérifiée, pas le nom")
+	dbgVérifieEgalité(EbModeTlsDeConfig("accepte"), tlsAccepteTout, "accepte : chiffré, certificat non vérifié")
+	dbgVérifieEgalité(EbModeTlsDeConfig("desactive"), tlsDesactive, "desactive : aucun TLS")
+FIN
+
+// Une valeur inconnue (faute de frappe, projet sans schéma) donne le niveau le plus strict, jamais un niveau plus faible.
+PROCEDURE scenario_valeur_inconnue_reste_stricte()
+	dbgVérifieEgalité(EbModeTlsDeConfig("disable"), tlsVerifieComplet, "une valeur anglaise inconnue")
+	dbgVérifieEgalité(EbModeTlsDeConfig(""), tlsVerifieComplet, "une valeur vide")
+	dbgVérifieEgalité(EbModeTlsDeConfig("DESACTIVE"), tlsVerifieComplet, "la casse compte : le schéma exige la valeur exacte")
+FIN

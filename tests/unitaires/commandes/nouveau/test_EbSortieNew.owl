@@ -1,0 +1,97 @@
+// Tests de EbSortieNew : l'objet JSON de « ebony new --json » (lu par les outils) et les consignes de fin.
+
+PROCEDURE EbTestCree(oOptions est un cEbOptionsProjet) : cEbProjetCree
+	oCree est un cEbProjetCree("Caf" + Caract(233) + " de la Gare", "cafe-de-la-gare", "AppCafeDeLaGare", "C:\Projets\cafe-de-la-gare", oOptions)
+	RENVOYER oCree
+FIN
+
+// Les choix du kit slim.
+PROCEDURE EbTestOptionsSlim() : cEbOptionsProjet
+	oSlim est un cEbOptionsProjet("slim", "", Faux, "")
+	RENVOYER oSlim
+FIN
+
+// Les consignes : se placer dans le dossier, copier .env.exemple, lancer doctor. Pas « ebony serve » (la commande n'existe pas).
+PROCEDURE scenario_etapes_suivantes()
+	oOptions  est un cEbOptionsProjet   = EbOptionsParDefaut()
+	oCree     est un cEbProjetCree      = EbTestCree(oOptions)
+	tabEtapes est un tableau de chaînes = EbEtapesSuivantes(oCree)
+	dbgVérifieEgalité(tabEtapes..Occurrence, 3, "trois étapes")
+	dbgVérifieEgalité(tabEtapes[1], "cd cafe-de-la-gare", "se placer dans le dossier")
+	dbgVérifieEgalité(tabEtapes[2], "Copiez .env.exemple en .env et .env.secrets.exemple en .env.secrets", "copier le modèle")
+	dbgVérifieEgalité(tabEtapes[3], "ebony doctor", "vérifier")
+FIN
+
+// Le JSON est valide, sur une seule ligne, et se relit champ par champ (le nom accentué et le chemin Windows aussi).
+PROCEDURE scenario_json_sans_option()
+	oOptions est un cEbOptionsProjet = EbOptionsParDefaut()
+	sJson    est une chaîne          = EbJsonProjetCree(EbTestCree(oOptions))
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide : " + sJson)
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieEgalité(j.dir, "C:\Projets\cafe-de-la-gare", "dir (chemin Windows relu à l'identique)")
+	dbgVérifieEgalité(j.Name, "Caf" + Caract(233) + " de la Gare", "nom libre")
+	dbgVérifieEgalité(j.folder, "cafe-de-la-gare", "dossier")
+	dbgVérifieEgalité(j.identifier, "AppCafeDeLaGare", "identifiant")
+	dbgVérifieEgalité(j["type"], "api", "type")
+	dbgVérifieEgalité(j.base, "sqlite", "base")
+	dbgVérifieFaux(j.auth.enabled, "authentification désactivée")
+	dbgVérifieEgalité(Position(sJson, "table"), 0, "pas de table sans authentification")
+FIN
+
+// Les listes : « files » reprend EbFichiersProjet dans l'ordre, « next » les consignes.
+PROCEDURE scenario_json_listes()
+	oOptions    est un cEbOptionsProjet   = EbOptionsParDefaut()
+	j           est un JSON               = ChaîneVersJSON(EbJsonProjetCree(EbTestCree(oOptions)))
+	tabFichiers est un tableau de chaînes = EbFichiersProjet(EbOptionsParDefaut())
+	dbgVérifieEgalité(j.files..Occurrence, tabFichiers..Occurrence, "autant de fichiers")
+	dbgVérifieEgalité(j.files[1], "ebony/", "le dossier de la bibliothèque, avec sa barre finale")
+	dbgVérifieEgalité(j.files[2], "ebony.conf", "ebony.conf")
+	dbgVérifieEgalité(j.Next..Occurrence, 3, "trois consignes")
+	dbgVérifieEgalité(j.Next[2], "Copiez .env.exemple en .env et .env.secrets.exemple en .env.secrets", "consigne .env")
+FIN
+
+// Avec les choix : base, authentification et table figurent dans le JSON.
+PROCEDURE scenario_json_avec_options()
+	oOptions est un cEbOptionsProjet("api", "hfsql", Vrai, "users")
+	j        est un JSON                                            = ChaîneVersJSON(EbJsonProjetCree(EbTestCree(oOptions)))
+	dbgVérifieEgalité(j.base, "hfsql", "base")
+	dbgVérifieVrai(j.auth.enabled, "authentification")
+	dbgVérifieEgalité(j.auth.table, "users", "table")
+FIN
+
+// Avec l'authentification, le JSON donne le mode de jeton « opaque » ; sans, ni table ni mode ; et « files » annonce config/Auth.owl seulement avec --auth.
+PROCEDURE scenario_json_mode_de_jeton()
+	tabLignes est un tableau de chaînes
+	TableauAjoute(tabLignes, "cConfigAuth est une Classe")
+	oFichier    est un cEbFichierModule("auth", "config/Auth.owl", "auth", tabLignes)
+	tabFichiers est un tableau
+	TableauAjoute(tabFichiers, oFichier)
+	tabAucun est un tableau
+	oBase    est un cEbOptionsProjet("api", "sqlite", Vrai, "utilisateurs")
+	oAvec    est un cEbOptionsProjet                                        = oBase.AvecModules(tabAucun, tabAucun, tabFichiers)
+	j        est un JSON                                                    = ChaîneVersJSON(EbJsonProjetCree(EbTestCree(oAvec)))
+	dbgVérifieEgalité(j.auth.mode, "opaque", "mode")
+	dbgVérifieEgalité(j.files[10], "config/Auth.owl", "config/Auth.owl (celui que fournit le manifeste) dans files")
+	dbgVérifieEgalité(j.files..Occurrence, 10, "dix fichiers")
+	oSans est un cEbOptionsProjet = EbOptionsParDefaut()
+	sSans est une chaîne          = EbJsonProjetCree(EbTestCree(oSans))
+	dbgVérifieEgalité(Position(sSans, "mode"), 0, "pas de mode sans authentification")
+	dbgVérifieEgalité(Position(sSans, "Auth.owl"), 0, "pas de config/Auth.owl dans files sans authentification")
+FIN
+
+// Le kit slim : le JSON note le kit, garde le type d'application « api » (les outils le lisent) et une base vide, et les consignes ne demandent pas de copier des .env ; elles proposent de lancer le service.
+PROCEDURE scenario_json_et_etapes_kit_slim()
+	oSlim est un cEbOptionsProjet = EbTestOptionsSlim()
+	oCree est un cEbProjetCree    = EbTestCree(oSlim)
+	j     est un JSON             = ChaîneVersJSON(EbJsonProjetCree(oCree))
+	dbgVérifieEgalité(j["kit"], "slim", "kit")
+	dbgVérifieEgalité(j["type"], "api", "type d'application")
+	dbgVérifieEgalité(j.base, "", "pas de base")
+	dbgVérifieFaux(j.auth.enabled, "pas d'authentification")
+	tabEtapes est un tableau de chaînes = EbEtapesSuivantes(oCree)
+	dbgVérifieEgalité(tabEtapes..Occurrence, 3, "trois étapes")
+	dbgVérifieEgalité(tabEtapes[2], "ebony doctor", "vérifier")
+	dbgVérifieEgalité(tabEtapes[3], "owl serve --port 8080", "lancer le service")
+FIN

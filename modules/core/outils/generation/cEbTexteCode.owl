@@ -1,0 +1,26 @@
+// Construit le texte d'un fichier généré, ligne par ligne : indentation à la tabulation, fins de ligne LF, saut de ligne final (convention du dépôt, voir .gitattributes).
+// OWL n'a pas d'échappement dans ses chaînes : ce que l'appelant écrit entre guillemets est déjà du texte final (les guillemets, tabulations et sauts de ligne sont fabriqués avec Caract()).
+cEbTexteCode est une Classe
+PRIVÉ
+	sTexte est une chaîne = ""
+
+	// Ajoute une ligne indentée de « niveau » tabulations. Une ligne vide reste vide, sans tabulations : le formateur d'OWL n'en laisse pas.
+	PROCEDURE PUBLIQUE Ligne(niveau est un entier, contenu est une chaîne)
+		SI contenu <> "" ALORS
+			POUR i = 1 À niveau
+				:sTexte = :sTexte + Caract(9)
+			FIN
+			:sTexte = :sTexte + contenu
+		FIN
+		:sTexte = :sTexte + Caract(10)
+	FIN
+
+	PROCEDURE PUBLIQUE LigneVide()
+		:sTexte = :sTexte + Caract(10)
+	FIN
+
+	// Tout le texte écrit jusqu'ici.
+	PROCEDURE PUBLIQUE Texte() : chaîne
+		RENVOYER :sTexte
+	FIN
+FIN

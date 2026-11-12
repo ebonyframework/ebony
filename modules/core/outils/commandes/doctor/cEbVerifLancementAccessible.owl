@@ -1,0 +1,33 @@
+// Vérifie qu'OWL a pu se placer dans le dossier d'où l'utilisateur a lancé ebony.
+// Sous Windows, owl ne sait pas se placer dans un dossier dont le chemin contient un caractère non ASCII (rapport
+// 2026-10-chemins-non-ascii) : il reste alors dans le dossier du projet d'ebony, et une commande qui écrirait en chemin
+// relatif écrirait dans le dépôt d'ebony au lieu du dossier de l'utilisateur.
+// Ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque.
+cEbVerifLancementAccessible est une Classe implemente iEbVerification
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "acces-dossier"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		sLancement est une chaîne = EbNormaliseChemin(:oSysteme.DossierDeLancement())
+		sActif     est une chaîne = :oSysteme.DossierActif()
+		SI EbMemeChemin(sLancement, sActif) ALORS
+			oReussi est un cEbResultatVerification("Accès au dossier", eEbStatut.reussi, "owl travaille bien dans ce dossier", "")
+			RENVOYER oReussi
+		FIN
+		SI EbContientNonAscii(sLancement) ALORS
+			oAccent est un cEbResultatVerification("Accès au dossier", eEbStatut.erreur, "owl ne sait pas se placer dans un dossier dont le chemin contient un caractère non ASCII (accent…) : " + sLancement, "Lancez ebony depuis un dossier dont le chemin n'a ni accent ni caractère spécial (par exemple C:\Projets).")
+			RENVOYER oAccent
+		FIN
+		oEcart est un cEbResultatVerification("Accès au dossier", eEbStatut.erreur, "owl est resté dans " + sActif + " au lieu de " + sLancement, "Lancez ebony depuis un autre dossier, puis signalez le problème si cela se reproduit.")
+		RENVOYER oEcart
+	FIN
+FIN

@@ -1,0 +1,130 @@
+// Tests de EbContenuRessource et EbContenuMigration : les propriétés du texte généré (fichiers prévus, fins de ligne, identifiants préfixés, rien d'un mot de l'utilisateur tel quel).
+// Que ce texte COMPILE et que ses tests PASSENT est prouvé par tests/integration/lanceur.ps1 (groupe « make »), contre le vrai owl : un faux disque ne le montre pas.
+
+// La demande lue dans des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeContenu(sListe est une chaîne) : cEbDemandeMake
+	tabArgs est un tableau de chaînes
+	nDebut  est un entier             = 1
+	nFin    est un entier             = Position(sListe, ";")
+	TANTQUE nFin > 0
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+		nDebut = nFin + 1
+		nFin   = Position(sListe, ";", nDebut)
+	FIN
+	TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(tabArgs)
+	RENVOYER oDemande
+FIN
+
+// Les dix fichiers d'une ressource, dans l'ordre, sous app/ et tests/, avec des barres obliques.
+PROCEDURE scenario_fichiers_d_une_ressource()
+	oDemande est un cEbDemandeMake = EbTestDemandeContenu("resource;Bon de commande;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(EbListeVirgules(EbFichiersRessource(oDemande)), "app/domaine/bon-de-commande/cBonDeCommande.owl, app/domaine/bon-de-commande/ContratsBonDeCommande.owl, app/donnees/bon-de-commande/cRepoBonDeCommandeMemoire.owl, app/donnees/bon-de-commande/cRepoBonDeCommandeSql.owl, tests/unitaires/bon-de-commande/test_cBonDeCommande.owl, tests/unitaires/bon-de-commande/test_cRepoBonDeCommandeMemoire.owl, tests/integration/bon-de-commande/test_cRepoBonDeCommandeSql.owl, app/services/bon-de-commande/cServiceBonDeCommande.owl, tests/unitaires/bon-de-commande/test_cServiceBonDeCommande.owl, app/http/bon-de-commande/ControleurBonDeCommande.owl", "chemins")
+FIN
+
+// Chaque fichier produit est en LF, sans tabulation en fin de ligne, et se termine par un saut de ligne.
+PROCEDURE scenario_fichiers_en_lf_avec_saut_final()
+	oDemande est un cEbDemandeMake = EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte,email:texte?")
+	POUR i = 1 À 8
+		sContenu est une chaîne = EbContenuFichierRessource(oDemande, i)
+		dbgVérifieEgalité(Droite(sContenu, 1), Caract(10), "saut de ligne final du fichier " + i)
+		dbgVérifieEgalité(Position(sContenu, Caract(13)), 0, "pas de retour chariot dans le fichier " + i)
+		dbgVérifieEgalité(Position(sContenu, Caract(10) + Caract(10) + Caract(10)), 0, "pas de double ligne vide dans le fichier " + i)
+	FIN
+FIN
+
+// L'entité : champs privés préfixés par leur type, constructeur à paramètres préfixés, accesseurs Lit…, jamais le mot de l'utilisateur seul.
+PROCEDURE scenario_entite_sans_mot_de_l_utilisateur_nu()
+	oDemande est un cEbDemandeMake = EbTestDemandeContenu("resource;Client;--champs;id:entier*,Date:date,etat:texte?,actif:booleen,note:reel")
+	sEntite  est une chaîne        = EbContenuEntite(oDemande)
+	dbgVérifieVrai(Position(sEntite, "cClient est une Classe") > 0, "classe cClient")
+	dbgVérifieVrai(Position(sEntite, "PRIVÉ") > 0, "bloc PRIVÉ")
+	dbgVérifieVrai(Position(sEntite, Caract(9) + "nId est un entier = 0") > 0, "champ entier")
+	dbgVérifieVrai(Position(sEntite, Caract(9) + "sDate est une chaîne = " + Caract(34) + Caract(34)) > 0, "date : chaîne, champ sDate")
+	dbgVérifieVrai(Position(sEntite, Caract(9) + "bActif est un booléen = Faux") > 0, "champ booléen")
+	dbgVérifieVrai(Position(sEntite, Caract(9) + "rNote est un réel = 0") > 0, "champ réel")
+	dbgVérifieVrai(Position(sEntite, "PROCEDURE Constructeur(vId est un entier, vDate est une chaîne, vEtat est une chaîne, vActif est un booléen, vNote est un réel)") > 0, "constructeur")
+	dbgVérifieVrai(Position(sEntite, "PROCEDURE PUBLIQUE LitDate() : chaîne") > 0, "accesseur LitDate (Date est un mot réservé)")
+	dbgVérifieVrai(Position(sEntite, "PROCEDURE PUBLIQUE LitEtat() : chaîne") > 0, "accesseur LitEtat (Etat est un mot réservé)")
+	dbgVérifieEgalité(Position(sEntite, "PROCEDURE PUBLIQUE Date("), 0, "jamais Date()")
+	dbgVérifieEgalité(Position(sEntite, "PROCEDURE PUBLIQUE Etat("), 0, "jamais Etat()")
+	dbgVérifieVrai(Position(sEntite, "accepte NULL") > 0, "le commentaire dit que etat accepte NULL")
+FIN
+
+// Le contrat est dans une Collection, avec le type de la clé : entier ou chaîne.
+PROCEDURE scenario_contrat_dans_une_collection()
+	sEntier est une chaîne = EbContenuContrats(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte"))
+	sTexte  est une chaîne = EbContenuContrats(EbTestDemandeContenu("resource;Pays;--champs;code:texte*,nom:texte"))
+	dbgVérifieVrai(Position(sEntier, "ContratsClient est une CollectionDeProcédures") > 0, "Collection")
+	dbgVérifieVrai(Position(sEntier, "iRepoClient est une Interface") > 0, "interface")
+	dbgVérifieVrai(Position(sEntier, "PROCEDURE PUBLIQUE Trouve(cle est un entier) : cClient") > 0, "clé entière")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Trouve(cle est une chaîne) : cPays") > 0, "clé texte")
+FIN
+
+// Le repository SQL n'écrit jamais de valeur dans le texte SQL et passe par la connexion résiliente ; une clé générée est rendue par RETURNING.
+PROCEDURE scenario_depot_sql_parametre()
+	sSql est une chaîne = EbContenuDepotSql(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieVrai(Position(sSql, "cRepoClientSql est une Classe implemente iRepoClient") > 0, "implémente l'interface")
+	dbgVérifieVrai(Position(sSql, "oBase est un cEbBaseResiliente") > 0, "connexion résiliente")
+	dbgVérifieVrai(Position(sSql, `RETURNING "id"`) > 0, "clé générée rendue")
+	dbgVérifieVrai(Position(sSql, "ExceptionDéclenche(503, resultat.Message())") > 0, "503 base injoignable")
+	dbgVérifieVrai(Position(sSql, "ExceptionDéclenche(404, ") > 0, "404 introuvable")
+	dbgVérifieVrai(Position(sSql, `tabParametres["p_nom"] = entite.LitNom()`) > 0, "valeur par paramètre")
+	nPremiere est un entier = Position(sSql, `tabParametres["p_id"] = entite.LitId()`)
+	dbgVérifieVrai(nPremiere > 0, "la clé est passée à la modification")
+	dbgVérifieEgalité(Position(sSql, `tabParametres["p_id"] = entite.LitId()`, nPremiere + 1), 0, "mais une seule fois : jamais à l'ajout, la base la donne")
+FIN
+
+// Un NULL texte est protégé par une variable locale typée : le texte généré le garde avec un test <> Null.
+PROCEDURE scenario_depot_sql_protege_les_null_de_texte()
+	sSql est une chaîne = EbContenuDepotSql(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieVrai(Position(sSql, "sVal2 est une chaîne = " + Caract(34) + Caract(34)) > 0, "valeur par défaut")
+	dbgVérifieVrai(Position(sSql, `SI ligne["nom"] <> Null ALORS`) > 0, "garde contre Null")
+	dbgVérifieVrai(Position(sSql, "nVal1 est un entier = ligne[" + Caract(34) + "id" + Caract(34) + "]") > 0, "entier : affectation typée")
+FIN
+
+// Le test SQL ferme sa connexion après chaque scénario (fixtures), et ne teste le NULL que s'il y a une colonne nullable.
+PROCEDURE scenario_test_sql_fixtures_et_null()
+	sSans est une chaîne = EbContenuTestDepotSql(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte"))
+	sAvec est une chaîne = EbContenuTestDepotSql(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte,email:texte?"))
+	dbgVérifieVrai(Position(sSans, "PROCEDURE apresChaqueTest()") > 0, "fixture de fermeture")
+	dbgVérifieVrai(Position(sSans, "gBaseClient.Ferme()") > 0, "ferme la base")
+	dbgVérifieEgalité(Position(sSans, "scenario_null_lu_comme_valeur_par_defaut"), 0, "pas de scénario NULL sans colonne nullable")
+	dbgVérifieVrai(Position(sAvec, "scenario_null_lu_comme_valeur_par_defaut") > 0, "scénario NULL avec une colonne nullable")
+FIN
+
+// Une clé texte ajoute les scénarios « clé fournie » et « clé déjà prise » (409) au repository en mémoire.
+PROCEDURE scenario_cle_texte_dans_le_depot_memoire()
+	sMemoire est une chaîne = EbContenuDepotMemoire(EbTestDemandeContenu("resource;Pays;--champs;code:texte*,nom:texte"))
+	sTests   est une chaîne = EbContenuTestDepotMemoire(EbTestDemandeContenu("resource;Pays;--champs;code:texte*,nom:texte"))
+	dbgVérifieVrai(Position(sMemoire, "ExceptionDéclenche(409, ") > 0, "409 dans le repository")
+	dbgVérifieVrai(Position(sTests, "scenario_cle_deja_prise_leve_409") > 0, "scénario 409")
+	dbgVérifieEgalité(Position(EbContenuDepotMemoire(EbTestDemandeContenu("resource;Client;--champs;id:entier*,nom:texte")), "409"), 0, "pas de 409 avec une clé générée")
+FIN
+
+// L'horodatage d'une migration : AAAAMMJJHHMM, ou rien si l'instant n'a pas la forme attendue.
+PROCEDURE scenario_horodatage_de_migration()
+	dbgVérifieEgalité(EbHorodatageMigration("2026-11-02T10:15:30Z"), "202611021015", "forme normale")
+	dbgVérifieEgalité(EbHorodatageMigration(""), "", "vide")
+	dbgVérifieEgalité(EbHorodatageMigration("n'importe quoi du tout"), "", "texte quelconque")
+	dbgVérifieEgalité(EbHorodatageMigration("2026-11-02 10:15"), "", "sans le T")
+FIN
+
+// La migration implémente iEbMigration, crée la table en plusieurs lignes dans une chaîne multi-lignes, et défait par DROP TABLE.
+PROCEDURE scenario_contenu_d_une_migration()
+	oDemande   est un cEbDemandeMake = EbTestDemandeContenu("migration;CreeClients;--champs;id:entier*,nom:texte")
+	sMigration est une chaîne        = EbContenuMigration(oDemande, "202611021015", "sqlite")
+	dbgVérifieVrai(Position(sMigration, "cM202611021015_CreeClients est une Classe implemente iEbMigration") > 0, "classe")
+	dbgVérifieVrai(Position(sMigration, "RENVOYER " + Caract(34) + "M202611021015_CreeClients" + Caract(34)) > 0, "Nom()")
+	dbgVérifieVrai(Position(sMigration, "TableauAjoute(tabSql, " + Caract(96) + "CREATE TABLE " + Caract(34) + "clients" + Caract(34) + " (") > 0, "CREATE TABLE")
+	dbgVérifieVrai(Position(sMigration, Caract(9) + Caract(9) + Caract(9) + Caract(34) + "id" + Caract(34) + " INTEGER PRIMARY KEY AUTOINCREMENT,") > 0, "colonne indentée")
+	dbgVérifieVrai(Position(sMigration, Caract(9) + Caract(9) + ")" + Caract(96) + ")") > 0, "fin de la chaîne multi-lignes")
+	dbgVérifieVrai(Position(sMigration, "DROP TABLE " + Caract(34) + "clients" + Caract(34)) > 0, "Descend()")
+FIN
+
+// Les fichiers d'une migration : le test n'existe que pour SQLite.
+PROCEDURE scenario_fichiers_d_une_migration_selon_la_base()
+	oDemande est un cEbDemandeMake = EbTestDemandeContenu("migration;CreeClients;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(EbListeVirgules(EbFichiersMigration(oDemande, "202611021015", "sqlite")), "database/migrations/M202611021015_CreeClients.owl, tests/integration/migrations/test_M202611021015_CreeClients.owl", "SQLite")
+	dbgVérifieEgalité(EbListeVirgules(EbFichiersMigration(oDemande, "202611021015", "postgresql")), "database/migrations/M202611021015_CreeClients.owl", "PostgreSQL : pas de test")
+FIN

@@ -1,0 +1,21 @@
+// Adaptateur de test du port iEbSortieJournal : garde les lignes écrites, dans l'ordre.
+cEbSortieJournalFictive est une Classe implemente iEbSortieJournal
+PRIVÉ
+	tabLignes est un tableau de chaînes
+
+	PROCEDURE PUBLIQUE Ecrit(Ligne est une chaîne)
+		TableauAjoute(:tabLignes, Ligne)
+	FIN
+
+	PROCEDURE PUBLIQUE NbLignes() : entier
+		RENVOYER :tabLignes..Occurrence
+	FIN
+
+	// La ligne numéro n (à partir de 1) ; « » hors bornes.
+	PROCEDURE PUBLIQUE Ligne(n est un entier) : chaîne
+		SI n < 1 OU n > :tabLignes..Occurrence ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER :tabLignes[n]
+	FIN
+FIN

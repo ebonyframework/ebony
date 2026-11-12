@@ -1,0 +1,803 @@
+// Contenu des fichiers de « ebony make resource » : fonctions pures (aucun accès au disque), testées dans tests/unitaires/commandes/make/. Les fichiers sont en UTF-8 sans BOM, fins de ligne LF, saut de ligne final.
+// Une ressource « Client » (champs id, nom, email) donne, dans un projet créé par « ebony new » :
+//   app/domaine/client/cClient.owl            l'entité : objet valeur immuable, champs privés, constructeur, accesseurs LitId(), LitNom()…
+//   app/domaine/client/ContratsClient.owl     la Collection qui déclare l'interface iRepoClient (une interface doit être dans une Collection)
+//   app/donnees/client/cRepoClientMemoire.owl le repository en mémoire, pour les tests
+//   app/donnees/client/cRepoClientSql.owl     le repository sur la base du projet, par cEbBaseResiliente (requêtes paramétrées, jamais de valeur dans le texte SQL)
+//   tests/unitaires/client/test_cClient.owl, test_cRepoClientMemoire.owl ; tests/integration/client/test_cRepoClientSql.owl (SQLite en mémoire)
+// Aucun identifiant n'est le mot de l'utilisateur tel quel : c, i, Contrats, cRepo… + Pascal(nom) pour la ressource ; n/s/r/b + mots pour un champ ; v + mots pour un paramètre ; Lit + mots pour un accesseur.
+// Le mot de l'utilisateur n'apparaît que dans des commentaires et des chaînes (nom de colonne, message d'erreur) : EbNomPourCode en retire les guillemets et les sauts de ligne.
+// Pièges d'OWL évités dans le code produit : objets construits dans une variable locale avant d'être renvoyés (sinon le compilateur peut donner un faux message « super-call by-name ») ; aucune déclaration dans un CAS (une déclaration dans un CAS non exécuté corrompt les variables locales) ; aucun paramètre sans type ni de sortie (OWL les refuse).
+// Codes d'exception du repository : 404 introuvable, 409 clé texte déjà prise (repositories en mémoire et SQL), 500 requête refusée par la base, 503 base injoignable (la base répond « indisponible »).
+EbContenuRessource est une CollectionDeProcédures
+
+	// ---- Noms et petits morceaux de code ----
+
+	// « un entier », « une chaîne », « un réel », « un booléen » : l'article de la déclaration OWL d'un type.
+	PROCEDURE EbArticleTypeOwl(sTypeOwl est une chaîne) : chaîne
+		SI sTypeOwl = "chaîne" ALORS
+			RENVOYER "une chaîne"
+		FIN
+		RENVOYER "un " + sTypeOwl
+	FIN
+
+	// Un texte entre guillemets doubles, pour le code OWL produit (le texte ne doit pas en contenir : voir EbVerifieNomSql et EbNomPourCode).
+	PROCEDURE EbGuillemets(sTexte est une chaîne) : chaîne
+		RENVOYER Caract(34) + sTexte + Caract(34)
+	FIN
+
+	// Un texte SQL entre accents graves, qui accepte les guillemets doubles des noms (voir EbSqlMake).
+	PROCEDURE EbChaineSql(sSql est une chaîne) : chaîne
+		RENVOYER Caract(96) + sSql + Caract(96)
+	FIN
+
+	// Le nom de la ressource, sûr dans un commentaire ou une chaîne OWL.
+	PROCEDURE EbNomAffiche(oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER EbNomPourCode(oDemande.Nom())
+	FIN
+
+	// Le type OWL de la clé et son article, pour les paramètres « cle ».
+	PROCEDURE EbTypeCleOwl(oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER EbChampCle(oDemande.Champs()).TypeOwl()
+	FIN
+
+	// Une valeur d'exemple écrite en OWL, pour les tests : variante 1 ou 2. La clé entière générée vaut 0 (la base ou le repository la donne), une clé texte « cle-1 » ou « cle-2 ».
+	PROCEDURE EbExempleChamp(oChamp est un cEbChampTable, nVariante est un entier) : chaîne
+		SI oChamp.Cle() ET oChamp.TypeChamp() = "texte" ALORS
+			RENVOYER EbGuillemets("cle-" + nVariante)
+		FIN
+		// Des littéraux fixes, jamais calculés : un nombre converti en texte dépend des réglages régionaux (virgule ou point).
+		bPremiere est un booléen = (nVariante = 1)
+		SELON oChamp.TypeChamp()
+			CAS "entier"
+			SI oChamp.Cle() ALORS
+				RENVOYER "0"
+			FIN
+			SI bPremiere ALORS
+				RENVOYER "7"
+			FIN
+			RENVOYER "8"
+			CAS "reel"
+			SI bPremiere ALORS
+				RENVOYER "1.5"
+			FIN
+			RENVOYER "2.5"
+			CAS "booleen"
+			SI bPremiere ALORS
+				RENVOYER "Vrai"
+			FIN
+			RENVOYER "Faux"
+			CAS "date"
+			SI bPremiere ALORS
+				RENVOYER EbGuillemets("2026-01-31")
+			FIN
+			RENVOYER EbGuillemets("2026-02-01")
+			CAS "dateheure"
+			SI bPremiere ALORS
+				RENVOYER EbGuillemets("2026-01-31T10:30:00")
+			FIN
+			RENVOYER EbGuillemets("2026-02-01T11:45:00")
+			AUTRE CAS
+			SI bPremiere ALORS
+				RENVOYER EbGuillemets("essai")
+			FIN
+			RENVOYER EbGuillemets("autre")
+		FIN
+	FIN
+
+	// La clé après l'ajout dans un repository vide : 1 pour une clé entière, la valeur donnée pour une clé texte.
+	PROCEDURE EbCleAjoutee(oChamp est un cEbChampTable, nVariante est un entier) : chaîne
+		SI oChamp.TypeChamp() = "entier" ALORS
+			RENVOYER "" + nVariante
+		FIN
+		RENVOYER EbExempleChamp(oChamp, nVariante)
+	FIN
+
+	// Une clé qui n'existe dans aucun repository de test.
+	PROCEDURE EbCleAbsente(oChamp est un cEbChampTable) : chaîne
+		SI oChamp.TypeChamp() = "entier" ALORS
+			RENVOYER "99"
+		FIN
+		RENVOYER EbGuillemets("absente")
+	FIN
+
+	// Les arguments du constructeur de l'entité avec des valeurs d'exemple (variante 1 ou 2). sCle remplace la valeur de la clé quand il n'est pas vide.
+	PROCEDURE EbArgumentsExemple(oDemande est un cEbDemandeMake, nVariante est un entier, sCle est une chaîne) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI sRes <> "" ALORS
+				sRes += ", "
+			FIN
+			SI oChamp.Cle() ET sCle <> "" ALORS
+				sRes += sCle
+			SINON
+				sRes += EbExempleChamp(oChamp, nVariante)
+			FIN
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Les arguments du constructeur tirés d'une entité existante (entite.LitId(), entite.LitNom()…). sCle remplace la valeur de la clé quand il n'est pas vide.
+	PROCEDURE EbArgumentsDepuis(oDemande est un cEbDemandeMake, sVariable est une chaîne, sCle est une chaîne) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI sRes <> "" ALORS
+				sRes += ", "
+			FIN
+			SI oChamp.Cle() ET sCle <> "" ALORS
+				sRes += sCle
+			SINON
+				sRes += sVariable + "." + oChamp.NomAccesseur() + "()"
+			FIN
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Le nom de la variable locale qui reçoit la valeur du champ de rang nRang lue dans une ligne SQL : préfixe de type + « Val » + rang (nVal1, sVal2).
+	PROCEDURE EbVariableLigne(oChamp est un cEbChampTable, nRang est un entier) : chaîne
+		RENVOYER EbPrefixeType(oChamp.TypeChamp()) + "Val" + nRang
+	FIN
+
+	// Une variable locale TYPÉE par champ, remplie depuis la ligne SQL (nVal1 est un entier = ligne["id"]). C'est ce qui transforme un NULL en valeur par défaut du type : passé tel quel au constructeur,
+	// un NULL arriverait comme Null. Mesuré (owl 1.6.0, SQLite) : une variable entier, réel ou booléen reçoit 0 ou Faux d'un NULL, mais une variable CHAÎNE reste Null (TypeVar 0, ni égale à "" ni de taille
+	// connue) ; un texte se déclare donc à "" et ne reçoit la valeur de la ligne que si elle n'est pas Null.
+	PROCEDURE EbDeclarationsLigne(oTexte est un cEbTexteCode, oDemande est un cEbDemandeMake)
+		POUR i = 1 À oDemande.Champs()..Occurrence
+			oChamp    est un cEbChampTable = oDemande.Champs()[i]
+			sVariable est une chaîne       = EbVariableLigne(oChamp, i)
+			sValeur   est une chaîne       = "ligne[" + EbGuillemets(oChamp.NomColonne()) + "]"
+			SI oChamp.TypeOwl() = "chaîne" ALORS
+				oTexte.Ligne(2, sVariable + " est une chaîne = " + EbGuillemets(""))
+				oTexte.Ligne(2, "SI " + sValeur + " <> Null ALORS")
+				oTexte.Ligne(3, sVariable + " = " + sValeur)
+				oTexte.Ligne(2, "FIN")
+			SINON
+				oTexte.Ligne(2, sVariable + " est " + EbArticleTypeOwl(oChamp.TypeOwl()) + " = " + sValeur)
+			FIN
+		FIN
+	FIN
+
+	// Les arguments du constructeur tirés de ces variables locales (nVal1, sVal2…).
+	PROCEDURE EbArgumentsDepuisLigne(oDemande est un cEbDemandeMake) : chaîne
+		sRes est une chaîne = ""
+		POUR i = 1 À oDemande.Champs()..Occurrence
+			SI sRes <> "" ALORS
+				sRes += ", "
+			FIN
+			sRes += EbVariableLigne(oDemande.Champs()[i], i)
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Une ligne d'assertion qui compare l'accesseur d'un champ à la valeur d'exemple de la variante.
+	PROCEDURE EbAssertion(oChamp est un cEbChampTable, sExpression est une chaîne, nVariante est un entier, sCle est une chaîne, sLibelle est une chaîne) : chaîne
+		sAttendu est une chaîne = EbExempleChamp(oChamp, nVariante)
+		SI oChamp.Cle() ET sCle <> "" ALORS
+			sAttendu = sCle
+		FIN
+		SI oChamp.TypeChamp() = "booleen" ALORS
+			SI sAttendu = "Vrai" ALORS
+				RENVOYER "dbgVérifieVrai(" + sExpression + ", " + EbGuillemets(sLibelle) + ")"
+			FIN
+			RENVOYER "dbgVérifieFaux(" + sExpression + ", " + EbGuillemets(sLibelle) + ")"
+		FIN
+		RENVOYER "dbgVérifieEgalité(" + sExpression + ", " + sAttendu + ", " + EbGuillemets(sLibelle) + ")"
+	FIN
+
+	// Les assertions de TOUS les champs d'une entité (nommée par sVariable) contre les valeurs d'exemple de la variante, au niveau d'indentation donné. sCle remplace la valeur attendue de la clé.
+	PROCEDURE EbAssertionsEntite(oTexte est un cEbTexteCode, oDemande est un cEbDemandeMake, sVariable est une chaîne, nVariante est un entier, sCle est une chaîne)
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, EbAssertion(oChamp, sVariable + "." + oChamp.NomAccesseur() + "()", nVariante, sCle, oChamp.NomColonne()))
+		FIN
+	FIN
+
+	// Le commentaire d'un accesseur : la colonne, et ce qu'elle a de particulier.
+	PROCEDURE EbCommentaireChamp(oChamp est un cEbChampTable) : chaîne
+		sCommentaire est une chaîne = "Colonne « " + EbNomPourCode(oChamp.NomColonne()) + " »"
+		SI oChamp.Cle() ALORS
+			SI oChamp.TypeChamp() = "entier" ALORS
+				sCommentaire += " (clé primaire, donnée par la base)"
+			SINON
+				sCommentaire += " (clé primaire, fournie par l'appelant)"
+			FIN
+		FIN
+		SI oChamp.Nullable() ALORS
+			sCommentaire += " (accepte NULL : lu comme " + EbDefautPourCommentaire(oChamp.TypeChamp()) + ")"
+		FIN
+		SI oChamp.ARef() ALORS
+			sCommentaire += " (référence " + EbNomPourCode(oChamp.RefTable()) + "." + EbNomPourCode(oChamp.RefColonne()) + ")"
+		FIN
+		RENVOYER sCommentaire + "."
+	FIN
+
+	// La valeur par défaut d'un type, écrite pour un commentaire (sans guillemets doubles).
+	PROCEDURE EbDefautPourCommentaire(sType est une chaîne) : chaîne
+		SELON sType
+			CAS "entier", "reel"
+			RENVOYER "0"
+			CAS "booleen"
+			RENVOYER "Faux"
+			AUTRE CAS
+			RENVOYER "un texte vide"
+		FIN
+	FIN
+
+	// ---- Les fichiers de la ressource ----
+
+	// Les chemins relatifs des fichiers, dans l'ordre de EbContenuFichierRessource : entité, contrats, repository en mémoire, repository SQL, test de l'entité, test du repository en mémoire, test du repository SQL, service, test du service,
+	// puis le contrôleur (Controleur<Nom>.owl) sauf si le nom d'une colonne ne peut pas être un membre du corps (voir EbChampsSansRoutes).
+	PROCEDURE EbFichiersRessource(oDemande est un cEbDemandeMake) : tableau de chaînes
+		sPascal     est une chaîne            = oDemande.Pascal()
+		sDossier    est une chaîne            = oDemande.Dossier()
+		tabFichiers est un tableau de chaînes
+		TableauAjoute(tabFichiers, "app/domaine/" + sDossier + "/c" + sPascal + ".owl")
+		TableauAjoute(tabFichiers, "app/domaine/" + sDossier + "/Contrats" + sPascal + ".owl")
+		TableauAjoute(tabFichiers, "app/donnees/" + sDossier + "/cRepo" + sPascal + "Memoire.owl")
+		TableauAjoute(tabFichiers, "app/donnees/" + sDossier + "/cRepo" + sPascal + "Sql.owl")
+		TableauAjoute(tabFichiers, "tests/unitaires/" + sDossier + "/test_c" + sPascal + ".owl")
+		TableauAjoute(tabFichiers, "tests/unitaires/" + sDossier + "/test_cRepo" + sPascal + "Memoire.owl")
+		TableauAjoute(tabFichiers, "tests/integration/" + sDossier + "/test_cRepo" + sPascal + "Sql.owl")
+		TableauAjoute(tabFichiers, EbCheminService(oDemande))
+		TableauAjoute(tabFichiers, EbCheminTestService(oDemande))
+		tabSansRoutes est un tableau de chaînes = EbChampsSansRoutes(oDemande)
+		SI tabSansRoutes..Occurrence = 0 ALORS
+			TableauAjoute(tabFichiers, EbCheminRoutes(oDemande))
+		FIN
+		RENVOYER tabFichiers
+	FIN
+
+	// Le contenu du fichier de rang nRang (voir EbFichiersRessource).
+	PROCEDURE EbContenuFichierRessource(oDemande est un cEbDemandeMake, nRang est un entier) : chaîne
+		SELON nRang
+			CAS 1
+			RENVOYER EbContenuEntite(oDemande)
+			CAS 2
+			RENVOYER EbContenuContrats(oDemande)
+			CAS 3
+			RENVOYER EbContenuDepotMemoire(oDemande)
+			CAS 4
+			RENVOYER EbContenuDepotSql(oDemande)
+			CAS 5
+			RENVOYER EbContenuTestEntite(oDemande)
+			CAS 6
+			RENVOYER EbContenuTestDepotMemoire(oDemande)
+			CAS 7
+			RENVOYER EbContenuTestDepotSql(oDemande)
+			CAS 8
+			RENVOYER EbTexteService(oDemande)
+			CAS 9
+			RENVOYER EbTexteTestService(oDemande)
+			AUTRE CAS
+			RENVOYER EbContenuRoutes(oDemande)
+		FIN
+	FIN
+
+	// L'entité : un objet valeur immuable. Les champs sont privés (bloc PRIVÉ), remplis par le constructeur, lus par les accesseurs Lit… (convention d'ebony : les champs ne sont jamais publics).
+	PROCEDURE EbContenuEntite(oDemande est un cEbDemandeMake) : chaîne
+		sPascal est une chaîne      = oDemande.Pascal()
+		oTexte  est un cEbTexteCode
+		oTexte.Ligne(0, "// Entité « " + EbNomAffiche(oDemande) + " », générée par « ebony make resource ». Objet valeur immuable : champs privés, remplis par le constructeur, lus par les accesseurs Lit….")
+		oTexte.Ligne(0, "// Le fichier est à vous. Table : « " + EbNomPourCode(oDemande.NomTable()) + " » (voir cRepo" + sPascal + "Sql).")
+		oTexte.Ligne(0, "c" + sPascal + " est une Classe")
+		oTexte.Ligne(0, "PRIVÉ")
+		sParametres est une chaîne = ""
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, oChamp.NomChamp() + " est " + EbArticleTypeOwl(oChamp.TypeOwl()) + " = " + EbDefautOwl(oChamp.TypeChamp()))
+			SI sParametres <> "" ALORS
+				sParametres += ", "
+			FIN
+			sParametres += oChamp.NomParametre() + " est " + EbArticleTypeOwl(oChamp.TypeOwl())
+		FIN
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE Constructeur(" + sParametres + ")")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(2, ":" + oChamp.NomChamp() + " = " + oChamp.NomParametre())
+		FIN
+		oTexte.Ligne(1, "FIN")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.LigneVide()
+			oTexte.Ligne(1, "// " + EbCommentaireChamp(oChamp))
+			oTexte.Ligne(1, "PROCEDURE PUBLIQUE " + oChamp.NomAccesseur() + "() : " + oChamp.TypeOwl())
+			oTexte.Ligne(2, "RENVOYER :" + oChamp.NomChamp())
+			oTexte.Ligne(1, "FIN")
+		FIN
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "// Le JSON de l'entité sur une ligne : une clé par colonne, au nom de la colonne en minuscules (c'est ce que rend le contrôleur).")
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE EnJson() : chaîne")
+		oTexte.Ligne(2, "j est un JSON")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(2, "j[" + EbGuillemets(oChamp.Slug()) + "] = :" + oChamp.NomChamp())
+		FIN
+		oTexte.Ligne(2, "RENVOYER JSONVersChaîne(j, psdMinifie)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// La Collection qui déclare l'interface du repository : une interface seule dans son fichier n'est pas reconnue dans un projet.
+	PROCEDURE EbContenuContrats(oDemande est un cEbDemandeMake) : chaîne
+		sPascal est une chaîne      = oDemande.Pascal()
+		sType   est une chaîne      = EbTypeCleOwl(oDemande)
+		sNom    est une chaîne      = EbNomAffiche(oDemande)
+		oTexte  est un cEbTexteCode
+		oTexte.Ligne(0, "// Contrat du repository « " + sNom + " » (une interface doit être déclarée dans une Collection). Adaptateurs : cRepo" + sPascal + "Sql (la base), cRepo" + sPascal + "Memoire (tests).")
+		oTexte.Ligne(0, "// Une absence ou un échec LÈVE une exception : code 404 (introuvable), 409 (clé texte déjà prise), 500 (requête refusée par la base), 503 (base injoignable).")
+		oTexte.Ligne(0, "Contrats" + sPascal + " est une CollectionDeProcédures")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "iRepo" + sPascal + " est une Interface")
+		oTexte.Ligne(2, "// Toutes les lignes : par clé croissante pour le repository SQL, dans l'ordre d'ajout pour le repository en mémoire.")
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Enumere() : tableau de c" + sPascal)
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Existe(cle est " + EbArticleTypeOwl(sType) + ") : booléen")
+		oTexte.Ligne(2, "// Lève 404 si la clé n'existe pas.")
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Trouve(cle est " + EbArticleTypeOwl(sType) + ") : c" + sPascal)
+		SI sType = "entier" ALORS
+			oTexte.Ligne(2, "// Ajoute la ligne et rend celle qui est enregistrée : la clé est celle que le repository a donnée (celle de l'entité reçue est ignorée).")
+		SINON
+			oTexte.Ligne(2, "// Ajoute la ligne et rend celle qui est enregistrée. La clé est celle de l'entité reçue.")
+		FIN
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Ajoute(entite est un c" + sPascal + ") : c" + sPascal)
+		oTexte.Ligne(2, "// Remplace les valeurs de la ligne de même clé. Lève 404 si elle n'existe pas.")
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Modifie(entite est un c" + sPascal + ")")
+		oTexte.Ligne(2, "// Lève 404 si la clé n'existe pas.")
+		oTexte.Ligne(2, "PROCEDURE PUBLIQUE Supprime(cle est " + EbArticleTypeOwl(sType) + ")")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Le repository en mémoire, pour les tests : mêmes règles que le repository SQL, sans base.
+	PROCEDURE EbContenuDepotMemoire(oDemande est un cEbDemandeMake) : chaîne
+		sPascal       est une chaîne       = oDemande.Pascal()
+		oCle          est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sType         est une chaîne       = oCle.TypeOwl()
+		sArticle      est une chaîne       = EbArticleTypeOwl(sType)
+		sAccesseurCle est une chaîne       = oCle.NomAccesseur()
+		sMessage      est une chaîne       = EbGuillemets(EbNomAffiche(oDemande) + " introuvable : ")
+		oTexte        est un cEbTexteCode
+		oTexte.Ligne(0, "// Repository « " + EbNomAffiche(oDemande) + " » en mémoire, pour les tests : mêmes règles que cRepo" + sPascal + "Sql, sans base.")
+		oTexte.Ligne(0, "cRepo" + sPascal + "Memoire est une Classe implemente iRepo" + sPascal)
+		oTexte.Ligne(0, "PRIVÉ")
+		oTexte.Ligne(1, "tabEntites est un tableau de c" + sPascal)
+		SI sType = "entier" ALORS
+			oTexte.Ligne(1, "nProchaine est un entier = 1")
+		FIN
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "// Position de la clé dans le tableau, 0 si elle est absente.")
+		oTexte.Ligne(1, "PROCEDURE PRIVÉE Rang(cle est " + sArticle + ") : entier")
+		oTexte.Ligne(2, "POUR i = 1 À :tabEntites..Occurrence")
+		oTexte.Ligne(3, "SI :tabEntites[i]." + sAccesseurCle + "() = cle ALORS")
+		oTexte.Ligne(4, "RENVOYER i")
+		oTexte.Ligne(3, "FIN")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "RENVOYER 0")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Enumere() : tableau de c" + sPascal)
+		oTexte.Ligne(2, "tabCopie est un tableau de c" + sPascal)
+		oTexte.Ligne(2, "POUR TOUT oEntite DE :tabEntites")
+		oTexte.Ligne(3, "TableauAjoute(tabCopie, oEntite)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "RENVOYER tabCopie")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Existe(cle est " + sArticle + ") : booléen")
+		oTexte.Ligne(2, "RENVOYER :Rang(cle) > 0")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Trouve(cle est " + sArticle + ") : c" + sPascal)
+		oTexte.Ligne(2, "nRang est un entier = :Rang(cle)")
+		oTexte.Ligne(2, "SI nRang = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + cle)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "RENVOYER :tabEntites[nRang]")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Ajoute(entite est un c" + sPascal + ") : c" + sPascal)
+		SI sType = "entier" ALORS
+			oTexte.Ligne(2, "oEnregistre est un c" + sPascal + "(" + EbArgumentsDepuis(oDemande, "entite", ":nProchaine") + ")")
+			oTexte.Ligne(2, ":nProchaine++")
+		SINON
+			oTexte.Ligne(2, "SI :Rang(entite." + sAccesseurCle + "()) > 0 ALORS")
+			oTexte.Ligne(3, "ExceptionDéclenche(409, " + EbGuillemets(EbNomAffiche(oDemande) + " existe déjà : ") + " + entite." + sAccesseurCle + "())")
+			oTexte.Ligne(2, "FIN")
+			oTexte.Ligne(2, "oEnregistre est un c" + sPascal + "(" + EbArgumentsDepuis(oDemande, "entite", "") + ")")
+		FIN
+		oTexte.Ligne(2, "TableauAjoute(:tabEntites, oEnregistre)")
+		oTexte.Ligne(2, "RENVOYER oEnregistre")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Modifie(entite est un c" + sPascal + ")")
+		oTexte.Ligne(2, "nRang est un entier = :Rang(entite." + sAccesseurCle + "())")
+		oTexte.Ligne(2, "SI nRang = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + entite." + sAccesseurCle + "())")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, ":tabEntites[nRang] = entite")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Supprime(cle est " + sArticle + ")")
+		oTexte.Ligne(2, "nRang est un entier = :Rang(cle)")
+		oTexte.Ligne(2, "SI nRang = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + cle)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "TableauSupprime(:tabEntites, nRang)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Les lignes qui remplissent tabParametres pour les champs choisis : tous (bTous) ou seulement ceux qui s'écrivent à l'ajout (la clé générée est exclue).
+	PROCEDURE EbAjouteParametres(oTexte est un cEbTexteCode, oDemande est un cEbDemandeMake, bTous est un booléen)
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI bTous OU PAS EbCleGeneree(oChamp) ALORS
+				oTexte.Ligne(2, "tabParametres[" + EbGuillemets(oChamp.NomSql()) + "] = entite." + oChamp.NomAccesseur() + "()")
+			FIN
+		FIN
+	FIN
+
+	// Le repository sur la base du projet. Il reçoit la connexion résiliente de la bibliothèque (cEbServiceBase.Base()) et ne parle que par requêtes paramétrées.
+	PROCEDURE EbContenuDepotSql(oDemande est un cEbDemandeMake) : chaîne
+		sPascal   est une chaîne       = oDemande.Pascal()
+		oCle      est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sArticle  est une chaîne       = EbArticleTypeOwl(oCle.TypeOwl())
+		sParamCle est une chaîne       = EbGuillemets(oCle.NomSql())
+		sMessage  est une chaîne       = EbGuillemets(EbNomAffiche(oDemande) + " introuvable : ")
+		oTexte    est un cEbTexteCode
+		oTexte.Ligne(0, "// Repository « " + EbNomAffiche(oDemande) + " » sur la base SQL du projet (table « " + EbNomPourCode(oDemande.NomTable()) + " »), par la connexion résiliente de la bibliothèque.")
+		oTexte.Ligne(0, "// Les valeurs passent par des paramètres {p_…}, jamais dans le texte SQL. Usage : oRepository est un cRepo" + sPascal + "Sql(cEbServiceBase.Base())")
+		oTexte.Ligne(0, "cRepo" + sPascal + "Sql est une Classe implemente iRepo" + sPascal)
+		oTexte.Ligne(0, "PRIVÉ")
+		oTexte.Ligne(1, "oBase est un cEbBaseResiliente")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE Constructeur(base est un cEbBaseResiliente)")
+		oTexte.Ligne(2, ":oBase = base")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "// Lève 503 (base injoignable) ou 500 (requête refusée) quand la requête n'a pas abouti.")
+		oTexte.Ligne(1, "PROCEDURE PRIVÉE Verifie(resultat est un cEbResultatSql)")
+		oTexte.Ligne(2, "SI resultat.Indisponible() ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(503, resultat.Message())")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "SI PAS resultat.Succes() ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(500, resultat.Message())")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "// Construit l'entité d'une ligne. Chaque valeur passe par une variable locale typée : un NULL devient la valeur par défaut du type.")
+		oTexte.Ligne(1, "PROCEDURE PRIVÉE Depuis(ligne est un tableau associatif) : c" + sPascal)
+		EbDeclarationsLigne(oTexte, oDemande)
+		oTexte.Ligne(2, "oEntite est un c" + sPascal + "(" + EbArgumentsDepuisLigne(oDemande) + ")")
+		oTexte.Ligne(2, "RENVOYER oEntite")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Enumere() : tableau de c" + sPascal)
+		oTexte.Ligne(2, "tabEntites est un tableau de c" + sPascal)
+		oTexte.Ligne(2, "tabAucun est un tableau associatif")
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlListe(oDemande)) + ", tabAucun)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		oTexte.Ligne(2, "POUR TOUT ligne DE oResultat.Lignes()")
+		oTexte.Ligne(3, "oEntite est un c" + sPascal + " = :Depuis(ligne)")
+		oTexte.Ligne(3, "TableauAjoute(tabEntites, oEntite)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "RENVOYER tabEntites")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Existe(cle est " + sArticle + ") : booléen")
+		oTexte.Ligne(2, "tabParametres est un tableau associatif")
+		oTexte.Ligne(2, "tabParametres[" + sParamCle + "] = cle")
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlExiste(oDemande)) + ", tabParametres)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		oTexte.Ligne(2, "RENVOYER oResultat.NbLignes() > 0")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Trouve(cle est " + sArticle + ") : c" + sPascal)
+		oTexte.Ligne(2, "tabParametres est un tableau associatif")
+		oTexte.Ligne(2, "tabParametres[" + sParamCle + "] = cle")
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlTrouve(oDemande)) + ", tabParametres)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		oTexte.Ligne(2, "SI oResultat.NbLignes() = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + cle)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "oEntite est un c" + sPascal + " = :Depuis(oResultat.Lignes()[1])")
+		oTexte.Ligne(2, "RENVOYER oEntite")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Ajoute(entite est un c" + sPascal + ") : c" + sPascal)
+		SI PAS EbCleGeneree(oCle) ALORS
+			oTexte.Ligne(2, "// La clé vient de l'appelant : une clé déjà prise lève 409, comme dans le repository en mémoire (vérification et ajout ne sont pas atomiques : une concurrence peut encore donner 500).")
+			oTexte.Ligne(2, "SI :Existe(entite." + oCle.NomAccesseur() + "()) ALORS")
+			oTexte.Ligne(3, "ExceptionDéclenche(409, " + EbGuillemets(EbNomAffiche(oDemande) + " existe déjà : ") + " + entite." + oCle.NomAccesseur() + "())")
+			oTexte.Ligne(2, "FIN")
+		FIN
+		oTexte.Ligne(2, "tabParametres est un tableau associatif")
+		EbAjouteParametres(oTexte, oDemande, Faux)
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlAjoute(oDemande)) + ", tabParametres)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		SI EbCleGeneree(oCle) ALORS
+			oTexte.Ligne(2, "oEnregistre est un c" + sPascal + "(" + EbArgumentsDepuis(oDemande, "entite", "oResultat.Lignes()[1][" + EbGuillemets(oCle.NomColonne()) + "]") + ")")
+			oTexte.Ligne(2, "RENVOYER oEnregistre")
+		SINON
+			oTexte.Ligne(2, "RENVOYER entite")
+		FIN
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Modifie(entite est un c" + sPascal + ")")
+		oTexte.Ligne(2, "tabParametres est un tableau associatif")
+		EbAjouteParametres(oTexte, oDemande, Vrai)
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlModifie(oDemande)) + ", tabParametres)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		oTexte.Ligne(2, "SI oResultat.LignesAffectees() = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + entite." + oCle.NomAccesseur() + "())")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Supprime(cle est " + sArticle + ")")
+		oTexte.Ligne(2, "tabParametres est un tableau associatif")
+		oTexte.Ligne(2, "tabParametres[" + sParamCle + "] = cle")
+		oTexte.Ligne(2, "oResultat est un cEbResultatSql = :oBase.Execute(" + EbChaineSql(EbSqlSupprime(oDemande)) + ", tabParametres)")
+		oTexte.Ligne(2, ":Verifie(oResultat)")
+		oTexte.Ligne(2, "SI oResultat.LignesAffectees() = 0 ALORS")
+		oTexte.Ligne(3, "ExceptionDéclenche(404, " + sMessage + " + cle)")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// ---- Les tests ----
+
+	// Un scénario qui vérifie qu'une opération LÈVE le code 404 : ouvre la procédure, déclare le code, appelle l'opération dans QUAND EXCEPTION, vérifie le code.
+	// sPreparation : lignes de mise en place, déjà indentées d'un niveau (peut être vide). sOperation : l'appel qui doit lever (oRepository.Trouve(99)).
+	PROCEDURE EbScenario404(oTexte est un cEbTexteCode, sNom est une chaîne, sCommentaire est une chaîne, sDepot est une chaîne, sOperation est une chaîne)
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// " + sCommentaire)
+		oTexte.Ligne(0, "PROCEDURE " + sNom + "()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "nCode est un entier = 0")
+		oTexte.Ligne(1, "QUAND EXCEPTION DANS")
+		oTexte.Ligne(2, sOperation)
+		oTexte.Ligne(1, "FAIRE")
+		oTexte.Ligne(2, "nCode = ExceptionInfo(errCode)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(1, "dbgVérifieEgalité(nCode, 404, " + EbGuillemets("code 404") + ")")
+		oTexte.Ligne(0, "FIN")
+	FIN
+
+	// Les scénarios communs aux deux repositories, écrits contre une variable oRepository déjà déclarée et un « oRepository est un … » par scénario (sDepot : cRepoClientMemoire ou cRepoClientSql(oBase)).
+	// sFin : la ligne à écrire à la fin de chaque scénario (fermer la base), vide pour le repository en mémoire.
+	PROCEDURE EbScenariosDepot(oTexte est un cEbTexteCode, oDemande est un cEbDemandeMake, sDepot est une chaîne)
+		sPascal      est une chaîne       = oDemande.Pascal()
+		oCle         est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sClePremiere est une chaîne       = EbCleAjoutee(oCle, 1)
+		sCleSeconde  est une chaîne       = EbCleAjoutee(oCle, 2)
+		sAbsente     est une chaîne       = EbCleAbsente(oCle)
+
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Ajouter enregistre la ligne avec sa clé, et la relire rend les mêmes valeurs.")
+		oTexte.Ligne(0, "PROCEDURE scenario_ajout_puis_lecture()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oEnregistre est un c" + sPascal + " = oRepository.Ajoute(oNouveau)")
+		oTexte.Ligne(1, EbAssertion(oCle, "oEnregistre." + oCle.NomAccesseur() + "()", 1, sClePremiere, "clé de la ligne enregistrée"))
+		oTexte.Ligne(1, "oLu est un c" + sPascal + " = oRepository.Trouve(" + sClePremiere + ")")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, EbAssertion(oChamp, "oLu." + oChamp.NomAccesseur() + "()", 1, sClePremiere, oChamp.NomColonne()))
+		FIN
+		oTexte.Ligne(1, "dbgVérifieVrai(oRepository.Existe(" + sClePremiere + "), " + EbGuillemets("existe") + ")")
+		oTexte.Ligne(0, "FIN")
+
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Énumérer rend toutes les lignes, la première ajoutée en premier (clés croissantes).")
+		oTexte.Ligne(0, "PROCEDURE scenario_enumere_les_lignes_dans_l_ordre()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oUn est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oDeux est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 2, "") + ")")
+		oTexte.Ligne(1, "oRepository.Ajoute(oUn)")
+		oTexte.Ligne(1, "oRepository.Ajoute(oDeux)")
+		oTexte.Ligne(1, "dbgVérifieEgalité(oRepository.Enumere()..Occurrence, 2, " + EbGuillemets("deux lignes") + ")")
+		SI oCle.TypeChamp() = "entier" ALORS
+			oTexte.Ligne(1, "dbgVérifieEgalité(oRepository.Enumere()[1]." + oCle.NomAccesseur() + "(), 1, " + EbGuillemets("la plus petite clé d'abord") + ")")
+		SINON
+			oTexte.Ligne(1, "dbgVérifieEgalité(oRepository.Enumere()[1]." + oCle.NomAccesseur() + "(), " + sClePremiere + ", " + EbGuillemets("la plus petite clé d'abord") + ")")
+		FIN
+		oTexte.Ligne(0, "FIN")
+
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Modifier remplace les valeurs de la ligne de même clé.")
+		oTexte.Ligne(0, "PROCEDURE scenario_modifie_remplace_les_valeurs()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oRepository.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "oChange est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 2, sClePremiere) + ")")
+		oTexte.Ligne(1, "oRepository.Modifie(oChange)")
+		oTexte.Ligne(1, "oLu est un c" + sPascal + " = oRepository.Trouve(" + sClePremiere + ")")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, EbAssertion(oChamp, "oLu." + oChamp.NomAccesseur() + "()", 2, sClePremiere, oChamp.NomColonne()))
+		FIN
+		oTexte.Ligne(0, "FIN")
+
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Supprimer retire la ligne.")
+		oTexte.Ligne(0, "PROCEDURE scenario_supprime_retire_la_ligne()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oRepository.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "oRepository.Supprime(" + sClePremiere + ")")
+		oTexte.Ligne(1, "dbgVérifieFaux(oRepository.Existe(" + sClePremiere + "), " + EbGuillemets("n'existe plus") + ")")
+		oTexte.Ligne(0, "FIN")
+
+		EbScenario404(oTexte, "scenario_trouve_une_cle_absente_leve_404", "Une clé absente est introuvable : Trouve lève 404.", sDepot, "oRepository.Trouve(" + sAbsente + ")")
+		EbScenario404(oTexte, "scenario_supprime_une_cle_absente_leve_404", "Supprimer une clé absente lève 404.", sDepot, "oRepository.Supprime(" + sAbsente + ")")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Modifier une clé absente lève 404.")
+		oTexte.Ligne(0, "PROCEDURE scenario_modifie_une_cle_absente_leve_404()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oAbsent est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, sAbsente) + ")")
+		oTexte.Ligne(1, "nCode est un entier = 0")
+		oTexte.Ligne(1, "QUAND EXCEPTION DANS")
+		oTexte.Ligne(2, "oRepository.Modifie(oAbsent)")
+		oTexte.Ligne(1, "FAIRE")
+		oTexte.Ligne(2, "nCode = ExceptionInfo(errCode)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(1, "dbgVérifieEgalité(nCode, 404, " + EbGuillemets("code 404") + ")")
+		oTexte.Ligne(0, "FIN")
+		SI oCle.TypeChamp() = "texte" ALORS
+			oTexte.LigneVide()
+			oTexte.Ligne(0, "// Une clé fournie par l'appelant se conserve telle quelle.")
+			oTexte.Ligne(0, "PROCEDURE scenario_cle_fournie_conservee()")
+			oTexte.Ligne(1, "oRepository est un " + sDepot)
+			oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 2, "") + ")")
+			oTexte.Ligne(1, "oRepository.Ajoute(oNouveau)")
+			oTexte.Ligne(1, "dbgVérifieVrai(oRepository.Existe(" + sCleSeconde + "), " + EbGuillemets("clé conservée") + ")")
+			oTexte.Ligne(0, "FIN")
+		FIN
+	FIN
+
+	// Test de l'entité : les accesseurs rendent ce que le constructeur a reçu.
+	PROCEDURE EbContenuTestEntite(oDemande est un cEbDemandeMake) : chaîne
+		sPascal est une chaîne       = oDemande.Pascal()
+		oCle    est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sCle    est une chaîne       = EbGuillemets("cle-5")
+		SI oCle.TypeChamp() = "entier" ALORS
+			sCle = "5"
+		FIN
+		oTexte est un cEbTexteCode
+		oTexte.Ligne(0, "// Tests de l'entité c" + sPascal + " (généré par « ebony make resource »). Un scénario = un comportement.")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Les accesseurs rendent les valeurs données au constructeur.")
+		oTexte.Ligne(0, "PROCEDURE scenario_les_accesseurs_rendent_les_valeurs_du_constructeur()")
+		oTexte.Ligne(1, "oEntite est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, sCle) + ")")
+		EbAssertionsEntite(oTexte, oDemande, "oEntite", 1, sCle)
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// EnJson écrit une clé par colonne, au nom de la colonne en minuscules.")
+		oTexte.Ligne(0, "PROCEDURE scenario_enjson_ecrit_une_cle_par_colonne()")
+		oTexte.Ligne(1, "oEntite est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, sCle) + ")")
+		oTexte.Ligne(1, "sJson est une chaîne = oEntite.EnJson()")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, "dbgVérifieVrai(Position(sJson, " + Caract(96) + Caract(34) + oChamp.Slug() + Caract(34) + ":" + Caract(96) + ") > 0, " + EbGuillemets("la clé " + oChamp.Slug()) + ")")
+		FIN
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Test du repository en mémoire.
+	PROCEDURE EbContenuTestDepotMemoire(oDemande est un cEbDemandeMake) : chaîne
+		sPascal est une chaîne      = oDemande.Pascal()
+		oTexte  est un cEbTexteCode
+		oTexte.Ligne(0, "// Tests du repository « " + EbNomAffiche(oDemande) + " » en mémoire (généré par « ebony make resource »). Un scénario = un comportement.")
+		EbScenariosDepot(oTexte, oDemande, "cRepo" + sPascal + "Memoire")
+		EbScenarioCleDejaPrise(oTexte, oDemande, "cRepo" + sPascal + "Memoire")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Si la clé est un texte (donc fournie par l'appelant), le scénario « ajouter deux fois la même clé lève 409 », pour le repository dont sDepot est l'expression de construction (repository en mémoire ou SQL).
+	PROCEDURE EbScenarioCleDejaPrise(oTexte est un cEbTexteCode, oDemande est un cEbDemandeMake, sDepot est une chaîne)
+		SI EbCleGeneree(EbChampCle(oDemande.Champs())) ALORS
+			RETOUR
+		FIN
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Ajouter deux fois la même clé lève 409.")
+		oTexte.Ligne(0, "PROCEDURE scenario_cle_deja_prise_leve_409()")
+		oTexte.Ligne(1, "oRepository est un " + sDepot)
+		oTexte.Ligne(1, "oNouveau est un c" + oDemande.Pascal() + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oRepository.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "nCode est un entier = 0")
+		oTexte.Ligne(1, "QUAND EXCEPTION DANS")
+		oTexte.Ligne(2, "oRepository.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "FAIRE")
+		oTexte.Ligne(2, "nCode = ExceptionInfo(errCode)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(1, "dbgVérifieEgalité(nCode, 409, " + EbGuillemets("code 409") + ")")
+		oTexte.Ligne(0, "FIN")
+	FIN
+
+	// Les colonnes qui acceptent NULL, mises à NULL par un UPDATE : "email" = NULL, "age" = NULL.
+	PROCEDURE EbSqlMetNull(oDemande est un cEbDemandeMake) : chaîne
+		oCle          est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sAffectations est une chaîne       = ""
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI oChamp.Nullable() ALORS
+				SI sAffectations <> "" ALORS
+					sAffectations += ", "
+				FIN
+				sAffectations += EbSqlNom(oChamp.NomColonne()) + " = NULL"
+			FIN
+		FIN
+		RENVOYER "UPDATE " + EbSqlTable(oDemande.NomTable()) + " SET " + sAffectations + " WHERE " + EbSqlNom(oCle.NomColonne()) + " = " + EbSqlParametre(oCle)
+	FIN
+
+	// Vrai si au moins un champ accepte NULL.
+	PROCEDURE EbATouteNullable(oDemande est un cEbDemandeMake) : booléen
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI oChamp.Nullable() ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Test du repository SQL sur SQLite en mémoire : la table est créée par le CREATE TABLE que « ebony make migration » écrirait pour SQLite avec les mêmes champs.
+	// La connexion est ouverte avant chaque scénario et FERMÉE après (fixtures de la charte de test), même si le scénario a échoué en route.
+	PROCEDURE EbContenuTestDepotSql(oDemande est un cEbDemandeMake) : chaîne
+		sPascal   est une chaîne       = oDemande.Pascal()
+		oCle      est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sBase     est une chaîne       = "gBase" + sPascal
+		sFonction est une chaîne       = "BaseDeTest" + sPascal
+		oTexte    est un cEbTexteCode
+		oTexte.Ligne(0, "// Tests du repository « " + EbNomAffiche(oDemande) + " » sur SQLite en mémoire (généré par « ebony make resource »). Un scénario = un comportement.")
+		oTexte.Ligne(0, "// La table est celle que « ebony make migration » écrit pour SQLite avec les mêmes champs. PostgreSQL n'est pas testé ici : il faut un serveur.")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Une base SQLite en mémoire, ouverte, avec la table créée.")
+		oTexte.Ligne(0, "PROCEDURE " + sFonction + "() : cEbBaseResiliente")
+		oTexte.Ligne(1, "cnx est une sqlConnexion")
+		oTexte.Ligne(1, "cnx..Provider = sqlSqlite")
+		oTexte.Ligne(1, "cnx..Source   = " + EbGuillemets(":memory:"))
+		oTexte.Ligne(1, "oConnexion est un cEbConnexionSqlReelle(cnx, " + EbGuillemets("SELECT 1") + ")")
+		oTexte.Ligne(1, "oBase est un cEbBaseResiliente(oConnexion)")
+		oTexte.Ligne(1, "oBase.Ouvre()")
+		oTexte.Ligne(1, "tabAucun est un tableau associatif")
+		// Une table d'un schéma (crm.clients) : SQLite n'a de schéma que pour une base attachée.
+		SI EbSchemaTable(oDemande.NomTable()) <> "" ALORS
+			oTexte.Ligne(1, "oBase.Execute(" + EbChaineSql("ATTACH DATABASE ':memory:' AS " + EbSqlNom(EbSchemaTable(oDemande.NomTable()))) + ", tabAucun)")
+		FIN
+		oTexte.Ligne(1, "oBase.Execute(" + EbChaineSql(EbSqlCreeTableLigne(oDemande, "sqlite")) + ", tabAucun)")
+		oTexte.Ligne(1, "RENVOYER oBase")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// La base du scénario en cours : neuve avant chaque scénario, fermée après chacun.")
+		oTexte.Ligne(0, sBase + " est un cEbBaseResiliente = " + sFonction + "()")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "PROCEDURE avantChaqueTest()")
+		oTexte.Ligne(1, sBase + " = " + sFonction + "()")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "PROCEDURE apresChaqueTest()")
+		oTexte.Ligne(1, sBase + ".Ferme()")
+		oTexte.Ligne(0, "FIN")
+		EbScenariosDepot(oTexte, oDemande, "cRepo" + sPascal + "Sql(" + sBase + ")")
+		EbScenarioCleDejaPrise(oTexte, oDemande, "cRepo" + sPascal + "Sql(" + sBase + ")")
+		SI EbATouteNullable(oDemande) ALORS
+			oTexte.LigneVide()
+			oTexte.Ligne(0, "// Un NULL en base est lu comme la valeur par défaut du type (0, texte vide, Faux).")
+			oTexte.Ligne(0, "PROCEDURE scenario_null_lu_comme_valeur_par_defaut()")
+			oTexte.Ligne(1, "oRepository est un cRepo" + sPascal + "Sql(" + sBase + ")")
+			oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+			oTexte.Ligne(1, "oEnregistre est un c" + sPascal + " = oRepository.Ajoute(oNouveau)")
+			oTexte.Ligne(1, "tabParametres est un tableau associatif")
+			oTexte.Ligne(1, "tabParametres[" + EbGuillemets(oCle.NomSql()) + "] = oEnregistre." + oCle.NomAccesseur() + "()")
+			oTexte.Ligne(1, sBase + ".Execute(" + EbChaineSql(EbSqlMetNull(oDemande)) + ", tabParametres)")
+			oTexte.Ligne(1, "oLu est un c" + sPascal + " = oRepository.Trouve(oEnregistre." + oCle.NomAccesseur() + "())")
+			POUR TOUT oChamp DE oDemande.Champs()
+				SI oChamp.Nullable() ALORS
+					SI oChamp.TypeChamp() = "booleen" ALORS
+						oTexte.Ligne(1, "dbgVérifieFaux(oLu." + oChamp.NomAccesseur() + "(), " + EbGuillemets(oChamp.NomColonne()) + ")")
+					SINON
+						oTexte.Ligne(1, "dbgVérifieEgalité(oLu." + oChamp.NomAccesseur() + "(), " + EbDefautOwl(oChamp.TypeChamp()) + ", " + EbGuillemets(oChamp.NomColonne()) + ")")
+					FIN
+				FIN
+			FIN
+			oTexte.Ligne(0, "FIN")
+		FIN
+		RENVOYER oTexte.Texte()
+	FIN
+FIN

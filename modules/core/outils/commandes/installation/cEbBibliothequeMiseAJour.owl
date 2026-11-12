@@ -1,0 +1,40 @@
+// Résultat de « ebony upgrade » : ce qui a été fait pour aligner le projet sur l'ebony installé. Objet valeur immuable, rempli par le constructeur.
+cEbBibliothequeMiseAJour est une Classe
+PRIVÉ
+	sVersion      est une chaîne = ""
+	sChemin       est une chaîne = ""
+	bCopiee       est un booléen = Faux
+	bConfModifiee est un booléen = Faux
+
+	PROCEDURE Constructeur(Version est une chaîne, Chemin est une chaîne, Copiee est un booléen, ConfModifiee est un booléen)
+		:sVersion = Version
+		:sChemin = Chemin
+		:bCopiee = Copiee
+		:bConfModifiee = ConfModifiee
+	FIN
+
+	// La version de la bibliothèque du projet après l'opération (celle de l'ebony installé) ; c'est aussi le nouveau minimum d'ebony.conf.
+	PROCEDURE PUBLIQUE Version() : chaîne
+		RENVOYER :sVersion
+	FIN
+
+	// Le chemin complet du dossier ebony/ du projet.
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Vrai si la bibliothèque a été copiée dans ebony/ (il était absent ou vide).
+	PROCEDURE PUBLIQUE Copiee() : booléen
+		RENVOYER :bCopiee
+	FIN
+
+	// Vrai si ebony.conf a été réécrit (son minimum n'était pas la version installée).
+	PROCEDURE PUBLIQUE ConfModifiee() : booléen
+		RENVOYER :bConfModifiee
+	FIN
+
+	// Vrai si rien n'a été écrit : le projet était déjà aligné.
+	PROCEDURE PUBLIQUE DejaAJour() : booléen
+		RENVOYER (PAS :bCopiee) ET (PAS :bConfModifiee)
+	FIN
+FIN

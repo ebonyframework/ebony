@@ -1,0 +1,122 @@
+// Tests des fonctions pures de la configuration : lecture d'un .env et contrôle d'une valeur selon sa nature.
+
+PROCEDURE EbTestVide() : tableau de chaînes
+	tabVide est un tableau de chaînes
+	RENVOYER tabVide
+FIN
+
+PROCEDURE EbTestPermises() : tableau de chaînes
+	tabPermises est un tableau de chaînes
+	TableauAjoute(tabPermises, "development")
+	TableauAjoute(tabPermises, "production")
+	RENVOYER tabPermises
+FIN
+
+PROCEDURE scenario_cles()
+	dbgVérifieVrai(EbEnvCleValide("DB_PORT"), "majuscules et souligné")
+	dbgVérifieVrai(EbEnvCleValide("_x1"), "souligné en tête")
+	dbgVérifieFaux(EbEnvCleValide(""), "vide")
+	dbgVérifieFaux(EbEnvCleValide("1DB"), "commence par un chiffre")
+	dbgVérifieFaux(EbEnvCleValide("DB-PORT"), "tiret")
+	dbgVérifieFaux(EbEnvCleValide("DB PORT"), "espace")
+	dbgVérifieFaux(EbEnvCleValide("DBÉ"), "accent")
+FIN
+
+PROCEDURE scenario_entiers()
+	dbgVérifieVrai(EbEnvEstEntier("0"), "zéro")
+	dbgVérifieVrai(EbEnvEstEntier("5432"), "positif")
+	dbgVérifieVrai(EbEnvEstEntier("-12"), "négatif")
+	dbgVérifieVrai(EbEnvEstEntier("+7"), "signe plus")
+	dbgVérifieFaux(EbEnvEstEntier(""), "vide")
+	dbgVérifieFaux(EbEnvEstEntier("-"), "signe seul")
+	dbgVérifieFaux(EbEnvEstEntier("abc"), "lettres")
+	dbgVérifieFaux(EbEnvEstEntier("12a"), "chiffres puis lettre")
+	dbgVérifieFaux(EbEnvEstEntier("1.5"), "décimal")
+	dbgVérifieFaux(EbEnvEstEntier("1 2"), "espace interne")
+	dbgVérifieFaux(EbEnvEstEntier("1234567890"), "dix chiffres : trop long")
+FIN
+
+PROCEDURE scenario_booleens()
+	dbgVérifieVrai(EbEnvEstBooleen("true"), "true")
+	dbgVérifieVrai(EbEnvEstBooleen("FALSE"), "casse indifférente")
+	dbgVérifieVrai(EbEnvEstBooleen("1"), "1")
+	dbgVérifieVrai(EbEnvEstBooleen("oui"), "oui")
+	dbgVérifieVrai(EbEnvEstBooleen("Non"), "non")
+	dbgVérifieFaux(EbEnvEstBooleen("peut-être"), "autre")
+	dbgVérifieFaux(EbEnvEstBooleen(""), "vide")
+	dbgVérifieVrai(EbEnvValeurBooleenne("oui"), "oui est vrai")
+	dbgVérifieVrai(EbEnvValeurBooleenne("TRUE"), "TRUE est vrai")
+	dbgVérifieFaux(EbEnvValeurBooleenne("0"), "0 est faux")
+	dbgVérifieFaux(EbEnvValeurBooleenne("non"), "non est faux")
+FIN
+
+PROCEDURE scenario_valeur_convient()
+	dbgVérifieVrai(EbEnvValeurConvient("texte", "bonjour", EbTestVide()), "texte")
+	dbgVérifieFaux(EbEnvValeurConvient("texte", "", EbTestVide()), "texte vide = absent")
+	dbgVérifieVrai(EbEnvValeurConvient("entier", "-3", EbTestVide()), "entier")
+	dbgVérifieFaux(EbEnvValeurConvient("entier", "abc", EbTestVide()), "entier invalide")
+	dbgVérifieVrai(EbEnvValeurConvient("port", "5432", EbTestVide()), "port")
+	dbgVérifieVrai(EbEnvValeurConvient("port", "1", EbTestVide()), "port minimum")
+	dbgVérifieVrai(EbEnvValeurConvient("port", "65535", EbTestVide()), "port maximum")
+	dbgVérifieFaux(EbEnvValeurConvient("port", "0", EbTestVide()), "port 0")
+	dbgVérifieFaux(EbEnvValeurConvient("port", "65536", EbTestVide()), "port trop grand")
+	dbgVérifieFaux(EbEnvValeurConvient("port", "abc", EbTestVide()), "port non numérique")
+	dbgVérifieVrai(EbEnvValeurConvient("booleen", "oui", EbTestVide()), "booléen")
+	dbgVérifieFaux(EbEnvValeurConvient("booleen", "x", EbTestVide()), "booléen invalide")
+	dbgVérifieVrai(EbEnvValeurConvient("chemin", "storage/app.db", EbTestVide()), "chemin")
+	dbgVérifieFaux(EbEnvValeurConvient("chemin", "a" + Caract(7) + "b", EbTestVide()), "chemin avec caractère de commande")
+	dbgVérifieVrai(EbEnvValeurConvient("liste", "production", EbTestPermises()), "dans la liste")
+	dbgVérifieFaux(EbEnvValeurConvient("liste", "prod", EbTestPermises()), "hors liste")
+	dbgVérifieFaux(EbEnvValeurConvient("liste", "Production", EbTestPermises()), "la casse compte")
+	dbgVérifieFaux(EbEnvValeurConvient("inconnue", "x", EbTestVide()), "nature inconnue : jamais convenable")
+FIN
+
+PROCEDURE scenario_attendu()
+	dbgVérifieEgalité(EbEnvAttendu("port", EbTestVide()), "un port (entier de 1 à 65535)", "port")
+	dbgVérifieEgalité(EbEnvAttendu("liste", EbTestPermises()), "l'une de ces valeurs : development, production", "liste")
+	dbgVérifieEgalité(EbEnvAttendu("inconnue", EbTestVide()), "", "nature inconnue")
+	dbgVérifieVrai(EbEnvNatureConnue("liste"), "liste connue")
+	dbgVérifieFaux(EbEnvNatureConnue("uuid"), "uuid inconnue")
+FIN
+
+PROCEDURE scenario_analyse_de_base()
+	sTexte  est une chaîne                       = "# commentaire" + Caract(10) + "DB_HOTE=localhost" + Caract(10) + "" + Caract(10) + "DB_PORT = 5432 " + Caract(10) + "DB_MOT_DE_PASSE=" + Caract(10)
+	valeurs est un tableau associatif de chaînes = EbEnvAnalyse(sTexte)
+	dbgVérifieEgalité(valeurs..Occurrence, 3, "trois variables, commentaire et ligne vide ignorés")
+	dbgVérifieEgalité(valeurs["DB_HOTE"], "localhost", "valeur simple")
+	dbgVérifieEgalité(valeurs["DB_PORT"], "5432", "espaces autour du = et de la valeur retirés")
+	dbgVérifieEgalité(valeurs["DB_MOT_DE_PASSE"], "", "valeur vide")
+FIN
+
+PROCEDURE scenario_analyse_guillemets_et_diese()
+	sTexte  est une chaîne                       = "A=" + Caract(34) + " avec espaces " + Caract(34) + Caract(10) + "B='simple'" + Caract(10) + "C=mot#de#passe" + Caract(10) + "D=" + Caract(34) + "non fermé" + Caract(10) + "E=a=b" + Caract(10)
+	valeurs est un tableau associatif de chaînes = EbEnvAnalyse(sTexte)
+	dbgVérifieEgalité(valeurs["A"], " avec espaces ", "guillemets doubles retirés, espaces gardés")
+	dbgVérifieEgalité(valeurs["B"], "simple", "guillemets simples retirés")
+	dbgVérifieEgalité(valeurs["C"], "mot#de#passe", "un # dans la valeur reste (pas de commentaire en fin de ligne)")
+	dbgVérifieEgalité(valeurs["D"], Caract(34) + "non fermé", "un guillemet seul reste")
+	dbgVérifieEgalité(valeurs["E"], "a=b", "le premier = sépare, les suivants restent dans la valeur")
+FIN
+
+PROCEDURE scenario_analyse_crlf_et_bom()
+	sTexte  est une chaîne                       = Caract(65279) + "A=1" + Caract(13) + Caract(10) + "B=2" + Caract(13) + Caract(10)
+	valeurs est un tableau associatif de chaînes = EbEnvAnalyse(sTexte)
+	dbgVérifieEgalité(valeurs["A"], "1", "BOM retiré : la première clé est lue")
+	dbgVérifieEgalité(valeurs["B"], "2", "CRLF : pas de retour chariot dans la valeur")
+FIN
+
+PROCEDURE scenario_derniere_ligne_gagne()
+	valeurs est un tableau associatif de chaînes = EbEnvAnalyse("A=1" + Caract(10) + "A=2" + Caract(10))
+	dbgVérifieEgalité(valeurs["A"], "2", "la dernière répétition l'emporte")
+	dbgVérifieEgalité(valeurs..Occurrence, 1, "une seule clé")
+FIN
+
+PROCEDURE scenario_lignes_invalides()
+	sTexte       est une chaîne            = "# ok" + Caract(10) + "A=1" + Caract(10) + "sans egal" + Caract(10) + "=sansCle" + Caract(10) + "1MAUVAISE=x" + Caract(10) + "B=2" + Caract(10)
+	tabInvalides est un tableau de chaînes = EbEnvLignesInvalides(sTexte)
+	dbgVérifieEgalité(tabInvalides..Occurrence, 3, "trois lignes invalides")
+	dbgVérifieEgalité(tabInvalides[1], "3", "ligne sans =")
+	dbgVérifieEgalité(tabInvalides[2], "4", "ligne sans clé")
+	dbgVérifieEgalité(tabInvalides[3], "5", "clé invalide")
+	dbgVérifieEgalité(EbEnvLignesInvalides("A=1" + Caract(10))..Occurrence, 0, "un fichier sain n'a rien d'invalide")
+FIN

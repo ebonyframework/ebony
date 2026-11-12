@@ -1,0 +1,16 @@
+// Tests de l'indication donnée par « ebony migrate » quand la base ne s'ouvre pas : elle ne parle de TLS que si la cause en parle.
+
+// Le message d'OWL pour un serveur sans TLS, tel qu'observé (OWL 1.7.0) : l'indication nomme DB_TLS.
+PROCEDURE scenario_indication_quand_owl_parle_de_tls()
+	sCause est une chaîne = "SQLConnexionOuvre (Postgres): ssl: serveur refuse TLS (anti-downgrade : on echoue)"
+	dbgVérifieVrai(Position(EbIndiceTls(sCause), "DB_TLS=desactive") > 0, "serveur sans TLS : DB_TLS=desactive")
+	dbgVérifieVrai(Position(EbIndiceTls(sCause), "DB_CERTIFICAT_CA") > 0, "et le certificat d'une autorité interne")
+	dbgVérifieVrai(Position(EbIndiceTls("handshake TLS : certificate unknown"), "DB_TLS") > 0, "une autre cause TLS")
+FIN
+
+// Une cause sans rapport (mot de passe, hôte inconnu) ne reçoit aucune indication : ne pas envoyer l'utilisateur sur une fausse piste.
+PROCEDURE scenario_pas_d_indication_sans_tls()
+	dbgVérifieEgalité(EbIndiceTls("password authentication failed for user postgres"), "", "mot de passe refusé")
+	dbgVérifieEgalité(EbIndiceTls("connexion refusée"), "", "hôte injoignable")
+	dbgVérifieEgalité(EbIndiceTls(""), "", "cause vide")
+FIN

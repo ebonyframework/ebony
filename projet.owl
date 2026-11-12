@@ -1,0 +1,9 @@
+Ebony est un Projet
+	PROPRIETES
+		Langues                                = [langueFrançais]
+		Description                            = "Framework d'applications pour OWL, avec la commande ebony"
+		Auteur                                 = "ElmiraLabs"
+		Licence                                = "MIT"
+		ActiveAvertissementConventionDeNommage = Vrai
+	FIN
+FIN

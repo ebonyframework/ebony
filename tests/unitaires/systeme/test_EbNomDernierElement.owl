@@ -1,0 +1,28 @@
+// Tests de EbNomDernierElement : le nom du dernier élément d'un chemin Windows (le nom d'un dossier de projet).
+
+PROCEDURE scenario_nom_ordinaire()
+	dbgVérifieEgalité(EbNomDernierElement("C:\Projets\mon-app"), "mon-app", "dossier")
+	dbgVérifieEgalité(EbNomDernierElement("D:\Projets\ElmiraLabs\ebonycore"), "ebonycore", "plusieurs niveaux")
+	dbgVérifieEgalité(EbNomDernierElement("C:\Mon Projet"), "Mon Projet", "nom avec une espace")
+FIN
+
+// Sous la racine d'un disque, le nom est celui du premier dossier ; la racine elle-même n'a pas de nom.
+PROCEDURE scenario_nom_sous_la_racine_et_racine()
+	dbgVérifieEgalité(EbNomDernierElement("C:\a"), "a", "C:\a")
+	dbgVérifieEgalité(EbNomDernierElement("C:\"), "", "racine avec barre")
+	dbgVérifieEgalité(EbNomDernierElement("C:"), "", "racine sans barre")
+	dbgVérifieEgalité(EbNomDernierElement(""), "", "chemin vide")
+FIN
+
+// Barres obliques et barre finale ne changent rien.
+PROCEDURE scenario_ecritures_equivalentes()
+	dbgVérifieEgalité(EbNomDernierElement("C:/Projets/mon-app"), "mon-app", "barres obliques")
+	dbgVérifieEgalité(EbNomDernierElement("C:\Projets\mon-app\"), "mon-app", "barre finale")
+FIN
+
+// Un chemin Linux : le dernier nom, vide pour la racine « / ».
+PROCEDURE scenario_chemin_linux()
+	dbgVérifieEgalité(EbNomDernierElement("/root/essai/boutique"), "boutique", "dossier")
+	dbgVérifieEgalité(EbNomDernierElement("/root/essai/"), "essai", "barre finale")
+	dbgVérifieEgalité(EbNomDernierElement("/"), "", "la racine n'a pas de nom")
+FIN

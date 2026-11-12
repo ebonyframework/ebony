@@ -1,0 +1,342 @@
+// Tests de cEbRestaurationBibliotheque (« ebony restore ») avec un faux disque : le cas normal (après un git clone), chaque situation de ebony/ existant,
+// chaque erreur avec son code, et la preuve que RIEN n'est écrit ni supprimé quand l'opération est refusée.
+
+// Un disque où ebony est installé dans D:\ebony (bibliothèque : 3 fichiers, version 0.1.0) et où l'utilisateur est dans le projet C:\Projets\mon-app,
+// dont ebony.conf demande la version donnée. ebony/ n'existe pas (c'est l'état après un git clone : le dossier est ignoré par git).
+PROCEDURE EbTestDisqueProjet(sVersionConf est une chaîne) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution\config")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\README.md", "bibliotheque")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\config\README.md", "config")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\README.md", "auth")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\donnees")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\donnees\README.md", "donnees")
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony.conf", EbContenuConf("mon-app", "mon-app", "AppMonApp", sVersionConf))
+	oDisque.EcritTexte("C:\Projets\mon-app\projet.owl", "projet")
+	RENVOYER oDisque
+FIN
+
+// Lance la restauration et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestEchecRestauration(oRestauration est un cEbRestaurationBibliotheque) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oResultat est un cEbBibliothequeRestauree = oRestauration.Execute()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Cas normal : après un git clone, ebony/ est restauré à l'identique de execution/, la source reste intacte.
+PROCEDURE scenario_restauration_apres_clone()
+	oDisque       est un cEbSystemeFichiersFictif                      = EbTestDisqueProjet("0.1.0")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieEgalité(oRes.Version(), "0.1.0", "version")
+	dbgVérifieEgalité(oRes.Chemin(), "C:\Projets\mon-app\ebony", "chemin")
+	dbgVérifieFaux(oRes.DejaAJour(), "pas déjà à jour : on a copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\VERSION"), "0.1.0" + Caract(10), "VERSION copiée")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\README.md"), "bibliotheque", "fichier racine")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\config\README.md"), "config", "sous-dossier")
+	dbgVérifieEgalité(oDisque.LitTexte("D:\ebony\modules\core\execution\VERSION"), "0.1.0" + Caract(10), "la source est intacte")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\projet.owl"), "projet", "le reste du projet n'est pas touché")
+FIN
+
+// ebony/ déjà à la bonne version : « déjà à jour », rien n'est écrit (même si VERSION a des fins de ligne Windows).
+PROCEDURE scenario_deja_a_jour()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.1.0" + Caract(13) + Caract(10))
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\fichier-a-moi.txt", "intact")
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieVrai(oRes.DejaAJour(), "déjà à jour")
+	dbgVérifieEgalité(oRes.Version(), "0.1.0", "version")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\fichier-a-moi.txt"), "intact", "le contenu existant est intact")
+FIN
+
+// Une seconde restauration juste après la première est « déjà à jour ».
+PROCEDURE scenario_deux_fois()
+	oDisque       est un cEbSystemeFichiersFictif                      = EbTestDisqueProjet("0.1.0")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oPremiere     est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieFaux(oPremiere.DejaAJour(), "première : copiée")
+	nFichiers est un entier                   = oDisque.NbFichiers()
+	oSeconde  est un cEbBibliothequeRestauree = oRestauration.Execute()
+	dbgVérifieVrai(oSeconde.DejaAJour(), "seconde : déjà à jour")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien d'écrit à la seconde")
+FIN
+
+// ebony/ existe mais d'une autre version : erreur 34 qui cite la version trouvée, et rien n'est touché.
+PROCEDURE scenario_ebony_d_une_autre_version()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.0.5" + Caract(10))
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\ancien.txt", "ancien")
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "34|", "code 34")
+	dbgVérifieVrai(Position(sEchec, "version 0.0.5") > 0, "cite la version trouvée")
+	dbgVérifieVrai(Position(sEchec, "ne supprime rien") > 0, "dit qu'ebony ne supprime rien")
+	dbgVérifieVrai(Position(sEchec, "supprimez ce dossier") > 0, "dit quoi faire")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\VERSION"), "0.0.5" + Caract(10), "l'ancien VERSION est intact")
+FIN
+
+// ebony/ non vide mais sans fichier VERSION : erreur 34 qui le dit.
+PROCEDURE scenario_ebony_sans_version()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\quelque-chose.txt", "x")
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "34|", "code 34")
+	dbgVérifieVrai(Position(sEchec, "aucun fichier VERSION") > 0, "dit qu'il n'y a pas de VERSION")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+// ebony/ existe mais est VIDE : on y copie la bibliothèque.
+PROCEDURE scenario_ebony_vide()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieFaux(oRes.DejaAJour(), "copiée")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\ebony\VERSION"), "VERSION présent")
+FIN
+
+// Un FICHIER nommé ebony occupe la place : erreur 34, il n'est pas supprimé.
+PROCEDURE scenario_ebony_est_un_fichier()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony", "je suis un fichier")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "34|", "code 34")
+	dbgVérifieVrai(Position(sEchec, "Un fichier nommé") > 0, "dit pourquoi")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony"), "je suis un fichier", "le fichier est intact")
+FIN
+
+// Pas d'ebony.conf dans le dossier courant : erreur 31, avec les deux issues (aller dans un projet, en créer un). Pas de remontée vers les parents.
+PROCEDURE scenario_pas_un_projet()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\ailleurs")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0")
+	oDisque.CreeDossier("C:\Projets\ailleurs")
+	oDisque.EcritTexte("C:\Projets\ebony.conf", EbContenuConf("parent", "parent", "AppParent", "0.1.0"))
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "31|", "code 31 : l'ebony.conf du dossier parent n'est pas cherché")
+	dbgVérifieVrai(Position(sEchec, "ebony new") > 0, "propose ebony new")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\ailleurs\ebony"), "rien créé")
+FIN
+
+// ebony.conf présent mais sans version valide : erreur 32, et le fichier fautif est nommé.
+PROCEDURE scenario_conf_sans_version_valide()
+	oSans est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oSans.EcritTexte("C:\Projets\mon-app\ebony.conf", "{}")
+	oRestSans est un cEbRestaurationBibliotheque(oSans, oSans)
+	sSans     est une chaîne                                   = EbTestEchecRestauration(oRestSans)
+	dbgVérifieEgalité(Gauche(sSans, 3), "32|", "pas de version : code 32")
+	dbgVérifieVrai(Position(sSans, "ebony.conf") > 0, "cite le fichier")
+	oIni est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oIni.EcritTexte("C:\Projets\mon-app\ebony.conf", "version = 0.1.0")
+	oRestIni est un cEbRestaurationBibliotheque(oIni, oIni)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestIni), 3), "32|", "pas du JSON : code 32")
+	oMauvaise     est un cEbSystemeFichiersFictif                          = EbTestDisqueProjet("pas-une-version")
+	oRestMauvaise est un cEbRestaurationBibliotheque(oMauvaise, oMauvaise)
+	sMauvaise     est une chaîne                                           = EbTestEchecRestauration(oRestMauvaise)
+	dbgVérifieEgalité(Gauche(sMauvaise, 3), "32|", "version invalide : code 32")
+	dbgVérifieVrai(Position(sMauvaise, "pas-une-version") > 0, "cite la valeur lue")
+	dbgVérifieFaux(oMauvaise.DossierExiste("C:\Projets\mon-app\ebony"), "rien créé")
+FIN
+
+// ebony.conf demande une autre version que celle d'ebony installé : REFUS 33, avec les deux versions, et rien n'est écrit.
+PROCEDURE scenario_versions_differentes()
+	oDisque       est un cEbSystemeFichiersFictif                      = EbTestDisqueProjet("0.0.9")
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "33|", "code 33")
+	dbgVérifieVrai(Position(sEchec, "0.0.9") > 0 ET Position(sEchec, "0.1.0") > 0, "cite la version demandée et la version installée")
+	dbgVérifieVrai(Position(sEchec, "ebony upgrade") > 0, "mentionne ebony upgrade")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\mon-app\ebony"), "ebony/ n'est pas créé")
+FIN
+
+// La comparaison des versions est numérique ET exacte : 0.1.0 et 0.1.00 ne sont pas la même chaîne (refus), 0.10.0 n'est pas 0.1.0.
+PROCEDURE scenario_versions_proches()
+	oDisque       est un cEbSystemeFichiersFictif                      = EbTestDisqueProjet("0.10.0")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestauration), 3), "33|", "0.10.0 n'est pas 0.1.0")
+FIN
+
+// ebony.version est un MINIMUM : un ebony installé plus récent mais de la même génération convient, et c'est SA version qui est copiée.
+PROCEDURE scenario_installe_plus_recent_que_le_minimum()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.3" + Caract(10))
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieEgalité(oRes.Version(), "0.1.3", "la version restaurée est celle de l'ebony installé, pas le minimum")
+	dbgVérifieFaux(oRes.DejaAJour(), "copiée")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\VERSION"), "0.1.3" + Caract(10), "VERSION copiée")
+	oMajeur est un cEbSystemeFichiersFictif = EbTestDisqueProjet("1.2.0")
+	oMajeur.EcritTexte("D:\ebony\modules\core\execution\VERSION", "1.4.0")
+	oRestMajeur est un cEbRestaurationBibliotheque(oMajeur, oMajeur)
+	dbgVérifieEgalité(oRestMajeur.Execute().Version(), "1.4.0", "1.x : un mineur plus récent convient")
+FIN
+
+// Installé trop ancien (0.1.0 pour un minimum 0.1.2) ou d'une autre génération (2.0.0 pour 1.2.0 ; 0.2.0 pour 0.1.0) : refus 33 avec les deux versions, rien d'écrit.
+PROCEDURE scenario_installe_trop_ancien_ou_autre_generation()
+	oAncien     est un cEbSystemeFichiersFictif                      = EbTestDisqueProjet("0.1.2")
+	nFichiers   est un entier                                        = oAncien.NbFichiers()
+	oRestAncien est un cEbRestaurationBibliotheque(oAncien, oAncien)
+	sAncien     est une chaîne                                       = EbTestEchecRestauration(oRestAncien)
+	dbgVérifieEgalité(Gauche(sAncien, 3), "33|", "trop ancien : code 33")
+	dbgVérifieVrai(Position(sAncien, "0.1.2") > 0 ET Position(sAncien, "0.1.0") > 0, "cite le minimum et la version installée")
+	dbgVérifieVrai(Position(sAncien, "même génération") > 0, "explique la règle")
+	dbgVérifieVrai(Position(sAncien, "Installez un ebony d'au moins la version 0.1.2") > 0, "trop ancien : il faut un ebony plus récent")
+	dbgVérifieVrai(Position(sAncien, "ne rétrograde jamais") > 0, "dit pourquoi upgrade n'aidera pas")
+	dbgVérifieFaux(Position(sAncien, "Alignez le projet") > 0, "ne conseille pas upgrade, qui refuserait")
+	dbgVérifieEgalité(oAncien.NbFichiers(), nFichiers, "rien d'écrit")
+	oMajeur est un cEbSystemeFichiersFictif = EbTestDisqueProjet("1.2.0")
+	oMajeur.EcritTexte("D:\ebony\modules\core\execution\VERSION", "2.0.0")
+	oRestMajeur est un cEbRestaurationBibliotheque(oMajeur, oMajeur)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestMajeur), 3), "33|", "majeur plus récent : code 33")
+	oMineur est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oMineur.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.2.0")
+	oRestMineur est un cEbRestaurationBibliotheque(oMineur, oMineur)
+	sMineur     est une chaîne                                       = EbTestEchecRestauration(oRestMineur)
+	dbgVérifieEgalité(Gauche(sMineur, 3), "33|", "0.x : mineur plus récent = autre génération : code 33")
+	dbgVérifieVrai(Position(sMineur, "Alignez le projet sur la version installée avec « ebony upgrade »") > 0, "autre génération plus récente : ebony upgrade convient")
+	dbgVérifieFaux(oMineur.DossierExiste("C:\Projets\mon-app\ebony"), "ebony/ n'est pas créé")
+FIN
+
+// ebony/ existant : « déjà à jour » dès que son VERSION satisfait le minimum (même s'il est plus ancien que l'ebony installé) ; rien n'est écrit, c'est SA version qui est rapportée.
+PROCEDURE scenario_ebony_existant_satisfait_le_minimum()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.5" + Caract(10))
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.1.2" + Caract(10))
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieVrai(oRes.DejaAJour(), "0.1.2 satisfait 0.1.0 : déjà à jour")
+	dbgVérifieEgalité(oRes.Version(), "0.1.2", "rapporte la version présente dans ebony/")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien d'écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\VERSION"), "0.1.2" + Caract(10), "ebony/ intact")
+FIN
+
+// ebony/ existant qui NE satisfait PAS le minimum (trop ancien, autre génération, VERSION illisible) : erreur 34, rien n'est touché.
+PROCEDURE scenario_ebony_existant_ne_satisfait_pas_le_minimum()
+	oAncien est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.5")
+	oAncien.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.5")
+	oAncien.CreeDossier("C:\Projets\mon-app\ebony")
+	oAncien.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.1.3")
+	nFichiers   est un entier                                        = oAncien.NbFichiers()
+	oRestAncien est un cEbRestaurationBibliotheque(oAncien, oAncien)
+	sAncien     est une chaîne                                       = EbTestEchecRestauration(oRestAncien)
+	dbgVérifieEgalité(Gauche(sAncien, 3), "34|", "ebony/ sous le minimum : code 34")
+	dbgVérifieVrai(Position(sAncien, "version 0.1.3") > 0 ET Position(sAncien, "0.1.5") > 0, "cite la version trouvée et le minimum")
+	dbgVérifieEgalité(oAncien.NbFichiers(), nFichiers, "rien d'écrit")
+	oGeneration est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oGeneration.CreeDossier("C:\Projets\mon-app\ebony")
+	oGeneration.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.2.0")
+	oRestGeneration est un cEbRestaurationBibliotheque(oGeneration, oGeneration)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestGeneration), 3), "34|", "ebony/ d'une autre génération : code 34")
+	oIllisible est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oIllisible.CreeDossier("C:\Projets\mon-app\ebony")
+	oIllisible.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "n'importe quoi")
+	oRestIllisible est un cEbRestaurationBibliotheque(oIllisible, oIllisible)
+	sIllisible     est une chaîne                                             = EbTestEchecRestauration(oRestIllisible)
+	dbgVérifieEgalité(Gauche(sIllisible, 3), "34|", "VERSION illisible : code 34")
+	dbgVérifieVrai(Position(sIllisible, "n'importe quoi") > 0, "cite ce qui a été lu")
+FIN
+
+// OWL n'est pas dans le dossier de lancement : erreur 30 avant toute lecture, rien d'écrit.
+PROCEDURE scenario_owl_mal_place()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.DefinitActif("D:\ebony")
+	nFichiers     est un entier                                        = oDisque.NbFichiers()
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "30|", "code 30")
+	dbgVérifieVrai(Position(sEchec, "ebony doctor") > 0, "renvoie à ebony doctor")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien d'écrit")
+FIN
+
+// Installation d'ebony illisible : erreur 22 (inconnue, bibliothèque absente, VERSION absent ou invalide). Rien d'écrit.
+PROCEDURE scenario_installation_illisible()
+	oInconnue est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oInconnue.DefinitInstallation("")
+	oRestInconnue est un cEbRestaurationBibliotheque(oInconnue, oInconnue)
+	sInconnue     est une chaîne                                           = EbTestEchecRestauration(oRestInconnue)
+	dbgVérifieEgalité(Gauche(sInconnue, 3), "22|", "installation inconnue : code 22")
+	dbgVérifieVrai(Position(sInconnue, "ebony.cmd") > 0, "cite le lanceur")
+	oAbsente est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oAbsente.DefinitInstallation("D:\ebony")
+	oAbsente.CreeDossier("C:\Projets\mon-app")
+	oAbsente.EcritTexte("C:\Projets\mon-app\ebony.conf", EbContenuConf("x", "x", "AppX", "0.1.0"))
+	oRestAbsente est un cEbRestaurationBibliotheque(oAbsente, oAbsente)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestAbsente), 3), "22|", "bibliothèque absente : code 22")
+	oIllisible est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oIllisible.EcritTexte("D:\ebony\modules\core\execution\VERSION", "n'importe quoi")
+	oRestIllisible est un cEbRestaurationBibliotheque(oIllisible, oIllisible)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestIllisible), 3), "22|", "VERSION invalide : code 22")
+	dbgVérifieFaux(oIllisible.DossierExiste("C:\Projets\mon-app\ebony"), "rien créé")
+FIN
+
+// Panne pendant la copie : erreur 35, le message nomme le dossier à supprimer et dit de relancer.
+PROCEDURE scenario_panne_pendant_la_copie()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.DefinitEchecSur("mon-app\ebony")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	sEchec        est une chaîne                                       = EbTestEchecRestauration(oRestauration)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "35|", "code 35")
+	dbgVérifieVrai(Position(sEchec, "Restauration interrompue") > 0, "dit que la restauration est interrompue")
+	dbgVérifieVrai(Position(sEchec, "C:\Projets\mon-app\ebony") > 0, "nomme le dossier à supprimer")
+	dbgVérifieVrai(Position(sEchec, "relancez") > 0, "dit quoi faire")
+FIN
+
+// L'ordre des vérifications : l'emplacement d'abord, puis ebony.conf, puis l'installation, puis la comparaison des versions, puis ebony/.
+PROCEDURE scenario_ordre_des_verifications()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\vide")
+	oDisque.CreeDossier("C:\Projets\vide")
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestauration), 3), "31|", "ni ebony.conf ni installation : ebony.conf d'abord")
+	oBis est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.0.9")
+	oBis.DefinitInstallation("")
+	oRestBis est un cEbRestaurationBibliotheque(oBis, oBis)
+	dbgVérifieEgalité(Gauche(EbTestEchecRestauration(oRestBis), 3), "22|", "versions différentes mais installation inconnue : l'installation d'abord")
+FIN
+
+// Un projet slim (ebony.conf : « modules » vide) est restauré avec le cœur seul, sans la base ni l'authentification.
+PROCEDURE scenario_restauration_d_un_projet_slim()
+	oDisque est un cEbSystemeFichiersFictif                     = EbTestDisqueProjet("0.1.0")
+	oSlim   est un cEbOptionsProjet("slim", "", Faux, "")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony.conf", EbContenuConfAvecOptions("mon-app", "mon-app", "AppMonApp", "0.1.0", oSlim))
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\ebony\config\README.md"), "le cœur est restauré")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\mon-app\ebony\auth\README.md"), "auth n'est pas restauré")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\mon-app\ebony\donnees\README.md"), "db n'est pas restauré")
+FIN
+
+// Un ebony.conf plus ancien, sans membre « modules » : tous les modules de l'installation sont restaurés (le comportement d'avant).
+PROCEDURE scenario_restauration_d_un_projet_sans_liste_de_modules()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueProjet("0.1.0")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony.conf", `{"ebony":{"version":"0.1.0"},"projet":{"nom":"mon-app"}}` + Caract(10))
+	oRestauration est un cEbRestaurationBibliotheque(oDisque, oDisque)
+	oRes          est un cEbBibliothequeRestauree                      = oRestauration.Execute()
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\ebony\auth\README.md"), "auth est restauré")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\ebony\donnees\README.md"), "db est restauré")
+FIN

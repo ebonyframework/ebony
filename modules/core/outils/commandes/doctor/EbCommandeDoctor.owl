@@ -1,0 +1,33 @@
+EbCommandeDoctor est une CollectionDeProcédures
+
+	// Racine de composition de « doctor » : choisit les implémentations (ici le vrai disque) et assemble les vérifications.
+	PROCEDURE EbExecuteDoctor()
+		bJson              est un booléen                               = EbOptionPresente("--json")
+		oSysteme           est un cEbSystemeFichiersReel
+		oVerifAcces        est un cEbVerifLancementAccessible(oSysteme)
+		oVerifInstallation est un cEbVerifInstallationLisible(oSysteme)
+		oVerifEcriture     est un cEbVerifEcritureLancement(oSysteme)
+		oEnvironnement     est un cEbEnvironnementReel
+		// Version d'OWL avec laquelle ebony est vérifié (les comportements d'OWL dont ebony dépend sont constatés avec cette version).
+		oVerifVersion est un cEbVerifVersionOwl(oEnvironnement, "1.8.1")
+		oVerifEtat    est un cEbVerifEtatProjet(oSysteme)
+		oDoctor       est un cEbDoctor
+		oDoctor.Ajoute(oVerifAcces)
+		oDoctor.Ajoute(oVerifInstallation)
+		oDoctor.Ajoute(oVerifEcriture)
+		oDoctor.Ajoute(oVerifVersion)
+		oDoctor.Ajoute(oVerifEtat)
+		oRapport est un cEbRapportDoctor = oDoctor.Execute()
+		SI bJson ALORS
+			Trace(oRapport.EnJson(EbVersionEbony(oSysteme), oEnvironnement.VersionOwl()))
+		SINON
+			Trace("ebony doctor")
+			Trace("")
+			Trace(oRapport.Texte())
+		FIN
+		// Le rapport a déjà tout dit : pas de ligne « ebony : … » en plus, seulement le code 1.
+		SI oRapport.ABloquant() ALORS
+			EbSortieEnEchec(1, "doctor : " + oRapport.NbErreurs() + " erreur(s) à corriger.")
+		FIN
+	FIN
+FIN

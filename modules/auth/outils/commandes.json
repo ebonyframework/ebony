@@ -1,0 +1,5 @@
+{
+	"commandes": [
+		{ "noms": ["token"], "procedure": "EbExecuteToken" }
+	]
+}

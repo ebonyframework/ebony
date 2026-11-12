@@ -1,0 +1,54 @@
+// La base de données d'une application : tout ce que le cycle de vie sait d'elle tient ICI. Elle configure la connexion d'après l'environnement chargé, l'ouvre, la ferme et la sonde.
+// C'est le composant « base » de l'application (iEbComposant) : cEbApplication (le cœur : cycle de vie, configuration, journal) ne connaît que ce contrat, jamais la connexion réelle, DB_*, le TLS ni la résilience.
+// Elle est créée au démarrage par cEbServiceBase (sa fabrique), que le service généré ajoute à l'application ; les repositories et les jetons la lisent par cEbServiceBase.Base().
+// Une base injoignable N'arrête PAS le démarrage : Ouvre() journalise un avertissement, le service démarre, /health répond 503 et la première requête rétablit la connexion (cEbBaseResiliente).
+// Les variables lues sont celles du schéma généré par « ebony new » (voir EbConnexionApplication).
+// Ne connaît que cEbEnv et cEbJournal du cœur, et la base résiliente : se teste avec une base SQLite en mémoire et un journal fictif.
+cEbBaseApplication est une Classe implemente iEbComposant
+PRIVÉ
+	oJournal est un cEbJournal
+	oBase    est un cEbBaseResiliente
+
+	// sBaseDonnees : sqlite, postgresql ou hfsql (les valeurs de --base). La connexion est configurée mais PAS ouverte (voir Ouvre).
+	// Objets construits dans des variables locales puis rangés dans les champs : construire dans un champ avant d'appeler une méthode du champ donne parfois un faux message « super-call by-name » du compilateur d'OWL.
+	PROCEDURE Constructeur(sBaseDonnees est une chaîne, oEnv est un cEbEnv, oJournal est un cEbJournal)
+		oConnexion est un cEbConnexionSqlReelle         = EbConnexionApplication(sBaseDonnees, oEnv, oJournal)
+		oBase      est un cEbBaseResiliente(oConnexion)
+		:oJournal = oJournal
+		:oBase = oBase
+	FIN
+
+	// Le nom de sa sonde dans GET /api/health : {"statut":"ok","base":"ok"}.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER "base"
+	FIN
+
+	// Ouvre la base et le dit au journal. Ne lève rien si elle est injoignable : un avertissement, et le service démarre quand même.
+	PROCEDURE PUBLIQUE Ouvre()
+		SI :oBase.Ouvre() ALORS
+			:oJournal.Info("Base ouverte")
+		SINON
+			:oJournal.Avertit("Base injoignable au démarrage : le service démarre, /health répondra 503 jusqu'à son retour")
+		FIN
+	FIN
+
+	// Ferme la base (sans effet si elle n'est pas ouverte).
+	PROCEDURE PUBLIQUE Ferme()
+		:oBase.Ferme()
+	FIN
+
+	// La base résiliente : ce que les repositories et les jetons reçoivent (cEbServiceBase.Base()).
+	PROCEDURE PUBLIQUE Base() : cEbBaseResiliente
+		RENVOYER :oBase
+	FIN
+
+	// Vrai si la base répond. Rétablit la connexion au besoin (une requête SELECT 1 passe par la couche résiliente). Un échec est journalisé en avertissement.
+	PROCEDURE PUBLIQUE Repond() : booléen
+		tabAucun  est un tableau associatif
+		oResultat est un cEbResultatSql     = :oBase.Execute("SELECT 1", tabAucun)
+		SI PAS oResultat.Succes() ALORS
+			:oJournal.Avertit("Sonde de la base en échec : " + oResultat.Message())
+		FIN
+		RENVOYER oResultat.Succes()
+	FIN
+FIN

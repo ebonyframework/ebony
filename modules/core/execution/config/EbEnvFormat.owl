@@ -1,0 +1,177 @@
+// Fonctions pures de la configuration : lecture d'un fichier .env et contrôle d'une valeur selon sa nature. Testées dans tests/unitaires/execution/config/.
+//
+// Format d'un fichier .env : une ligne « CLE=valeur ». Les lignes vides et celles qui commencent par # sont ignorées. Les espaces autour de la clé et de la valeur sont retirés ;
+// une valeur entre guillemets doubles ou simples perd ses guillemets (c'est le seul moyen de garder des espaces au bord). PAS de commentaire en fin de ligne : un # dans une valeur
+// (mot de passe) reste dans la valeur. La dernière ligne qui répète une clé l'emporte. Fins de ligne LF ou CRLF, BOM UTF-8 accepté.
+EbEnvFormat est une CollectionDeProcédures
+
+	// Les natures connues d'une variable.
+	PROCEDURE EbEnvNatureConnue(sNature est une chaîne) : booléen
+		RENVOYER sNature = "texte" OU sNature = "entier" OU sNature = "booleen" OU sNature = "port" OU sNature = "chemin" OU sNature = "liste"
+	FIN
+
+	// Vrai si le nom est utilisable comme clé : lettres ASCII, chiffres et soulignés, sans commencer par un chiffre.
+	PROCEDURE EbEnvCleValide(sCle est une chaîne) : booléen
+		SI Taille(sCle) = 0 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sCle)
+			nCode    est un entier  = Asc(Milieu(sCle, i, 1))
+			bLettre  est un booléen = (nCode >= 65 ET nCode <= 90) OU (nCode >= 97 ET nCode <= 122) OU nCode = 95
+			bChiffre est un booléen = nCode >= 48 ET nCode <= 57
+			SI PAS bLettre ET (PAS bChiffre OU i = 1) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Vrai si la chaîne est un entier relatif écrit en chiffres (signe - ou + facultatif), d'au plus 9 chiffres (pas de dépassement).
+	PROCEDURE EbEnvEstEntier(sValeur est une chaîne) : booléen
+		sChiffres est une chaîne = sValeur
+		SI Gauche(sChiffres, 1) = "-" OU Gauche(sChiffres, 1) = "+" ALORS
+			sChiffres = Droite(sChiffres, Taille(sChiffres) - 1)
+		FIN
+		SI Taille(sChiffres) = 0 OU Taille(sChiffres) > 9 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sChiffres)
+			nCode est un entier = Asc(Milieu(sChiffres, i, 1))
+			SI nCode < 48 OU nCode > 57 ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Vrai si la valeur est un booléen accepté : true, false, 1, 0, oui, non (casse indifférente).
+	PROCEDURE EbEnvEstBooleen(sValeur est une chaîne) : booléen
+		sMinuscule est une chaîne = Minuscule(sValeur)
+		RENVOYER sMinuscule = "true" OU sMinuscule = "false" OU sMinuscule = "1" OU sMinuscule = "0" OU sMinuscule = "oui" OU sMinuscule = "non"
+	FIN
+
+	// La valeur d'un booléen accepté (voir EbEnvEstBooleen) : true, 1 et oui sont vrais ; tout le reste est faux.
+	PROCEDURE EbEnvValeurBooleenne(sValeur est une chaîne) : booléen
+		sMinuscule est une chaîne = Minuscule(sValeur)
+		RENVOYER sMinuscule = "true" OU sMinuscule = "1" OU sMinuscule = "oui"
+	FIN
+
+	// Ce que la nature attend, en une phrase (pour les messages) ; « » pour une nature inconnue.
+	PROCEDURE EbEnvAttendu(sNature est une chaîne, tabValeurs est un tableau de chaînes) : chaîne
+		// Déclarée avant le SELON : OWL 1.6.0 corrompt les variables locales quand une déclaration est dans un CAS non exécuté.
+		sListe est une chaîne = ""
+		SELON sNature
+			CAS "texte"
+			RENVOYER "un texte non vide"
+			CAS "entier"
+			RENVOYER "un entier (chiffres, signe - facultatif, 9 chiffres au plus)"
+			CAS "booleen"
+			RENVOYER "un booléen (true, false, 1, 0, oui ou non)"
+			CAS "port"
+			RENVOYER "un port (entier de 1 à 65535)"
+			CAS "chemin"
+			RENVOYER "un chemin (texte non vide, sans caractère de commande)"
+			CAS "liste"
+			POUR TOUT sValeur DE tabValeurs
+				SI sListe <> "" ALORS
+					sListe += ", "
+				FIN
+				sListe += sValeur
+			FIN
+			RENVOYER "l'une de ces valeurs : " + sListe
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Vrai si la valeur convient à la nature. Une valeur vide ne convient jamais (elle compte comme absente : voir cEbEnv).
+	PROCEDURE EbEnvValeurConvient(sNature est une chaîne, sValeur est une chaîne, tabValeurs est un tableau de chaînes) : booléen
+		bConvient est un booléen = Faux
+		nPort     est un entier  = 0
+		SI Taille(sValeur) = 0 ALORS
+			RENVOYER Faux
+		FIN
+		SELON sNature
+			CAS "texte"
+			bConvient = Vrai
+			CAS "entier"
+			bConvient = EbEnvEstEntier(sValeur)
+			CAS "booleen"
+			bConvient = EbEnvEstBooleen(sValeur)
+			CAS "port"
+			SI EbEnvEstEntier(sValeur) ALORS
+				nPort     = ChaîneVersEntier(sValeur)
+				bConvient = nPort >= 1 ET nPort <= 65535
+			FIN
+			CAS "chemin"
+			bConvient = Vrai
+			POUR i = 1 À Taille(sValeur)
+				SI Asc(Milieu(sValeur, i, 1)) < 32 ALORS
+					bConvient = Faux
+				FIN
+			FIN
+			CAS "liste"
+			POUR TOUT sPermise DE tabValeurs
+				SI sPermise = sValeur ALORS
+					bConvient = Vrai
+				FIN
+			FIN
+		FIN
+		RENVOYER bConvient
+	FIN
+
+	// Les lignes d'un texte, sans retour chariot, sans BOM en tête de fichier.
+	PROCEDURE EbEnvLignes(sTexte est une chaîne) : tableau de chaînes
+		sSansBom est une chaîne = sTexte
+		SI Taille(sSansBom) > 0 ET Asc(Milieu(sSansBom, 1, 1)) = 65279 ALORS
+			sSansBom = Droite(sSansBom, Taille(sSansBom) - 1)
+		FIN
+		RENVOYER ChaîneDécoupe(Remplace(sSansBom, Caract(13), ""), Caract(10))
+	FIN
+
+	// La valeur d'une ligne « CLE=valeur » : espaces de bord retirés, puis guillemets doubles ou simples entourant la valeur retirés.
+	PROCEDURE EbEnvValeurDeLigne(sApresEgal est une chaîne) : chaîne
+		sValeur est une chaîne = SansEspace(Remplace(sApresEgal, Caract(9), " "))
+		nTaille est un entier  = Taille(sValeur)
+		SI nTaille >= 2 ET ((Gauche(sValeur, 1) = Caract(34) ET Droite(sValeur, 1) = Caract(34)) OU (Gauche(sValeur, 1) = Caract(39) ET Droite(sValeur, 1) = Caract(39))) ALORS
+			sValeur = Milieu(sValeur, 2, nTaille - 2)
+		FIN
+		RENVOYER sValeur
+	FIN
+
+	// Les couples clé/valeur d'un fichier .env. Les lignes invalides sont ignorées ici (voir EbEnvLignesInvalides).
+	PROCEDURE EbEnvAnalyse(sTexte est une chaîne) : tableau associatif de chaînes
+		valeurs   est un tableau associatif de chaînes
+		tabLignes est un tableau de chaînes            = EbEnvLignes(sTexte)
+		POUR TOUT sBrute DE tabLignes
+			sLigne est une chaîne = SansEspace(Remplace(sBrute, Caract(9), " "))
+			nEgal  est un entier  = Position(sLigne, "=")
+			SI Taille(sLigne) > 0 ET Gauche(sLigne, 1) <> "#" ET nEgal > 1 ALORS
+				sCle est une chaîne = SansEspace(Gauche(sLigne, nEgal - 1))
+				SI EbEnvCleValide(sCle) ALORS
+					valeurs[sCle] = EbEnvValeurDeLigne(Droite(sLigne, Taille(sLigne) - nEgal))
+				FIN
+			FIN
+		FIN
+		RENVOYER valeurs
+	FIN
+
+	// Les numéros (à partir de 1) des lignes qui ne sont ni vides, ni des commentaires, ni de la forme « CLE=valeur » avec une clé valide. Jamais le contenu de la ligne : il peut être un secret.
+	PROCEDURE EbEnvLignesInvalides(sTexte est une chaîne) : tableau de chaînes
+		tabNumeros est un tableau de chaînes
+		tabLignes  est un tableau de chaînes = EbEnvLignes(sTexte)
+		POUR i = 1 À tabLignes..Occurrence
+			sLigne est une chaîne = SansEspace(Remplace(tabLignes[i], Caract(9), " "))
+			SI Taille(sLigne) > 0 ET Gauche(sLigne, 1) <> "#" ALORS
+				nEgal   est un entier  = Position(sLigne, "=")
+				bValide est un booléen = Faux
+				SI nEgal > 1 ALORS
+					bValide = EbEnvCleValide(SansEspace(Gauche(sLigne, nEgal - 1)))
+				FIN
+				SI PAS bValide ALORS
+					TableauAjoute(tabNumeros, "" + i)
+				FIN
+			FIN
+		FIN
+		RENVOYER tabNumeros
+	FIN
+FIN

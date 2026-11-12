@@ -1,0 +1,52 @@
+// Le garde que des modules fournissent pour les routes générées (manifeste « routes ») : des lignes de code OWL que « ebony make resource » écrit TELLES QUELLES dans le contrôleur, sans connaître le module
+// ni ce que font ces lignes. Proprietes() : les lignes à ajouter dans le bloc PROPRIETES du service (une propriété par ligne). Procedures() : les lignes à ajouter dans le corps du service, à un cran d'indentation
+// (les tabulations relatives sont dans le texte ; une ligne vide est une ligne vide). Sans aucune ligne, les routes sont OUVERTES. Objet valeur immuable, rempli par le constructeur.
+cEbGardeRoutes est une Classe
+PRIVÉ
+	tabProprietes est un tableau de chaînes
+	tabProcedures est un tableau de chaînes
+
+	PROCEDURE Constructeur(LignesProprietes est un tableau de chaînes, LignesProcedures est un tableau de chaînes)
+		POUR TOUT sLigne DE LignesProprietes
+			TableauAjoute(:tabProprietes, sLigne)
+		FIN
+		POUR TOUT sLigne DE LignesProcedures
+			TableauAjoute(:tabProcedures, sLigne)
+		FIN
+	FIN
+
+	// Les lignes du bloc PROPRIETES du service.
+	PROCEDURE PUBLIQUE LignesProprietes() : tableau de chaînes
+		RENVOYER :tabProprietes
+	FIN
+
+	// Les lignes à écrire dans le corps du service (les procédures du garde, avec leurs commentaires).
+	PROCEDURE PUBLIQUE LignesProcedures() : tableau de chaînes
+		RENVOYER :tabProcedures
+	FIN
+
+	// Vrai si un module fournit un garde (au moins une ligne) : les routes sont alors protégées.
+	PROCEDURE PUBLIQUE Presente() : booléen
+		RENVOYER :tabProprietes..Occurrence > 0 OU :tabProcedures..Occurrence > 0
+	FIN
+
+	// Le garde de deux modules l'un après l'autre : les lignes de l'autre suivent les nôtres (objet valeur : rien n'est modifié).
+	PROCEDURE PUBLIQUE Suivi(oAutre est un cEbGardeRoutes) : cEbGardeRoutes
+		tabP est un tableau de chaînes
+		tabC est un tableau de chaînes
+		POUR TOUT sLigne DE :tabProprietes
+			TableauAjoute(tabP, sLigne)
+		FIN
+		POUR TOUT sLigne DE oAutre.LignesProprietes()
+			TableauAjoute(tabP, sLigne)
+		FIN
+		POUR TOUT sLigne DE :tabProcedures
+			TableauAjoute(tabC, sLigne)
+		FIN
+		POUR TOUT sLigne DE oAutre.LignesProcedures()
+			TableauAjoute(tabC, sLigne)
+		FIN
+		oSuivi est un cEbGardeRoutes(tabP, tabC)
+		RENVOYER oSuivi
+	FIN
+FIN

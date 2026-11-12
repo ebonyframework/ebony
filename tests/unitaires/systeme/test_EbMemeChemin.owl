@@ -1,0 +1,50 @@
+// Tests de EbMemeChemin (et de EbNormaliseChemin) : compare deux chemins Windows à l'écriture près.
+
+// Deux chemins identiques sont les mêmes.
+PROCEDURE scenario_chemins_identiques()
+	dbgVérifieVrai(EbMemeChemin("C:\Users\Jose", "C:\Users\Jose"), "identiques")
+FIN
+
+// Les barres « / » et « \ » sont équivalentes (le lanceur transmet une racine avec « / »).
+PROCEDURE scenario_barres_equivalentes()
+	dbgVérifieVrai(EbMemeChemin("D:/", "D:\"), "racine")
+	dbgVérifieVrai(EbMemeChemin("C:/Users/Jose", "C:\Users\Jose"), "chemin profond")
+FIN
+
+// Une barre finale ne change pas le dossier désigné, y compris pour une racine.
+PROCEDURE scenario_barre_finale_ignoree()
+	dbgVérifieVrai(EbMemeChemin("C:\Users\Jose\", "C:\Users\Jose"), "dossier")
+	dbgVérifieVrai(EbMemeChemin("D:\", "D:/"), "racine")
+FIN
+
+// Les majuscules ne comptent pas (Windows ne les distingue pas).
+PROCEDURE scenario_casse_ignoree()
+	dbgVérifieVrai(EbMemeChemin("C:\USERS\jose", "c:\users\JOSE"), "casse différente")
+FIN
+
+// Deux dossiers différents sont différents, même s'ils se ressemblent.
+PROCEDURE scenario_dossiers_differents()
+	dbgVérifieFaux(EbMemeChemin("C:\Users\Jose", "C:\Users\Jose2"), "suffixe")
+	dbgVérifieFaux(EbMemeChemin("C:\Users", "D:\Users"), "disques différents")
+	dbgVérifieFaux(EbMemeChemin("C:\Users\Jose", "C:\Users"), "parent")
+FIN
+
+// Les accents comptent : « é » et « e » sont deux dossiers différents.
+PROCEDURE scenario_accents_comptent()
+	dbgVérifieFaux(EbMemeChemin("C:\Jos" + Caract(233), "C:\Jose"), "é contre e")
+	dbgVérifieVrai(EbMemeChemin("C:\Jos" + Caract(233), "C:\Jos" + Caract(233)), "é contre é")
+FIN
+
+// La normalisation garde la barre d'une racine (C:\) mais retire celle d'un dossier.
+PROCEDURE scenario_normalisation()
+	dbgVérifieEgalité(EbNormaliseChemin("C:/"), "C:\", "racine")
+	dbgVérifieEgalité(EbNormaliseChemin("C:/Users/"), "C:\Users", "dossier")
+	dbgVérifieEgalité(EbNormaliseChemin(""), "", "vide")
+FIN
+
+// Un chemin Linux distingue la casse (« /a/B » et « /a/b » sont deux dossiers) ; la barre finale ne compte pas. Un chemin Windows ignore toujours la casse.
+PROCEDURE scenario_chemin_linux()
+	dbgVérifieVrai(EbMemeChemin("/root/essai", "/root/essai/"), "barre finale")
+	dbgVérifieFaux(EbMemeChemin("/root/Essai", "/root/essai"), "la casse compte sous Linux")
+	dbgVérifieVrai(EbMemeChemin("C:\Essai", "c:/essai"), "la casse ne compte pas sous Windows")
+FIN

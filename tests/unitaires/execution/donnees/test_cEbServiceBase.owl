@@ -1,0 +1,40 @@
+// Tests de cEbServiceBase : la fabrique du composant « base » (une instance) et le point où les routes retrouvent la base (membres GLOBAL de la classe). SQLite en mémoire, journal et configuration fictifs.
+// Non testé ici : le partage de l'état entre FinInitialisation et les requêtes sous « owl serve » (vérifié sur un vrai service lancé, comme pour cEbServiceApplication).
+
+// Un environnement dont la base SQLite est en mémoire.
+PROCEDURE EbTestEnvServiceBase() : cEbEnv
+	oLecture est un cEbLectureEnvFictive
+	oLecture.AjouteFichier("config/env.json", `{"variables":[{"cle":"DB_FICHIER","type":"chemin","defaut":":memory:"}]}`)
+	oEnv est un cEbEnv(oLecture)
+	oEnv.Charge("config/env.json", ".env", ".env.secrets")
+	RENVOYER oEnv
+FIN
+
+// Cree() rend le composant « base » : il se nomme « base », et la base partagée est posée pour les routes.
+PROCEDURE scenario_cree_le_composant_base_et_pose_la_base()
+	oSortie    est un cEbSortieJournalFictive
+	oHorloge   est un cEbHorlogeFictive
+	oJournal   est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv       est un cEbEnv                                = EbTestEnvServiceBase()
+	oFabrique  est un cEbServiceBase("sqlite")
+	oComposant est un iEbComposant                          = oFabrique.Cree(oEnv, oJournal)
+	dbgVérifieEgalité(oComposant.Nom(), "base", "le composant se nomme base")
+	dbgVérifieVrai(cEbServiceBase.EstDefinie(), "une base est posée")
+	oComposant.Ouvre()
+	tabAucun est un tableau associatif
+	dbgVérifieVrai(cEbServiceBase.Base().Execute("SELECT 1", tabAucun).Succes(), "la base posée répond")
+	dbgVérifieVrai(oComposant.Repond(), "le composant répond")
+	oComposant.Ferme()
+FIN
+
+// Créer le composant n'ouvre pas la base : c'est cEbApplication qui l'ouvre. Rien n'est journalisé à la création.
+PROCEDURE scenario_cree_n_ouvre_pas_la_base()
+	oSortie    est un cEbSortieJournalFictive
+	oHorloge   est un cEbHorlogeFictive
+	oJournal   est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv       est un cEbEnv                                = EbTestEnvServiceBase()
+	oFabrique  est un cEbServiceBase("sqlite")
+	oComposant est un iEbComposant                          = oFabrique.Cree(oEnv, oJournal)
+	dbgVérifieEgalité(oSortie.NbLignes(), 0, "rien d'ouvert, rien de journalisé")
+	oComposant.Ferme()
+FIN

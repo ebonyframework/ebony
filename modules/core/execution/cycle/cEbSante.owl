@@ -1,0 +1,22 @@
+// L'état de santé de l'application, tel que GET /api/health le donne : saine ou non, et le corps JSON de la réponse. Valeur immuable, calculée UNE fois par cEbApplication.Sante() (une sonde peut coûter une requête).
+// Corps : {"statut":"ok"} sans composant ; {"statut":"ok","base":"ok"} avec une base qui répond ; {"statut":"degrade","base":"indisponible"} quand elle ne répond pas ; {"statut":"degrade"} avant le démarrage.
+cEbSante est une Classe
+PRIVÉ
+	bSaine est un booléen = Faux
+	sCorps est une chaîne = ""
+
+	PROCEDURE Constructeur(bSaine est un booléen, sCorps est une chaîne)
+		:bSaine = bSaine
+		:sCorps = sCorps
+	FIN
+
+	// Vrai si l'application a démarré et si chaque composant répond (200 sur /api/health), faux sinon (503).
+	PROCEDURE PUBLIQUE Saine() : booléen
+		RENVOYER :bSaine
+	FIN
+
+	// Le corps JSON de la réponse.
+	PROCEDURE PUBLIQUE Corps() : chaîne
+		RENVOYER :sCorps
+	FIN
+FIN

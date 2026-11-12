@@ -1,0 +1,46 @@
+// Tests des fonctions pures des jetons (EbJetons) : secret, empreinte, identifiant et règle d'utilisabilité.
+
+// Un secret a la forme « eb_ » + 43 caractères Base64 URL (32 octets sans remplissage), sans « + », « / » ni « = ».
+PROCEDURE scenario_secret_de_jeton_forme()
+	sSecret est une chaîne = EbNouveauSecretJeton()
+	dbgVérifieEgalité(Gauche(sSecret, 3), "eb_", "préfixe reconnaissable")
+	dbgVérifieEgalité(Taille(sSecret), 46, "3 caractères de préfixe + 43 de Base64 URL")
+	dbgVérifieEgalité(Position(sSecret, "+"), 0, "pas de +")
+	dbgVérifieEgalité(Position(sSecret, "/"), 0, "pas de /")
+	dbgVérifieEgalité(Position(sSecret, "="), 0, "pas de remplissage")
+FIN
+
+// Deux secrets successifs diffèrent (le hasard vient du système).
+PROCEDURE scenario_secrets_de_jeton_differents()
+	dbgVérifieVrai(EbNouveauSecretJeton() <> EbNouveauSecretJeton(), "deux tirages différents")
+FIN
+
+// L'empreinte est le SHA-256 hexadécimal en minuscules : vecteur de référence de « abc ».
+PROCEDURE scenario_empreinte_est_sha256_minuscule()
+	dbgVérifieEgalité(EbEmpreinteJeton("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 de abc")
+	dbgVérifieEgalité(Taille(EbEmpreinteJeton(EbNouveauSecretJeton())), 64, "64 caractères hexadécimaux")
+FIN
+
+// L'identifiant public est le début de l'empreinte : 12 caractères.
+PROCEDURE scenario_identifiant_de_jeton_est_un_debut_d_empreinte()
+	sEmpreinte est une chaîne = EbEmpreinteJeton("abc")
+	dbgVérifieEgalité(EbIdentifiantJeton(sEmpreinte), "ba7816bf8f01", "12 premiers caractères")
+FIN
+
+// Un jeton sans expiration ni révocation est utilisable.
+PROCEDURE scenario_jeton_actif_sans_expiration()
+	dbgVérifieVrai(EbJetonActif("", "", "2026-11-07T09:30:00Z"), "jamais expiré")
+FIN
+
+// Un jeton qui expire plus tard est utilisable, expiré dans le passé non, et à l'instant exact de l'expiration il ne l'est plus.
+PROCEDURE scenario_jeton_actif_selon_expiration()
+	dbgVérifieVrai(EbJetonActif("2026-12-01T00:00:00Z", "", "2026-11-07T09:30:00Z"), "expire plus tard")
+	dbgVérifieFaux(EbJetonActif("2026-11-01T00:00:00Z", "", "2026-11-07T09:30:00Z"), "déjà expiré")
+	dbgVérifieFaux(EbJetonActif("2026-11-07T09:30:00Z", "", "2026-11-07T09:30:00Z"), "à l'instant de l'expiration")
+FIN
+
+// Un jeton révoqué n'est jamais utilisable, même sans expiration ou avant son expiration.
+PROCEDURE scenario_jeton_revoque_jamais_actif()
+	dbgVérifieFaux(EbJetonActif("", "2026-11-06T00:00:00Z", "2026-11-07T09:30:00Z"), "révoqué sans expiration")
+	dbgVérifieFaux(EbJetonActif("2026-12-01T00:00:00Z", "2026-11-06T00:00:00Z", "2026-11-07T09:30:00Z"), "révoqué avant son expiration")
+FIN

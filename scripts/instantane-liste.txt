@@ -1,0 +1,27 @@
+# Les chemins du depot de developpement qui vont dans l'instantane public.
+# Un chemin par ligne ; un dossier se termine par « / ». Lu par scripts/publie-instantane.ps1 ET scripts/controle-instantane.ps1 : une seule liste.
+# Regle supplementaire, appliquee par les deux scripts : aucun fichier .md dans l'instantane, sauf README.md a la racine et les guides d'usage de docs/guides/ (listes une par une : un guide n'est publie que quand il est pret).
+# Tout ce qui n'est pas ici reste dans le depot de developpement (consignes de travail, documents de conception, notes de versions, README de dossiers, dossier tmp).
+bin/
+modules/
+src/
+tests/
+scripts/
+install/
+assets/
+docs/guides/installation.md
+docs/guides/adopter-un-projet.md
+docs/guides/premiers-pas.md
+docs/guides/tutoriel.md
+docs/guides/architecture.md
+docs/guides/erreurs.md
+docs/guides/commandes.md
+docs/guides/modules.md
+docs/guides/configuration.md
+README.md
+LICENSE
+projet.owl
+ebony.owl
+.gitignore
+.gitattributes
+.gitleaks.toml

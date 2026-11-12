@@ -1,0 +1,33 @@
+// Résultat de « ebony install » : où ebony est installé, quelle version, et si c'était déjà fait. Objet valeur immuable, rempli par le constructeur.
+cEbEbonyInstalle est une Classe
+PRIVÉ
+	sVersion      est une chaîne = ""
+	sRacine       est une chaîne = ""
+	bDejaInstalle est un booléen = Faux
+
+	PROCEDURE Constructeur(Version est une chaîne, Racine est une chaîne, DejaInstalle est un booléen)
+		:sVersion = Version
+		:sRacine = Racine
+		:bDejaInstalle = DejaInstalle
+	FIN
+
+	// La version d'ebony installée.
+	PROCEDURE PUBLIQUE Version() : chaîne
+		RENVOYER :sVersion
+	FIN
+
+	// Le dossier de cette version, par exemple C:\Users\moi\AppData\Local\Programs\ebony\0.1.0.
+	PROCEDURE PUBLIQUE Racine() : chaîne
+		RENVOYER :sRacine
+	FIN
+
+	// Le dossier du lanceur de cette version : c'est lui qui doit se trouver dans le PATH.
+	PROCEDURE PUBLIQUE Bin() : chaîne
+		RENVOYER EbJointChemin(:sRacine, "bin")
+	FIN
+
+	// Vrai si cette version était déjà installée, complète : rien n'a été écrit.
+	PROCEDURE PUBLIQUE DejaInstalle() : booléen
+		RENVOYER :bDejaInstalle
+	FIN
+FIN

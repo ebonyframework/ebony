@@ -1,0 +1,73 @@
+// Tests de cEbVerifVersionOwl : la version d'OWL est-elle celle avec laquelle ebony est vérifié ? Utilise un faux environnement.
+
+// Même version : tout va bien.
+PROCEDURE scenario_meme_version()
+	oEnv   est un cEbEnvironnementFictif("1.5.0")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	oRes   est un cEbResultatVerification           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+	dbgVérifieVrai(Position(oRes.Message(), "1.5.0") > 0, "cite la version")
+FIN
+
+// OWL plus ancien : avertissement qui dit « plus ancien », cite les deux versions et propose la mise à jour.
+PROCEDURE scenario_version_plus_ancienne()
+	oEnv   est un cEbEnvironnementFictif("1.4.2")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	oRes   est un cEbResultatVerification           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "un avertissement ne bloque pas")
+	dbgVérifieVrai(Position(oRes.Message(), "plus ancien") > 0, "dit plus ancien")
+	dbgVérifieFaux(Position(oRes.Message(), "plus récent") > 0, "ne dit pas plus récent")
+	dbgVérifieVrai(Position(oRes.Message(), "1.4.2") > 0 ET Position(oRes.Message(), "1.5.0") > 0, "cite les deux versions")
+	dbgVérifieVrai(Position(oRes.Correction(), "Mettez OWL à jour") > 0, "propose la mise à jour")
+FIN
+
+// OWL plus récent : avertissement qui dit « plus récent » (pas de mise à jour à conseiller).
+PROCEDURE scenario_version_plus_recente()
+	oEnv   est un cEbEnvironnementFictif("1.6.0")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	oRes   est un cEbResultatVerification           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "plus récent") > 0, "dit plus récent")
+	dbgVérifieFaux(Position(oRes.Message(), "plus ancien") > 0, "ne dit pas plus ancien")
+	dbgVérifieFaux(Position(oRes.Correction(), "Mettez OWL à jour") > 0, "ne conseille pas de mettre à jour")
+	dbgVérifieVrai(Position(oRes.Correction(), "signalez") > 0, "demande de signaler")
+FIN
+
+// 1.10.0 est plus récent que 1.9.0 (comparaison de nombres, pas de textes).
+PROCEDURE scenario_dix_est_plus_recent_que_neuf()
+	oEnv   est un cEbEnvironnementFictif("1.10.0")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.9.0")
+	dbgVérifieVrai(Position(oVerif.Execute().Message(), "plus récent") > 0, "1.10.0 > 1.9.0")
+FIN
+
+// Le lanceur n'a pas transmis la version : on le dit, sans bloquer.
+PROCEDURE scenario_version_inconnue()
+	oEnv   est un cEbEnvironnementFictif("")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	oRes   est un cEbResultatVerification           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oRes.Correction(), "ebony.cmd") > 0, "la correction cite le lanceur")
+FIN
+
+// Une valeur illisible n'est pas prise pour 0 : le message la cite telle quelle.
+PROCEDURE scenario_version_illisible()
+	oEnv   est un cEbEnvironnementFictif("1.5.0-beta")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "illisible") > 0, "dit illisible")
+	dbgVérifieVrai(Position(oRes.Message(), "1.5.0-beta") > 0, "cite la valeur reçue")
+	dbgVérifieFaux(Position(oRes.Message(), "plus ancien") > 0, "ne la compare pas")
+FIN
+
+// Le lanceur met « (inconnue) » dans l'aide quand il manque la valeur : cette chaîne ne doit pas non plus être comparée.
+PROCEDURE scenario_valeur_par_defaut_du_lanceur()
+	oEnv   est un cEbEnvironnementFictif("(inconnue)")
+	oVerif est un cEbVerifVersionOwl(oEnv, "1.5.0")
+	dbgVérifieVrai(Position(oVerif.Execute().Message(), "illisible") > 0, "illisible")
+FIN

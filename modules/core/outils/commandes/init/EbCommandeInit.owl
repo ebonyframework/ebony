@@ -1,0 +1,48 @@
+EbCommandeInit est une CollectionDeProcédures
+
+	// Racine de composition de « init » : ajoute ebony au projet OWL du dossier courant, sans rien écraser (voir cEbAjoutEbony). Mêmes options que « new », sans nom : le projet est le dossier courant.
+	// Une erreur est une exception (codes 20 à 22, 24 et 26 à 28), donc code de sortie 1 (70 sans le lanceur) ; une option incorrecte est un code 25 (sortie 2).
+	PROCEDURE EbExecuteInit()
+		bJson    est un booléen            = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes = EbListeArgumentsApres("init")
+		oDemande est un cEbDemandeNew      = EbAnalyseArgumentsNew(tabArgs)
+		SI oDemande.Nom() <> "" ALORS
+			ExceptionDéclenche(25, "« ebony init » ne prend pas de nom : il ajoute ebony au projet du dossier courant. Pour un nouveau projet : ebony new " + oDemande.Nom())
+		FIN
+		oSysteme est un cEbSystemeFichiersReel
+		oAjout   est un cEbAjoutEbony(oSysteme, oSysteme)
+		oAjoute  est un cEbEbonyAjoute                    = oAjout.Execute(oDemande.Options())
+		SI bJson ALORS
+			Trace(EbJsonEbonyAjoute(oAjoute))
+			RENVOYER
+		FIN
+		oOptions est un cEbOptionsProjet = oAjoute.Options()
+		Trace("ebony ajouté au projet : " + oAjoute.Chemin())
+		Trace("  Identifiant : " + oAjoute.Identifiant())
+		Trace("  Kit         : " + oOptions.Kit())
+		SI oOptions.ABase() ALORS
+			Trace("  Base        : " + oOptions.BaseDonnees())
+		SINON
+			Trace("  Base        : aucune (kit slim)")
+		FIN
+		SI oOptions.Auth() ALORS
+			Trace("  Jetons      : oui (opaques), table « " + oOptions.TableUtilisateurs() + " » (config/Auth.owl)")
+		FIN
+		Trace("  Créés       : " + EbListeVirgules(oAjoute.Crees()))
+		Trace("  Conservés   : " + EbListeVirgules(oAjoute.Conserves()) + " (non modifiés)")
+		tabNotes est un tableau de chaînes = oAjoute.Notes()
+		SI tabNotes..Occurrence > 0 ALORS
+			Trace("")
+			Trace("À faire vous-même :")
+			POUR TOUT sNote DE tabNotes
+				Trace("  - " + sNote)
+			FIN
+		FIN
+		Trace("")
+		Trace("Pour continuer :")
+		tabEtapes est un tableau de chaînes = EbEtapesInit()
+		POUR TOUT sEtape DE tabEtapes
+			Trace("  " + sEtape)
+		FIN
+	FIN
+FIN

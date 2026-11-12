@@ -1,0 +1,31 @@
+// Fin d'une commande en echec : code de sortie (fichier de -sortie=) et message court, sans pile d'appels.
+EbSortieCommande est une CollectionDeProcédures
+
+	// Termine la commande en échec SANS pile d'appels : écrit le code de sortie dans le fichier de « -sortie= » (lu par le lanceur).
+	// Sans lanceur (pas de -sortie=), on retombe sur l'exception : code 70, avec sa pile.
+	PROCEDURE EbSortieEnEchec(nCode est un entier, sMessage est une chaîne)
+		sFichier est une chaîne = LigneCommande("sortie", "")
+		SI sFichier = "" ALORS
+			ExceptionDéclenche(11, sMessage)
+		FIN
+		oSysteme est un cEbSystemeFichiersReel
+		oSysteme.EcritTexte(sFichier, "" + nCode)
+	FIN
+
+	// Une exception levée par une commande : ligne courte (ou objet JSON avec --json), puis le code 2 pour un usage incorrect (codes 9 et 25), 1 sinon.
+	PROCEDURE EbSignaleEchec(sCode est une chaîne, sMessage est une chaîne, bJson est un booléen)
+		SI LigneCommande("sortie", "") = "" ALORS
+			ExceptionDéclenche(11, sMessage)
+		FIN
+		SI bJson ALORS
+			Trace("{" + EbJsonChaine("ok") + ":false," + EbJsonChaine("error") + ":" + EbJsonChaine(sMessage) + "}")
+		SINON
+			Trace("ebony : " + sMessage)
+		FIN
+		nCodeSortie est un entier = 1
+		SI sCode = "9" OU sCode = "25" ALORS
+			nCodeSortie = 2
+		FIN
+		EbSortieEnEchec(nCodeSortie, sMessage)
+	FIN
+FIN

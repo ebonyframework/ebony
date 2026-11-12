@@ -1,0 +1,335 @@
+// Configuration d'une application : lit .env puis .env.secrets, les valide d'après le schéma config/env.json, et donne les valeurs typées.
+// À appeler une fois au démarrage (FinInitialisation) : Charge(...) puis ExigeValide(), qui arrête le service en listant TOUTES les erreurs d'un coup.
+//
+// Schéma config/env.json (des DONNÉES, jamais du code : on le lit sans rien exécuter) :
+//   { "variables": [ { "cle": "DB_PORT", "type": "port", "obligatoire": true, "secret": false, "defaut": "5432", "valeurs": ["a","b"], "description": "..." } ] }
+//   - cle : lettres ASCII, chiffres, souligné ; unique. type : texte, entier, booleen, port, chemin ou liste (alors « valeurs » donne les valeurs permises).
+//   - obligatoire (faux par défaut), secret (faux par défaut), defaut (chaîne ou entier ; ne se combine pas avec obligatoire), description (facultative).
+// Ordre de priorité d'une valeur : .env.secrets, puis .env, puis le défaut du schéma. Une valeur VIDE compte comme absente. Une variable de .env que le schéma ne déclare pas reste lisible, sans contrôle.
+// Sans config/env.json : pas de contrôle, les valeurs de .env puis .env.secrets sont lisibles telles quelles (les projets d'avant le schéma continuent de fonctionner).
+// Les messages d'erreur nomment la variable et ce qui est attendu ; ils ne contiennent JAMAIS la valeur d'un secret ni le contenu d'une ligne invalide.
+// Les chemins sont relatifs au dossier de travail du service. Ne connaît que le port iEbLectureEnv : se teste avec cEbLectureEnvFictive.
+cEbEnv est une Classe
+PRIVÉ
+	oLecture   est un iEbLectureEnv
+	tabEtats   est un tableau
+	tabErreurs est un tableau de chaînes
+	valeurs    est un tableau associatif de chaînes
+	bSchema    est un booléen                       = Faux
+
+	PROCEDURE Constructeur(lecture est un iEbLectureEnv)
+		:oLecture = lecture
+	FIN
+
+	// Lit le schéma (s'il existe), .env et .env.secrets ; rend Vrai si tout est valide. Les erreurs sont dans Erreurs(), l'état de chaque variable dans Etats().
+	PROCEDURE PUBLIQUE Charge(cheminSchema est une chaîne, cheminEnv est une chaîne, cheminSecrets est une chaîne) : booléen
+		valeursEnv     est un tableau associatif de chaînes
+		valeursSecrets est un tableau associatif de chaînes
+		declarees      est un tableau associatif de chaînes
+		tabVariables   est un tableau
+		TableauSupprimeTout(:tabEtats)
+		TableauSupprimeTout(:tabErreurs)
+		TableauSupprimeTout(:valeurs)
+		:bSchema = Faux
+
+		valeursEnv     = :LitFichier(cheminEnv)
+		valeursSecrets = :LitFichier(cheminSecrets)
+
+		SI :oLecture.Existe(cheminSchema) ALORS
+			:bSchema = Vrai
+			tabVariables = :LitSchema(:oLecture.Lit(cheminSchema), cheminSchema)
+			POUR TOUT oVariable DE tabVariables
+				declarees[oVariable.Cle()] = "declaree"
+				:Evalue(oVariable, valeursEnv, valeursSecrets, cheminEnv, cheminSecrets)
+			FIN
+		FIN
+
+		// Les variables NON déclarées (toutes, sans schéma) restent lisibles : .env d'abord, .env.secrets par-dessus.
+		// Une variable déclarée n'est jamais recopiée ici : sa valeur n'est retenue que si elle est valide (voir Evalue).
+		POUR TOUT valeur, cle DE valeursEnv
+			SI Taille(valeur) > 0 ET PAS TableauCherche(declarees, cle) ALORS
+				:valeurs[cle] = valeur
+			FIN
+		FIN
+		POUR TOUT valeur, cle DE valeursSecrets
+			SI Taille(valeur) > 0 ET PAS TableauCherche(declarees, cle) ALORS
+				:valeurs[cle] = valeur
+			FIN
+		FIN
+		RENVOYER :Valide()
+	FIN
+
+	// Les couples clé/valeur d'un fichier .env ; les lignes invalides sont signalées par leur numéro (jamais leur contenu). Fichier absent : aucune variable, aucune erreur.
+	PROCEDURE PRIVÉE LitFichier(chemin est une chaîne) : tableau associatif de chaînes
+		vides  est un tableau associatif de chaînes
+		sTexte est une chaîne                       = ""
+		SI PAS :oLecture.Existe(chemin) ALORS
+			RENVOYER vides
+		FIN
+		sTexte = :oLecture.Lit(chemin)
+		POUR TOUT sNumero DE EbEnvLignesInvalides(sTexte)
+			TableauAjoute(:tabErreurs, chemin + " : la ligne " + sNumero + " n'est pas de la forme CLE=valeur (clé : lettres, chiffres et soulignés, sans commencer par un chiffre).")
+		FIN
+		RENVOYER EbEnvAnalyse(sTexte)
+	FIN
+
+	// Les variables déclarées par le schéma (des cEbVariableEnv). Toute anomalie du schéma est une erreur nommant l'entrée en cause.
+	PROCEDURE PRIVÉE LitSchema(sTexte est une chaîne, chemin est une chaîne) : tableau
+		tabVariables est un tableau
+		tabUne       est un tableau
+		vues         est un tableau associatif de chaînes
+		j            est un JSON
+		nIndice      est un entier                        = 0
+		sCle         est une chaîne                       = ""
+		SI PAS JSONValide(sTexte) ALORS
+			TableauAjoute(:tabErreurs, chemin + " : JSON invalide.")
+			RENVOYER tabVariables
+		FIN
+		j = ChaîneVersJSON(sTexte)
+		SI PAS JSONExiste(j, "variables") ALORS
+			TableauAjoute(:tabErreurs, chemin + " : le membre « variables » (un tableau) est absent.")
+			RENVOYER tabVariables
+		FIN
+		POUR TOUT v DE j.variables
+			nIndice++
+			tabUne = :LitVariable(v, nIndice, chemin)
+			SI tabUne..Occurrence > 0 ALORS
+				oVariable est un cEbVariableEnv = tabUne[1]
+				sCle = oVariable.Cle()
+				SI TableauCherche(vues, sCle) ALORS
+					TableauAjoute(:tabErreurs, chemin + " : la variable " + sCle + " est déclarée deux fois.")
+				SINON
+					vues[sCle] = "vue"
+					TableauAjoute(tabVariables, oVariable)
+				FIN
+			FIN
+		FIN
+		RENVOYER tabVariables
+	FIN
+
+	// Une entrée du schéma : rend un tableau d'un élément (la variable) ou vide si l'entrée est invalide (les erreurs sont ajoutées).
+	PROCEDURE PRIVÉE LitVariable(v est un JSON, nIndice est un entier, chemin est une chaîne) : tableau
+		tabRes       est un tableau
+		tabValeurs   est un tableau de chaînes
+		sOu          est une chaîne            = chemin + " : variables[" + nIndice + "]"
+		sCle         est une chaîne            = ""
+		sNature      est une chaîne            = ""
+		sDefaut      est une chaîne            = ""
+		sDescription est une chaîne            = ""
+		bObligatoire est un booléen            = Faux
+		bSecret      est un booléen            = Faux
+		bADefaut     est un booléen            = Faux
+		bOk          est un booléen            = Vrai
+		bCleLue      est un booléen            = Faux
+
+		SI JSONExiste(v, "cle") ALORS
+			SI TypeVar(v.cle) = owlChaîne ALORS
+				sCle    = v.cle
+				bCleLue = EbEnvCleValide(sCle)
+			FIN
+		FIN
+		SI bCleLue ALORS
+			sOu = chemin + " : " + sCle
+		SINON
+			TableauAjoute(:tabErreurs, sOu + " : « cle » absente ou invalide (lettres ASCII, chiffres et soulignés, sans commencer par un chiffre).")
+			bOk = Faux
+		FIN
+
+		// Le membre « type » se lit par v["type"] : « .type » est refusé par OWL (propriété de JSON).
+		SI JSONExiste(v, "type") ALORS
+			SI TypeVar(v["type"]) = owlChaîne ALORS
+				sNature = v["type"]
+			FIN
+		FIN
+		SI PAS EbEnvNatureConnue(sNature) ALORS
+			TableauAjoute(:tabErreurs, sOu + " : « type » absent ou inconnu (texte, entier, booleen, port, chemin ou liste).")
+			bOk = Faux
+		FIN
+
+		SI sNature = "liste" ALORS
+			SI JSONExiste(v, "valeurs") ALORS
+				POUR TOUT sPermise DE v.valeurs
+					SI TypeVar(sPermise) = owlChaîne ET Taille(sPermise) > 0 ALORS
+						TableauAjoute(tabValeurs, sPermise)
+					FIN
+				FIN
+			FIN
+			SI tabValeurs..Occurrence = 0 ALORS
+				TableauAjoute(:tabErreurs, sOu + " : le type liste demande « valeurs », un tableau non vide de textes.")
+				bOk = Faux
+			FIN
+		FIN
+
+		SI JSONExiste(v, "obligatoire") ALORS
+			SI TypeVar(v.obligatoire) = owlBooléen ALORS
+				bObligatoire = v.obligatoire
+			SINON
+				TableauAjoute(:tabErreurs, sOu + " : « obligatoire » doit être true ou false.")
+				bOk = Faux
+			FIN
+		FIN
+		SI JSONExiste(v, "secret") ALORS
+			SI TypeVar(v.secret) = owlBooléen ALORS
+				bSecret = v.secret
+			SINON
+				TableauAjoute(:tabErreurs, sOu + " : « secret » doit être true ou false.")
+				bOk = Faux
+			FIN
+		FIN
+		SI JSONExiste(v, "description") ALORS
+			SI TypeVar(v.description) = owlChaîne ALORS
+				sDescription = v.description
+			SINON
+				TableauAjoute(:tabErreurs, sOu + " : « description » doit être un texte.")
+				bOk = Faux
+			FIN
+		FIN
+		SI JSONExiste(v, "defaut") ALORS
+			bADefaut = Vrai
+			SI TypeVar(v.defaut) = owlChaîne ALORS
+				sDefaut = v.defaut
+			SINON
+				SI TypeVar(v.defaut) = owlEntier ALORS
+					sDefaut = "" + v.defaut
+				SINON
+					TableauAjoute(:tabErreurs, sOu + " : « defaut » doit être un texte ou un entier.")
+					bOk      = Faux
+					bADefaut = Faux
+				FIN
+			FIN
+		FIN
+		SI bADefaut ET bObligatoire ALORS
+			TableauAjoute(:tabErreurs, sOu + " : « obligatoire » et « defaut » s'excluent (une variable qui a un défaut n'est jamais absente).")
+			bOk = Faux
+		FIN
+		SI bADefaut ET EbEnvNatureConnue(sNature) ET bOk ALORS
+			SI PAS EbEnvValeurConvient(sNature, sDefaut, tabValeurs) ALORS
+				TableauAjoute(:tabErreurs, sOu + " : la valeur par défaut ne convient pas au type " + sNature + " (attendu : " + EbEnvAttendu(sNature, tabValeurs) + ", une valeur vide n'est pas permise).")
+				bOk = Faux
+			FIN
+		FIN
+
+		SI bOk ALORS
+			oVariable est un cEbVariableEnv(sCle, sNature, tabValeurs, bObligatoire, bADefaut, sDefaut, bSecret, sDescription)
+			TableauAjoute(tabRes, oVariable)
+		FIN
+		RENVOYER tabRes
+	FIN
+
+	// Cherche la valeur d'une variable déclarée (.env.secrets, puis .env, puis défaut), la contrôle, et enregistre son état.
+	PROCEDURE PRIVÉE Evalue(oVariable est un cEbVariableEnv, valeursEnv est un tableau associatif de chaînes, valeursSecrets est un tableau associatif de chaînes, cheminEnv est une chaîne, cheminSecrets est une chaîne)
+		sCle    est une chaîne = oVariable.Cle()
+		sSource est une chaîne = "absente"
+		sValeur est une chaîne = ""
+		sErreur est une chaîne = ""
+		bValide est un booléen = Vrai
+
+		SI TableauCherche(valeursSecrets, sCle) ALORS
+			SI Taille(valeursSecrets[sCle]) > 0 ALORS
+				sSource = cheminSecrets
+				sValeur = valeursSecrets[sCle]
+			FIN
+		FIN
+		SI sSource = "absente" ALORS
+			SI TableauCherche(valeursEnv, sCle) ALORS
+				SI Taille(valeursEnv[sCle]) > 0 ALORS
+					sSource = cheminEnv
+					sValeur = valeursEnv[sCle]
+				FIN
+			FIN
+		FIN
+		SI sSource = "absente" ET oVariable.ADefaut() ALORS
+			sSource = "defaut"
+			sValeur = oVariable.Defaut()
+		FIN
+
+		SI sSource = "absente" ALORS
+			SI oVariable.Obligatoire() ALORS
+				bValide = Faux
+				sErreur = sCle + " : obligatoire, mais absente de " + cheminEnv + " et de " + cheminSecrets + " (et sans valeur par défaut)."
+			FIN
+		SINON
+			SI sSource <> "defaut" ET PAS EbEnvValeurConvient(oVariable.Nature(), sValeur, oVariable.Valeurs()) ALORS
+				bValide = Faux
+				SI oVariable.Secret() ALORS
+					sErreur = sCle + " : " + EbEnvAttendu(oVariable.Nature(), oVariable.Valeurs()) + " attendu (valeur d'un secret, non affichée), lu dans " + sSource + "."
+				SINON
+					sErreur = sCle + " : " + EbEnvAttendu(oVariable.Nature(), oVariable.Valeurs()) + " attendu, reçu « " + sValeur + " » (lu dans " + sSource + ")."
+				FIN
+			FIN
+		FIN
+
+		SI bValide ET sSource <> "absente" ALORS
+			:valeurs[sCle] = sValeur
+		FIN
+		SI PAS bValide ALORS
+			TableauAjoute(:tabErreurs, sErreur)
+		FIN
+		oEtat est un cEbEtatVariableEnv(oVariable, sSource, bValide, sErreur)
+		TableauAjoute(:tabEtats, oEtat)
+	FIN
+
+	// Vrai si le schéma, .env et .env.secrets n'ont aucune erreur (après Charge).
+	PROCEDURE PUBLIQUE Valide() : booléen
+		RENVOYER :tabErreurs..Occurrence = 0
+	FIN
+
+	// Toutes les erreurs, une phrase chacune (schéma et fichiers d'abord, puis les variables dans l'ordre du schéma). Jamais la valeur d'un secret.
+	PROCEDURE PUBLIQUE Erreurs() : tableau de chaînes
+		RENVOYER :tabErreurs
+	FIN
+
+	// Vrai si un schéma a été lu (config/env.json existe).
+	PROCEDURE PUBLIQUE SchemaPresent() : booléen
+		RENVOYER :bSchema
+	FIN
+
+	// L'état de chaque variable déclarée, dans l'ordre du schéma (des cEbEtatVariableEnv).
+	PROCEDURE PUBLIQUE Etats() : tableau
+		RENVOYER :tabEtats
+	FIN
+
+	// Arrête le démarrage (exception de code 60) si la configuration n'est pas valide, en listant toutes les erreurs.
+	PROCEDURE PUBLIQUE ExigeValide()
+		sMessage est une chaîne = ""
+		SI :tabErreurs..Occurrence > 0 ALORS
+			sMessage = "Configuration invalide (" + :tabErreurs..Occurrence + " erreur(s)) :"
+			POUR TOUT sErreur DE :tabErreurs
+				sMessage += Caract(10) + "- " + sErreur
+			FIN
+			ExceptionDéclenche(60, sMessage)
+		FIN
+	FIN
+
+	// Vrai si la variable a une valeur (lue dans un fichier, ou par défaut). Une valeur invalide n'est pas retenue.
+	PROCEDURE PUBLIQUE ADeValeur(cle est une chaîne) : booléen
+		RENVOYER TableauCherche(:valeurs, cle)
+	FIN
+
+	// La valeur en texte ; « » si la variable n'a pas de valeur.
+	PROCEDURE PUBLIQUE LitTexte(cle est une chaîne) : chaîne
+		SI PAS TableauCherche(:valeurs, cle) ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER :valeurs[cle]
+	FIN
+
+	// La valeur en entier ; 0 si la variable n'a pas de valeur ou si elle n'est pas un entier (les natures entier et port sont contrôlées au chargement).
+	PROCEDURE PUBLIQUE LitEntier(cle est une chaîne) : entier
+		SI PAS TableauCherche(:valeurs, cle) ALORS
+			RENVOYER 0
+		FIN
+		SI PAS EbEnvEstEntier(:valeurs[cle]) ALORS
+			RENVOYER 0
+		FIN
+		RENVOYER ChaîneVersEntier(:valeurs[cle])
+	FIN
+
+	// La valeur en booléen (true, 1 et oui sont vrais) ; faux si la variable n'a pas de valeur.
+	PROCEDURE PUBLIQUE LitBooleen(cle est une chaîne) : booléen
+		SI PAS TableauCherche(:valeurs, cle) ALORS
+			RENVOYER Faux
+		FIN
+		RENVOYER EbEnvValeurBooleenne(:valeurs[cle])
+	FIN
+FIN

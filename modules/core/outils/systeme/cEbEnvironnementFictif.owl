@@ -1,0 +1,13 @@
+// Adaptateur de test : un environnement dont on choisit la version d'OWL, sans lire la ligne de commande.
+cEbEnvironnementFictif est une Classe implemente iEbEnvironnement
+PRIVÉ
+	sVersionOwl est une chaîne = ""
+
+	PROCEDURE Constructeur(VersionOwl est une chaîne)
+		:sVersionOwl = VersionOwl
+	FIN
+
+	PROCEDURE PUBLIQUE VersionOwl() : chaîne
+		RENVOYER :sVersionOwl
+	FIN
+FIN

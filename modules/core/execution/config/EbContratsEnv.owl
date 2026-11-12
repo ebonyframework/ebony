@@ -1,0 +1,10 @@
+// Contrat (port) de lecture des fichiers de configuration. Une interface doit être déclarée dans une Collection pour être reconnue.
+EbContratsEnv est une CollectionDeProcédures
+
+	// Lecture des fichiers .env, .env.secrets et config/env.json. Adaptateurs : cEbLectureEnvReelle (le disque), cEbLectureEnvFictive (tests, sans disque).
+	iEbLectureEnv est une Interface
+		PROCEDURE PUBLIQUE Existe(chemin est une chaîne) : booléen
+		// Le texte du fichier ; « » s'il n'existe pas (tester Existe d'abord : OWL rend aussi « » pour un fichier vide).
+		PROCEDURE PUBLIQUE Lit(chemin est une chaîne) : chaîne
+	FIN
+FIN

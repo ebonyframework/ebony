@@ -1,0 +1,58 @@
+// Tests de EbLectureProjetExistant et EbListes : ce qu'« ebony init » lit dans un projet OWL existant, sans jamais le modifier.
+
+// L'identifiant du bloc « est un Projet », avec des tabulations, des espaces, du CRLF, après des commentaires ou du code.
+PROCEDURE scenario_identifiant_du_projet()
+	sTab   est une chaîne = Caract(9)
+	sLigne est une chaîne = Caract(10)
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("MonAppli est un Projet" + sLigne + sTab + "Trace(" + Caract(34) + "x" + Caract(34) + ")" + sLigne + "FIN" + sLigne), "MonAppli", "forme simple")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("// commentaire" + sLigne + "AppCafe est un Projet" + Caract(13) + sLigne + "FIN"), "AppCafe", "après un commentaire, fins de ligne CRLF")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl(sTab + "  Boutique est un Projet  " + sLigne), "Boutique", "espaces et tabulations de bord")
+FIN
+
+// Ce qui n'est pas un bloc projet n'est pas pris pour un identifiant.
+PROCEDURE scenario_identifiant_absent()
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl(""), "", "texte vide")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("// X est un Projet" + Caract(10)), "", "dans un commentaire")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("Trace(" + Caract(34) + "Y est un Projet" + Caract(34) + ")" + Caract(10)), "", "dans une chaîne")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("Un nom est un Projet" + Caract(10)), "", "plusieurs mots avant : pas un identifiant")
+	dbgVérifieEgalité(EbIdentifiantDansProjetOwl("est un Projet" + Caract(10)), "", "pas d'identifiant")
+FIN
+
+// Les entrées du .gitignore sont reconnues avec ou sans barres, et les commentaires ne comptent pas.
+PROCEDURE scenario_gitignore_contient()
+	sLigne est une chaîne = Caract(10)
+	sTexte est une chaîne = "# ebony/" + sLigne + "/ebony" + sLigne + "storage/" + sLigne + "*.log" + sLigne
+	dbgVérifieVrai(EbGitignoreContient(sTexte, "ebony/"), "/ebony désigne ebony/")
+	dbgVérifieVrai(EbGitignoreContient(sTexte, "storage/"), "storage/")
+	dbgVérifieFaux(EbGitignoreContient(sTexte, ".env"), ".env absent")
+	dbgVérifieFaux(EbGitignoreContient("# ebony/" + sLigne, "ebony/"), "une entrée commentée ne compte pas")
+	dbgVérifieVrai(EbGitignoreContient("ebony" + Caract(13) + sLigne, "ebony/"), "CRLF et sans barre")
+	dbgVérifieFaux(EbGitignoreContient("ebony-old/" + sLigne, "ebony/"), "un autre nom qui commence pareil")
+FIN
+
+PROCEDURE scenario_gitignore_manquantes()
+	sLigne est une chaîne = Caract(10)
+	dbgVérifieEgalité(EbEntreesGitignoreManquantes(EbContenuGitignore()), "", "le .gitignore d'ebony est complet")
+	dbgVérifieEgalité(EbEntreesGitignoreManquantes(""), "ebony/, storage/, .env, .env.secrets", "tout manque")
+	dbgVérifieEgalité(EbEntreesGitignoreManquantes("ebony/" + sLigne + "*.log" + sLigne), "storage/, .env, .env.secrets", "ce qui reste à ajouter")
+FIN
+
+PROCEDURE scenario_variables_env()
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	dbgVérifieEgalité(EbVariablesEnv(EbContenuEnvExemple("x", oPostgres)), "DB_HOTE, DB_PORT, DB_NOM, DB_UTILISATEUR, DB_TLS, DB_CERTIFICAT_CA", "PostgreSQL : les variables du modèle, dont DB_TLS et DB_CERTIFICAT_CA")
+	oSqlite est un cEbOptionsProjet = EbOptionsParDefaut()
+	dbgVérifieEgalité(EbVariablesEnv(EbContenuEnvExemple("x", oSqlite)), "DB_FICHIER", "SQLite")
+	dbgVérifieEgalité(EbVariablesEnv(EbContenuSecretsExemple(oPostgres)), "DB_MOT_DE_PASSE", "secrets PostgreSQL")
+	dbgVérifieEgalité(EbVariablesEnv(EbContenuSecretsExemple(oSqlite)), "", "SQLite : aucun secret")
+FIN
+
+PROCEDURE scenario_listes()
+	tabVide est un tableau de chaînes
+	dbgVérifieEgalité(EbListeVirgules(tabVide), "", "liste vide")
+	tabDeux est un tableau de chaînes
+	TableauAjoute(tabDeux, "a")
+	TableauAjoute(tabDeux, "b")
+	dbgVérifieEgalité(EbListeVirgules(tabDeux), "a, b", "deux éléments")
+	dbgVérifieEgalité(EbSeparateur(""), "", "rien devant le premier")
+	dbgVérifieEgalité(EbSeparateur("a"), ", ", "virgule ensuite")
+FIN

@@ -1,0 +1,29 @@
+// Ce que l'utilisateur a demandé à « ebony token » : la sous-commande (create, list, revoke), son argument (le nom d'un jeton à créer, l'identifiant d'un jeton à révoquer) et l'expiration (« » : jamais).
+// Objet valeur immuable, rempli par le constructeur (voir EbAnalyseArgumentsToken).
+cEbDemandeToken est une Classe
+PRIVÉ
+	sSousCommande est une chaîne = ""
+	sArgument     est une chaîne = ""
+	sExpireLe     est une chaîne = ""
+
+	PROCEDURE Constructeur(SousCommande est une chaîne, Argument est une chaîne, ExpireLe est une chaîne)
+		:sSousCommande = SousCommande
+		:sArgument = Argument
+		:sExpireLe = ExpireLe
+	FIN
+
+	// « create », « list » ou « revoke ».
+	PROCEDURE PUBLIQUE SousCommande() : chaîne
+		RENVOYER :sSousCommande
+	FIN
+
+	// Pour « create » : le nom du jeton ; pour « revoke » : son identifiant ; « » pour « list ».
+	PROCEDURE PUBLIQUE Argument() : chaîne
+		RENVOYER :sArgument
+	FIN
+
+	// Pour « create --expire » : l'instant d'expiration AAAA-MM-JJTHH:MM:SSZ (fin du jour demandé, UTC) ; « » : le jeton n'expire pas.
+	PROCEDURE PUBLIQUE ExpireLe() : chaîne
+		RENVOYER :sExpireLe
+	FIN
+FIN

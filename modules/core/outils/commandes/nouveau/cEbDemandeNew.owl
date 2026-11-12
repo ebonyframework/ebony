@@ -1,0 +1,20 @@
+// Ce que l'utilisateur a demandé à « ebony new » : le nom libre du projet et les choix (type, base, authentification). Objet valeur immuable, rempli par le constructeur.
+cEbDemandeNew est une Classe
+PRIVÉ
+	sNom     est une chaîne          = ""
+	oOptions est un cEbOptionsProjet
+
+	PROCEDURE Constructeur(Nom est une chaîne, Options est un cEbOptionsProjet)
+		:sNom = Nom
+		:oOptions = Options
+	FIN
+
+	// Le nom du projet, vide si l'utilisateur n'en a pas donné.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	PROCEDURE PUBLIQUE Options() : cEbOptionsProjet
+		RENVOYER :oOptions
+	FIN
+FIN

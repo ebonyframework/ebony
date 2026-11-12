@@ -1,0 +1,70 @@
+// Contenu de AGENTS.md, écrit par « ebony new » et « ebony init » à la racine du projet : fonction pure (aucun accès au disque), testée dans tests/unitaires/commandes/nouveau/.
+// Il aide un assistant de code (ou un nouveau venu) à travailler selon les conventions d'Ebony et à éviter les pièges d'OWL, langage récent que les modèles connaissent mal. Le fichier est ensuite celui du projet : il peut l'adapter.
+// Dans le texte, § remplace un accent grave et ¤ un guillemet droit : OWL altère un accent grave dans une chaîne, et un guillemet fermerait la chaîne.
+EbContenuAgents est une CollectionDeProcédures
+
+	// Sans option : celui du kit par défaut (api).
+	PROCEDURE EbContenuAgents(sNom est une chaîne) : chaîne
+		oOptions est un cEbOptionsProjet = EbOptionsParDefaut()
+		RENVOYER EbContenuAgentsAvecOptions(sNom, oOptions)
+	FIN
+
+	// Comme EbContenuAgents, selon le kit : un projet sans base (slim) n'a ni migrations, ni repositories, ni commandes make, migrate et token.
+	PROCEDURE EbContenuAgentsAvecOptions(sNom est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		sLigne   est une chaîne = Caract(10)
+		sContenu est une chaîne = "# AGENTS.md : consignes pour un assistant de code" + sLigne + sLigne
+		sContenu += "Ce projet (" + EbNomPourCode(sNom) + ") est une application OWL créée avec Ebony. Ce fichier est à vous : adaptez-le. Il aide un assistant de code, ou une personne qui arrive, à travailler selon les conventions du projet." + sLigne + sLigne
+		sContenu += "## Avant de modifier du code" + sLigne + sLigne
+		sContenu += "- OWL est un langage récent, mal connu des modèles d'IA : **ne devinez pas la syntaxe**. Vérifiez avec §owl --check projet.owl§ après chaque changement ; consultez §owl learn§ et §owl explain <symbole>§." + sLigne
+		sContenu += "- Formatez chaque fichier .owl écrit ou modifié : §owl fmt <fichier>§." + sLigne
+		sContenu += "- Lancez les tests avec §owl test§ (une suite : §owl test -vv --filter <nom du fichier de test>§). OWL recompile tout le projet pour chaque suite : comptez quelques dizaines de secondes." + sLigne + sLigne
+		sContenu += "## La structure" + sLigne + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += "- §app/http/§ : le service REST et les contrôleurs (les routes). §app/services/§ : les règles métier. §app/donnees/§ : les repositories (SQL et mémoire). §app/domaine/§ : les entités et leurs contrats." + sLigne
+			sContenu += "- §database/migrations/§ : une migration par fichier, jouée par §ebony migrate§. §config/env.json§ : le schéma de la configuration (des données, pas du code). §tests/§ : les tests." + sLigne
+		SINON
+			sContenu += "- §app/http/§ : le service REST (les routes). §config/env.json§ : le schéma de la configuration (des données, pas du code). §tests/§ : les tests." + sLigne
+		FIN
+		sContenu += "- §ebony/§ est la bibliothèque d'exécution d'Ebony : **ne la modifiez pas**. Elle est ignorée par git et restaurée par §ebony restore§ ; §ebony upgrade§ l'aligne sur la version installée. Tout le reste est à vous." + sLigne + sLigne
+		SI PAS oOptions.ABase() ALORS
+			sContenu += "Ce projet est un **kit slim** : le cœur d'Ebony seul, sans base de données ni authentification. Les routes sont à écrire à la main dans §app/http/§." + sLigne + sLigne
+		FIN
+		sContenu += "## Où écrire quoi" + sLigne + sLigne
+		sContenu += "- **Vérifier ce que le client envoie** (champ obligatoire, format) : dans le **contrôleur**." + sLigne
+		sContenu += "- **Une règle métier** : dans le **service**. Une règle violée lève une exception : §ExceptionDéclenche(409, ¤message¤)§." + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += "- **Parler à la base** : dans le **repository**." + sLigne
+			sContenu += "- Le contrôleur appelle le service, jamais le repository. Le service ne sait rien du HTTP ni du SQL." + sLigne
+		SINON
+			sContenu += "- Le service ne sait rien du HTTP : il ne lit ni requête ni réponse." + sLigne
+		FIN
+		sContenu += "- Les erreurs d'une route ont la forme §{¤code¤:¤…¤,¤message¤:¤…¤}§. Codes reconnus : 400, 401, 404, 409, 503 ; tout autre code devient 500." + sLigne + sLigne
+		sContenu += "## Les commandes" + sLigne + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += "- §ebony make migration <Nom> --champs …§ et §ebony make resource <Nom> --champs …§ écrivent du code, sans jamais remplacer un fichier existant ; §--dry-run§ dit ce qui serait écrit." + sLigne
+			sContenu += "- §ebony migrate§ applique les migrations (§status§, §rollback§) ; §ebony token create <nom>§ crée un jeton d'accès ; §ebony env§ examine la configuration ; §ebony doctor§ vérifie l'environnement." + sLigne + sLigne
+		SINON
+			sContenu += "- §ebony env§ examine la configuration ; §ebony doctor§ vérifie l'environnement. Ce projet n'a pas de base (kit slim) : §ebony migrate§, §ebony make§ et §ebony token§ ne s'y appliquent pas." + sLigne + sLigne
+		FIN
+		sContenu += "## Les pièges d'OWL à connaître" + sLigne + sLigne
+		sContenu += "- Un paramètre sans type est interdit, et il n'y a pas de paramètre de sortie." + sLigne
+		sContenu += "- Pas de construction en ligne : déclarez une variable (§oX est un cX(...)§), puis passez la variable." + sLigne
+		sContenu += "- §ET§ et §OU§ **n'ont pas de court-circuit** : les deux côtés sont toujours évalués. Une garde qui dépend du premier côté s'écrit avec deux §SI§ imbriqués." + sLigne
+		sContenu += "- Ne déclarez jamais une variable (§x est un …§) à l'intérieur d'un §CAS§ d'un §SELON§ : déclarez avant, affectez dans le §CAS§." + sLigne
+		sContenu += "- Une chaîne n'a pas d'échappements §\n§ ni §\t§ : utilisez §Caract(10)§ ou une chaîne multi-lignes entre accents graves." + sLigne
+		sContenu += "- Un champ de classe de type chaîne jamais assigné n'est pas égal à §¤¤§ : écrivez §sNom est une chaîne = ¤¤§." + sLigne
+		sContenu += "- Un échec d'entrée-sortie ne lève pas d'exception : §fSauveTexte§ et §fRepCree§ rendent §Faux§ (§ErreurInfo()§ donne la cause)." + sLigne
+		sContenu += "- Des mots sont refusés comme noms (§Liste§, §Tous§, §Autre§, §Etat§, §Table§, §Colonne§, §Objet§, §Public§…), sans distinction de majuscules ni d'accents : préfixez par la nature de l'objet (§c§ classe, §i§ interface, §s§ chaîne, §n§ entier…)." + sLigne
+		sContenu += "- Ne donnez pas à une procédure le nom d'une fonction native d'OWL : elle la masquerait dans tout le projet." + sLigne
+		sContenu += "- Un service OWL traite les requêtes **une par une** : une route doit répondre vite." + sLigne + sLigne
+		sContenu += "## Ce qu'il ne faut pas faire" + sLigne + sLigne
+		sContenu += "- Modifier §ebony/§, ou supprimer une migration déjà appliquée." + sLigne
+		sContenu += "- Écrire un secret dans §.env§ (c'est §.env.secrets§), dans un message d'erreur ou dans le journal." + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += "- Rendre les routes publiques (§AUTH_ROUTES=ouvertes§) sans que ce soit demandé : les routes générées exigent un jeton." + sLigne
+		FIN
+		sContenu = Remplace(sContenu, "§", Caract(96))
+		sContenu = Remplace(sContenu, "¤", Caract(34))
+		RENVOYER sContenu
+	FIN
+FIN

@@ -1,0 +1,77 @@
+// Journal : UNE ligne JSON par événement sur la sortie standard, pour la collecte par un hébergeur.
+// OWL n'a qu'une sortie texte (stdout ; une exception non gérée donne un 500 et une trace) : ce journal en fixe le format.
+// Format d'une ligne, stable : {"ts":"2026-11-02T12:09:37Z","niveau":"info","message":"...","cle":"valeur",...}
+//   - ts : UTC, précision d'une seconde (DateHeureSys n'a pas de fraction) ; niveau : debug, info, warn ou error ; message : texte libre ;
+//   - les champs ajoutés par l'appelant viennent ensuite, TRIÉS par nom (l'ordre d'un tableau associatif d'OWL est celui des insertions : le trier rend la ligne reproductible) ;
+//     leurs valeurs sont des chaînes. Un champ qui s'appelle ts, niveau ou message est renommé _ts, _niveau, _message (jamais deux fois la même clé).
+//   - jamais de saut de ligne dans une ligne : ils sont écrits « \n » ; les accents restent tels quels (UTF-8).
+// Seuil : en dessous du niveau minimum, l'événement est ignoré (une exécution en production règle « info » ou « warn »). Un niveau inconnu à l'écriture est écrit « info » ;
+// un niveau minimum inconnu est « info ». Un journal ne lève jamais d'exception à cause de ce qu'on lui demande d'écrire.
+// Ne connaît que les ports iEbSortieJournal et iEbHorloge : se teste avec cEbSortieJournalFictive et cEbHorlogeFictive.
+// Ne mettre aucun secret dans un message ni dans un champ : le journal écrit tel quel ce qu'on lui donne.
+cEbJournal est une Classe
+PRIVÉ
+	oSortie  est un iEbSortieJournal
+	oHorloge est un iEbHorloge
+	nSeuil   est un entier           = 2
+
+	PROCEDURE Constructeur(sortie est un iEbSortieJournal, horloge est un iEbHorloge, niveauMinimum est une chaîne)
+		:oSortie = sortie
+		:oHorloge = horloge
+		nRang est un entier = EbJournalRangNiveau(niveauMinimum)
+		SI nRang > 0 ALORS
+			:nSeuil = nRang
+		FIN
+	FIN
+
+	// Écrit un événement avec ses champs (chaînes). Rien n'est écrit si le niveau est sous le seuil.
+	PROCEDURE PUBLIQUE Ecrit(niveau est une chaîne, message est une chaîne, champs est un tableau associatif)
+		sNiveau est une chaîne            = niveau
+		tabCles est un tableau de chaînes
+		sLigne  est une chaîne            = ""
+		sCle    est une chaîne            = ""
+		sNom    est une chaîne            = ""
+		SI EbJournalRangNiveau(sNiveau) = 0 ALORS
+			sNiveau = "info"
+		FIN
+		SI EbJournalRangNiveau(sNiveau) >= :nSeuil ALORS
+			sLigne = "{" + EbJournalChaineJson("ts") + ":" + EbJournalChaineJson(:oHorloge.Maintenant())
+			sLigne += "," + EbJournalChaineJson("niveau") + ":" + EbJournalChaineJson(sNiveau)
+			sLigne += "," + EbJournalChaineJson("message") + ":" + EbJournalChaineJson(message)
+			// Boucler sur un tableau associatif donne la VALEUR puis le NOM (mesuré, owl 1.6.0).
+			POUR TOUT valeur, nom DE champs
+				TableauAjoute(tabCles, nom)
+			FIN
+			TableauTrie(tabCles)
+			POUR TOUT sCle DE tabCles
+				sNom = sCle
+				SI sCle = "ts" OU sCle = "niveau" OU sCle = "message" ALORS
+					sNom = "_" + sCle
+				FIN
+				sLigne += "," + EbJournalChaineJson(sNom) + ":" + EbJournalChaineJson(champs[sCle])
+			FIN
+			sLigne += "}"
+			:oSortie.Ecrit(sLigne)
+		FIN
+	FIN
+
+	PROCEDURE PUBLIQUE Debug(message est une chaîne)
+		champsVides est un tableau associatif
+		:Ecrit("debug", message, champsVides)
+	FIN
+
+	PROCEDURE PUBLIQUE Info(message est une chaîne)
+		champsVides est un tableau associatif
+		:Ecrit("info", message, champsVides)
+	FIN
+
+	PROCEDURE PUBLIQUE Avertit(message est une chaîne)
+		champsVides est un tableau associatif
+		:Ecrit("warn", message, champsVides)
+	FIN
+
+	PROCEDURE PUBLIQUE Erreur(message est une chaîne)
+		champsVides est un tableau associatif
+		:Ecrit("error", message, champsVides)
+	FIN
+FIN

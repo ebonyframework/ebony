@@ -1,0 +1,58 @@
+// Un fichier que fournit un module (manifeste « fichiers ») : écrit par « ebony new » et « ebony init » dans le projet, qui en est ensuite propriétaire (par exemple config/Auth.owl). Objet valeur immuable.
+// Contrairement à une migration, il est écrit aussi par « init » : il ne remplace jamais un fichier existant (conflit refusé, comme config/Auth.owl avant lui). Il peut dépendre d'une OPTION de « ebony new » (« auth » : seulement
+// avec --auth) et porter le nom de la table des utilisateurs sous la forme {table_utilisateurs}, remplacé par Resolue(). Seul le dossier config/ est permis (voir EbFichierDuManifeste).
+cEbFichierModule est une Classe
+PRIVÉ
+	sModule   est une chaîne            = ""
+	sChemin   est une chaîne            = ""
+	sOption   est une chaîne            = ""
+	tabLignes est un tableau de chaînes
+
+	PROCEDURE Constructeur(Module est une chaîne, Chemin est une chaîne, Option est une chaîne, Lignes est un tableau de chaînes)
+		:sModule = Module
+		:sChemin = Chemin
+		:sOption = Option
+		POUR TOUT sLigne DE Lignes
+			TableauAjoute(:tabLignes, sLigne)
+		FIN
+	FIN
+
+	// Le module qui le fournit (le nom de son dossier dans modules/).
+	PROCEDURE PUBLIQUE Module() : chaîne
+		RENVOYER :sModule
+	FIN
+
+	// Le chemin dans le projet, relatif, avec des « / » (config/Auth.owl).
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// L'option de « ebony new » dont il dépend : « auth », ou vide (toujours).
+	PROCEDURE PUBLIQUE Option() : chaîne
+		RENVOYER :sOption
+	FIN
+
+	// Les lignes du fichier, telles que le manifeste les donne (une tabulation s'y écrit \t).
+	PROCEDURE PUBLIQUE Lignes() : tableau de chaînes
+		RENVOYER :tabLignes
+	FIN
+
+	// Le texte du fichier : les lignes séparées par un saut de ligne (LF), avec un saut de ligne final.
+	PROCEDURE PUBLIQUE Contenu() : chaîne
+		sContenu est une chaîne = ""
+		POUR TOUT sLigne DE :tabLignes
+			sContenu += sLigne + Caract(10)
+		FIN
+		RENVOYER sContenu
+	FIN
+
+	// Le même fichier, avec {table_utilisateurs} remplacé par le nom de la table des utilisateurs du projet. Objet valeur : l'original n'est pas modifié.
+	PROCEDURE PUBLIQUE Resolue(sTable est une chaîne) : cEbFichierModule
+		tabResolues est un tableau de chaînes
+		POUR TOUT sLigne DE :tabLignes
+			TableauAjoute(tabResolues, Remplace(sLigne, "{table_utilisateurs}", sTable))
+		FIN
+		oResolu est un cEbFichierModule(:sModule, :sChemin, :sOption, tabResolues)
+		RENVOYER oResolu
+	FIN
+FIN

@@ -1,0 +1,166 @@
+// Tests de cEbBaseResiliente avec une base fictive qu'on fait tomber et remonter : le schéma « sonder, rouvrir, rejouer une fois, sinon 503 »
+// et surtout ce qu'il NE fait PAS (rejouer une requête fausse, fermer une connexion saine).
+
+// La base fictive et la couche résiliente qui la protège : neuves avant CHAQUE scénario (voir avantChaqueTest), donc aucun état ne passe d'un scénario à l'autre.
+gBase      est un cEbConnexionSqlFictive
+gResilient est un cEbBaseResiliente      = cEbBaseResiliente(gBase)
+
+// Fixture : une base saine neuve et sa couche résiliente.
+PROCEDURE avantChaqueTest()
+	gBase      = cEbConnexionSqlFictive()
+	gResilient = cEbBaseResiliente(gBase)
+FIN
+
+PROCEDURE EbTestVide() : tableau associatif
+	tabParametres est un tableau associatif
+	RENVOYER tabParametres
+FIN
+
+// Une base saine : la requête passe, sans sonde, sans fermeture, sans reconnexion.
+PROCEDURE scenario_base_saine()
+	dbgVérifieVrai(gResilient.Ouvre(), "ouverture au démarrage")
+	oRes est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "succès")
+	dbgVérifieFaux(oRes.Indisponible(), "disponible")
+	dbgVérifieFaux(oRes.Reconnecte(), "pas de reconnexion")
+	dbgVérifieEgalité(oRes.NbLignes(), 1, "une ligne")
+	dbgVérifieEgalité(gBase.NbEnvois(), 1, "un seul envoi")
+	dbgVérifieEgalité(gBase.NbSondes(), 0, "aucune sonde sur le chemin heureux")
+	dbgVérifieEgalité(gBase.NbFermetures(), 0, "aucune fermeture")
+	dbgVérifieEgalité(gBase.NbOuvertures(), 1, "une seule ouverture (celle du démarrage)")
+FIN
+
+// LE cas du constat : la base redémarre, la connexion partagée est morte ; la requête suivante la rétablit toute seule et aboutit, au lieu de rendre 0 ligne pour toujours.
+PROCEDURE scenario_la_base_redemarre()
+	gResilient.Ouvre()
+	gBase.Perdre()
+	oRes est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "la requête aboutit malgré la connexion perdue")
+	dbgVérifieVrai(oRes.Reconnecte(), "le résultat dit qu'il y a eu reconnexion")
+	dbgVérifieFaux(oRes.Indisponible(), "pas indisponible")
+	dbgVérifieEgalité(oRes.NbLignes(), 1, "la ligne est rendue (et non 0 ligne)")
+	dbgVérifieEgalité(gBase.NbEnvois(), 2, "envoi, puis rejeu")
+	dbgVérifieEgalité(gBase.NbSondes(), 1, "une sonde")
+	dbgVérifieEgalité(gBase.NbFermetures(), 1, "fermée une fois")
+	dbgVérifieEgalité(gBase.NbOuvertures(), 2, "rouverte une fois")
+FIN
+
+// Une fois reconnectée, la requête d'après est de nouveau sur le chemin heureux.
+PROCEDURE scenario_apres_la_reconnexion_chemin_heureux()
+	gResilient.Ouvre()
+	gBase.Perdre()
+	gResilient.Execute("SELECT 1", EbTestVide())
+	oSuivante est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oSuivante.Succes(), "la suivante aboutit")
+	dbgVérifieFaux(oSuivante.Reconnecte(), "sans reconnexion")
+	dbgVérifieEgalité(gBase.NbEnvois(), 3, "un seul envoi de plus")
+FIN
+
+// La base est arrêtée : « indisponible » (le service répond 503), avec la cause ; une seule tentative de réouverture, pas de rejeu.
+PROCEDURE scenario_base_arretee_donne_indisponible()
+	gResilient.Ouvre()
+	gBase.DefinitBaseArretee(Vrai)
+	oRes est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieFaux(oRes.Succes(), "pas de succès")
+	dbgVérifieVrai(oRes.Indisponible(), "indisponible : 503")
+	dbgVérifieVrai(Position(oRes.Message(), "Base injoignable") > 0, "dit que la base est injoignable : " + oRes.Message())
+	dbgVérifieVrai(Position(oRes.Message(), "connexion refusée") > 0, "donne la cause : " + oRes.Message())
+	dbgVérifieEgalité(gBase.NbEnvois(), 1, "pas de rejeu : un seul envoi")
+	dbgVérifieEgalité(gBase.NbTentativesOuverture(), 2, "le démarrage + une tentative de reconnexion")
+FIN
+
+// Après une panne, la reprise se fait à la requête suivante, sans redémarrer l'application.
+PROCEDURE scenario_reprise_a_la_requete_suivante()
+	gResilient.Ouvre()
+	gBase.DefinitBaseArretee(Vrai)
+	oPanne est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oPanne.Indisponible(), "pendant la panne : indisponible")
+	gBase.DefinitBaseArretee(Faux)
+	oReprise est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oReprise.Succes(), "la base est remontée : la requête aboutit")
+	dbgVérifieVrai(oReprise.Reconnecte(), "après reconnexion")
+	dbgVérifieEgalité(oReprise.NbLignes(), 1, "avec sa ligne")
+FIN
+
+// La base est injoignable AU DÉMARRAGE : l'application démarre quand même, et la première requête rétablit la connexion quand la base est là.
+PROCEDURE scenario_base_absente_au_demarrage()
+	gBase.DefinitBaseArretee(Vrai)
+	dbgVérifieFaux(gResilient.Ouvre(), "ouverture impossible au démarrage, sans exception")
+	gBase.DefinitBaseArretee(Faux)
+	oRes est un cEbResultatSql = gResilient.Execute("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "la première requête se connecte")
+	dbgVérifieVrai(oRes.Reconnecte(), "par une reconnexion")
+FIN
+
+// Une requête FAUSSE sur une connexion saine : l'échec est rendu tel quel, sans fermer ni rouvrir la connexion et SANS rejouer la requête (rejouer une écriture refusée serait une erreur).
+PROCEDURE scenario_requete_fausse_pas_de_rejeu()
+	gBase.RefuseRequete("SELEKT 1")
+	gResilient.Ouvre()
+	oRes est un cEbResultatSql = gResilient.Execute("SELEKT 1", EbTestVide())
+	dbgVérifieFaux(oRes.Succes(), "échec")
+	dbgVérifieFaux(oRes.Indisponible(), "mais PAS indisponible : ce n'est pas la base, c'est la requête")
+	dbgVérifieFaux(oRes.Reconnecte(), "pas de reconnexion")
+	dbgVérifieVrai(Position(oRes.Message(), "SELEKT 1") > 0, "le message de la base est conservé : " + oRes.Message())
+	dbgVérifieEgalité(gBase.NbEnvois(), 1, "un seul envoi : pas de rejeu")
+	dbgVérifieEgalité(gBase.NbSondes(), 1, "une sonde pour trancher")
+	dbgVérifieEgalité(gBase.NbFermetures(), 0, "la connexion saine n'est pas fermée")
+	dbgVérifieEgalité(gBase.NbOuvertures(), 1, "ni rouverte")
+FIN
+
+// Connexion perdue ET requête fausse : on rétablit la connexion, la requête échoue encore, et c'est dit comme un échec de requête (pas un 503).
+PROCEDURE scenario_connexion_perdue_et_requete_fausse()
+	gBase.RefuseRequete("SELEKT 1")
+	gResilient.Ouvre()
+	gBase.Perdre()
+	oRes est un cEbResultatSql = gResilient.Execute("SELEKT 1", EbTestVide())
+	dbgVérifieFaux(oRes.Succes(), "échec")
+	dbgVérifieFaux(oRes.Indisponible(), "pas indisponible : la connexion est revenue")
+	dbgVérifieVrai(oRes.Reconnecte(), "mais il y a bien eu reconnexion")
+	dbgVérifieEgalité(gBase.NbEnvois(), 2, "envoi, puis un seul rejeu")
+FIN
+
+// Le rejeu retransmet les paramètres de la requête (sinon la requête rejouée serait une autre requête).
+PROCEDURE scenario_rejeu_retransmet_les_parametres()
+	gResilient.Ouvre()
+	tabParametres est un tableau associatif
+	tabParametres["a"] = 7
+	tabParametres["b"] = "x"
+	gBase.Perdre()
+	oRes est un cEbResultatSql = gResilient.Execute("SELECT {a}, {b}", tabParametres)
+	dbgVérifieVrai(oRes.Succes(), "aboutit")
+	dbgVérifieEgalité(gBase.NbEnvois(), 2, "envoi puis rejeu")
+	dbgVérifieEgalité(gBase.NbParametresRecus(), 2, "le rejeu a reçu les deux paramètres")
+FIN
+
+// Une écriture perdue avec la connexion est rejouée une fois : le nombre de lignes affectées est conservé.
+PROCEDURE scenario_ecriture_rejouee()
+	gResilient.Ouvre()
+	gBase.Perdre()
+	oRes est un cEbResultatSql = gResilient.Execute("INSERT INTO t VALUES (1)", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "l'écriture aboutit")
+	dbgVérifieEgalité(oRes.LignesAffectees(), 1, "une ligne affectée, conservée par la reconnexion")
+	dbgVérifieEgalité(gBase.NbEnvois(), 2, "rejouée une seule fois")
+FIN
+
+// La base résiliente est elle-même une connexion (port iEbConnexionSql) : un code qui attend le port, ici cEbJetons, la reçoit et profite de la reprise.
+PROCEDURE scenario_la_base_resiliente_est_une_connexion()
+	oPort est un iEbConnexionSql = gResilient
+	dbgVérifieVrai(oPort.Ouvre(), "ouverture par le port")
+	oRes est un cEbResultatSql = oPort.Envoie("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "Envoie aboutit")
+	dbgVérifieEgalité(gBase.NbEnvois(), 1, "un envoi")
+	dbgVérifieVrai(oPort.Sonde(), "Sonde répond")
+	dbgVérifieEgalité(gBase.NbSondes(), 1, "la sonde est celle de la connexion enveloppée")
+	dbgVérifieEgalité(oPort.DernierMessage(), "", "aucun message d'échec")
+FIN
+
+// Envoie par le port reprend sur connexion perdue, comme Execute : la requête aboutit après reconnexion.
+PROCEDURE scenario_envoie_par_le_port_reprend_apres_une_perte()
+	oPort est un iEbConnexionSql = gResilient
+	oPort.Ouvre()
+	gBase.Perdre()
+	oRes est un cEbResultatSql = oPort.Envoie("SELECT 1", EbTestVide())
+	dbgVérifieVrai(oRes.Succes(), "aboutit après reconnexion")
+	dbgVérifieVrai(oRes.Reconnecte(), "marquée comme reconnectée")
+	dbgVérifieEgalité(gBase.NbOuvertures(), 2, "une réouverture")
+FIN

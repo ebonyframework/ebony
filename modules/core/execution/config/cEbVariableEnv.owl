@@ -1,0 +1,59 @@
+// Une variable déclarée dans le schéma de configuration (config/env.json). Objet valeur immuable, rempli par le constructeur.
+// Nature : texte, entier, booleen, port, chemin ou liste (alors Valeurs() donne les valeurs permises). Le mot « type » est réservé en OWL, d'où « nature ».
+// ADefaut() distingue « pas de valeur par défaut » de « la valeur par défaut est vide ».
+cEbVariableEnv est une Classe
+PRIVÉ
+	sCle         est une chaîne            = ""
+	sNature      est une chaîne            = ""
+	tabValeurs   est un tableau de chaînes
+	bObligatoire est un booléen            = Faux
+	bADefaut     est un booléen            = Faux
+	sDefaut      est une chaîne            = ""
+	bSecret      est un booléen            = Faux
+	sDescription est une chaîne            = ""
+
+	PROCEDURE Constructeur(Cle est une chaîne, Nature est une chaîne, valeurs est un tableau de chaînes, Obligatoire est un booléen, ADefaut est un booléen, Defaut est une chaîne, Secret est un booléen, Description est une chaîne)
+		:sCle = Cle
+		:sNature = Nature
+		POUR TOUT sValeur DE valeurs
+			TableauAjoute(:tabValeurs, sValeur)
+		FIN
+		:bObligatoire = Obligatoire
+		:bADefaut = ADefaut
+		:sDefaut = Defaut
+		:bSecret = Secret
+		:sDescription = Description
+	FIN
+
+	PROCEDURE PUBLIQUE Cle() : chaîne
+		RENVOYER :sCle
+	FIN
+
+	PROCEDURE PUBLIQUE Nature() : chaîne
+		RENVOYER :sNature
+	FIN
+
+	PROCEDURE PUBLIQUE Valeurs() : tableau de chaînes
+		RENVOYER :tabValeurs
+	FIN
+
+	PROCEDURE PUBLIQUE Obligatoire() : booléen
+		RENVOYER :bObligatoire
+	FIN
+
+	PROCEDURE PUBLIQUE ADefaut() : booléen
+		RENVOYER :bADefaut
+	FIN
+
+	PROCEDURE PUBLIQUE Defaut() : chaîne
+		RENVOYER :sDefaut
+	FIN
+
+	PROCEDURE PUBLIQUE Secret() : booléen
+		RENVOYER :bSecret
+	FIN
+
+	PROCEDURE PUBLIQUE Description() : chaîne
+		RENVOYER :sDescription
+	FIN
+FIN

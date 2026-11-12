@@ -1,0 +1,95 @@
+EbCommandeToken est une CollectionDeProcédures
+
+	// Crée un jeton : enregistrement de l'empreinte de sSecret (la table eb_jetons vient de la migration du module auth : « ebony migrate »). Rend le texte (ou le JSON) à afficher, qui contient le secret : c'est la seule fois qu'il sort.
+	// Lève 25 si l'expiration demandée est déjà passée, 51 si la base refuse l'enregistrement (table absente comprise).
+	PROCEDURE EbCreeToken(oJetons est un cEbJetons, oDemande est un cEbDemandeToken, sMaintenant est une chaîne, sSecret est une chaîne, bJson est un booléen) : chaîne
+		SI oDemande.ExpireLe() <> "" ET oDemande.ExpireLe() <= sMaintenant ALORS
+			ExceptionDéclenche(25, "L'expiration demandée (" + oDemande.ExpireLe() + ") est déjà passée : un jeton créé ainsi serait refusé tout de suite. Choisissez un jour à venir.")
+		FIN
+		sCause est une chaîne = oJetons.Enregistre(oDemande.Argument(), sSecret, oDemande.ExpireLe())
+		SI sCause <> "" ALORS
+			ExceptionDéclenche(51, "Le jeton n'a pas pu être enregistré. Cause : " + sCause + ". Si la table eb_jetons n'existe pas, lancez « ebony migrate » : sa migration est dans database/migrations/ (écrite par « ebony new » ; un projet créé avec la 0.2 ne l'a pas : copiez celle d'un projet neuf créé avec --auth, puis lancez « ebony migrate »).")
+		FIN
+		sIdentifiant est une chaîne = EbIdentifiantJeton(EbEmpreinteJeton(sSecret))
+		SI bJson ALORS
+			RENVOYER EbJsonTokenCree(sIdentifiant, oDemande.Argument(), sSecret, oDemande.ExpireLe())
+		FIN
+		RENVOYER EbTexteTokenCree(sIdentifiant, oDemande.Argument(), sSecret, oDemande.ExpireLe())
+	FIN
+
+	// Liste les jetons (jamais un secret). Sans table, la liste est vide.
+	PROCEDURE EbListeToken(oJetons est un cEbJetons, sMaintenant est une chaîne, bJson est un booléen) : chaîne
+		tabLignes est un tableau = oJetons.Enumere()
+		SI bJson ALORS
+			RENVOYER EbJsonTokenListe(tabLignes, sMaintenant)
+		FIN
+		RENVOYER EbTexteTokenListe(tabLignes, sMaintenant)
+	FIN
+
+	// Révoque un jeton actif. Lève 52 si aucun jeton actif n'a cet identifiant (inconnu, ou déjà révoqué) : un script doit voir l'échec.
+	PROCEDURE EbRevoqueToken(oJetons est un cEbJetons, oDemande est un cEbDemandeToken, bJson est un booléen) : chaîne
+		SI oJetons.Revoque(oDemande.Argument()) = 0 ALORS
+			ExceptionDéclenche(52, "Aucun jeton actif n'a l'identifiant " + oDemande.Argument() + " (inconnu, ou déjà révoqué). « ebony token list » donne les identifiants.")
+		FIN
+		SI bJson ALORS
+			RENVOYER EbJsonTokenRevoque(oDemande.Argument())
+		FIN
+		RENVOYER EbTexteTokenRevoque(oDemande.Argument())
+	FIN
+
+	// Lance la sous-commande demandée et rend ce qu'il faut afficher. Sans déclaration dans une branche (une variable déclarée dans une branche non exécutée peut corrompre les variables locales d'OWL). sSecret : le secret à enregistrer pour « create » (la commande réelle y met un tirage aléatoire ; un test, une valeur connue).
+	PROCEDURE EbLanceToken(oJetons est un cEbJetons, oDemande est un cEbDemandeToken, oHorloge est un iEbHorloge, sSecret est une chaîne, bJson est un booléen) : chaîne
+		sMaintenant est une chaîne = oHorloge.Maintenant()
+		SI oDemande.SousCommande() = "list" ALORS
+			RENVOYER EbListeToken(oJetons, sMaintenant, bJson)
+		FIN
+		SI oDemande.SousCommande() = "revoke" ALORS
+			RENVOYER EbRevoqueToken(oJetons, oDemande, bJson)
+		FIN
+		RENVOYER EbCreeToken(oJetons, oDemande, sMaintenant, sSecret, bJson)
+	FIN
+
+	// Racine de composition de « token » : crée, liste ou révoque les jetons d'accès du projet du dossier courant, dans la base que dit sa configuration (table eb_jetons, voir cEbJetons).
+	// Même préambule que « migrate » (un ebony.conf dans le dossier courant, OWL placé dans ce dossier, configuration valide) ; HFSQL est refusé comme pour « migrate » (non mesuré).
+	// Une erreur est une exception (codes 25 usage, 30, 31, 38, 39, 45, 51, 52 et 60), donc code de sortie 1 (2 pour 25 ; 70 sans le lanceur). La connexion est fermée dans tous les cas.
+	PROCEDURE EbExecuteToken()
+		bJson    est un booléen                = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes     = EbListeArgumentsApres("token")
+		oDemande est un cEbDemandeToken        = EbAnalyseArgumentsToken(tabArgs)
+		oSysteme est un cEbSystemeFichiersReel
+		oExamen  est un cEbExamenEnv(oSysteme)
+		oEnv     est un cEbEnv                 = oExamen.Execute()
+		oEnv.ExigeValide()
+		sLancement est une chaîne = oSysteme.DossierDeLancement()
+		sTexteConf est une chaîne = oSysteme.LitTexte(EbJointChemin(sLancement, "ebony.conf"))
+		EbExigeModuleDuProjet(sTexteConf, "auth", "ebony token")
+		sBase est une chaîne = EbBaseDeLaConf(sTexteConf)
+		SI PAS EbValeurDansListe(sBase, "sqlite|postgresql|hfsql") ALORS
+			ExceptionDéclenche(38, "ebony.conf n'indique pas une base connue (base.fournisseur : « " + sBase + " » ; attendu : sqlite, postgresql ou hfsql). Corrigez-le, ou recréez le projet avec « ebony new ».")
+		FIN
+		SI sBase = "hfsql" ALORS
+			ExceptionDéclenche(39, "« ebony token » n'écrit pas encore dans HFSQL (non mesuré). Bases prises en charge : sqlite, postgresql.")
+		FIN
+		oHorloge   est un cEbHorlogeSysteme
+		oSortie    est un cEbSortieJournalFictive
+		oJournal   est un cEbJournal(oSortie, oHorloge, "error")
+		oConnexion est un cEbConnexionSqlReelle                  = EbConnexionApplication(sBase, oEnv, oJournal)
+		SI PAS oConnexion.Ouvre() ALORS
+			ExceptionDéclenche(45, "La base est injoignable : vérifiez la configuration (« ebony env ») et que la base tourne." + EbIndiceTls(oConnexion.DernierMessage()) + " Cause : " + oConnexion.DernierMessage())
+		FIN
+		oJetons  est un cEbJetons(oConnexion, oHorloge)
+		sCode    est une chaîne                         = ""
+		sMessage est une chaîne                         = ""
+		QUAND EXCEPTION DANS
+			sAffiche est une chaîne = EbLanceToken(oJetons, oDemande, oHorloge, EbNouveauSecretJeton(), bJson)
+			Trace(sAffiche)
+		FAIRE
+			sCode    = ExceptionInfo(errCode)
+			sMessage = ExceptionInfo(errMessage)
+		FIN
+		oConnexion.Ferme()
+		SI sCode <> "" ALORS
+			ExceptionDéclenche(Val(sCode), sMessage)
+		FIN
+	FIN
+FIN

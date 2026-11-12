@@ -1,0 +1,46 @@
+// Tests de cEbServiceApplication : l'application unique d'un service généré, posée par Definit et lue par Application.
+// Non testé ici : le comportement sous « owl serve » (état partagé entre FinInitialisation et les requêtes), vérifié sur un vrai service lancé.
+
+gDisqueSvc  est un cEbLectureEnvFictive
+gSortieSvc  est un cEbSortieJournalFictive
+gHorlogeSvc est un cEbHorlogeFictive
+gAppSvc     est un cEbApplication          = cEbApplication(gDisqueSvc, gSortieSvc, gHorlogeSvc)
+
+// Fixture : une application neuve, sans composant, pas encore démarrée.
+PROCEDURE avantChaqueTest()
+	gDisqueSvc  = cEbLectureEnvFictive()
+	gSortieSvc  = cEbSortieJournalFictive()
+	gHorlogeSvc = cEbHorlogeFictive()
+	gDisqueSvc.AjouteFichier("config/env.json", `{"variables":[{"cle":"DB_FICHIER","type":"chemin","defaut":":memory:"}]}`)
+	gAppSvc = cEbApplication(gDisqueSvc, gSortieSvc, gHorlogeSvc)
+FIN
+
+// Fixture : ferme la base du scénario, même s'il a échoué en route.
+PROCEDURE apresChaqueTest()
+	gAppSvc.Arrête()
+FIN
+
+// L'application posée est celle que rend Application : un état changé sur l'une se voit sur l'autre (même objet, pas une copie).
+PROCEDURE scenario_application_posee_est_partagee()
+	cEbServiceApplication.Definit(gAppSvc)
+	dbgVérifieFaux(cEbServiceApplication.Application().EstDemarree(), "pas encore démarrée")
+	gAppSvc.Démarre()
+	dbgVérifieVrai(cEbServiceApplication.Application().EstDemarree(), "démarrée vue par Application")
+FIN
+
+// Poser une autre application remplace la précédente.
+PROCEDURE scenario_definit_remplace_l_application()
+	cEbServiceApplication.Definit(gAppSvc)
+	gAppSvc.Démarre()
+	oAutre est un cEbApplication = cEbApplication(gDisqueSvc, gSortieSvc, gHorlogeSvc)
+	cEbServiceApplication.Definit(oAutre)
+	dbgVérifieFaux(cEbServiceApplication.Application().EstDemarree(), "la nouvelle application n'est pas démarrée")
+FIN
+
+// Arrête l'application posée : elle n'est plus démarrée ensuite.
+PROCEDURE scenario_arrete_arrete_l_application_posee()
+	cEbServiceApplication.Definit(gAppSvc)
+	gAppSvc.Démarre()
+	cEbServiceApplication.Arrête()
+	dbgVérifieFaux(gAppSvc.EstDemarree(), "arrêtée")
+FIN

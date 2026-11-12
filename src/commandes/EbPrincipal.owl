@@ -1,0 +1,25 @@
+// Point d'entrée de la commande « ebony » : se place dans le dossier de lancement, lit le nom de la commande et appelle l'aiguillage (EbAiguillage.owl) ; une exception devient une ligne courte et un code de sortie.
+// Codes de sortie (OWL n'a pas de fonction de code de sortie) : le lanceur (bin\ebony.cmd) passe « -sortie=<fichier> », EbPrincipal y écrit le code voulu et le lanceur le rend.
+//   0 = réussite (un avertissement de « doctor » ne change pas le code) ; 1 = échec de la commande ; 2 = usage incorrect (commande inconnue, argument manquant) ;
+//   70 = erreur interne (exception OWL non gérée, ou ebony lancé sans son lanceur : l'échec redevient alors une exception, avec sa pile d'appels).
+// Un échec affiche une ligne « ebony : <cause> » (ou, avec --json, { "ok": false, "error": ... }), jamais une pile d'appels.
+EbPrincipal est une CollectionDeProcédures
+
+	PROCEDURE EbPrincipalExecute()
+		// owl se place dans la racine du projet d'ebony : on revient au dossier de lancement, où les commandes doivent écrire.
+		sLancement est une chaîne = LigneCommande("cwd", "")
+		SI sLancement <> "" ALORS
+			fRepEnCours(sLancement)
+		FIN
+		sCommande est une chaîne = EbNomCommande()
+		SI EbOptionPresente("--version") OU EbOptionPresente("-V") ALORS
+			sCommande = "version"
+		FIN
+		bJson est un booléen = EbOptionPresente("--json")
+		QUAND EXCEPTION DANS
+			EbExecuteCommande(sCommande)
+		FAIRE
+			EbSignaleEchec(ExceptionInfo(errCode), ExceptionInfo(errMessage), bJson)
+		FIN
+	FIN
+FIN

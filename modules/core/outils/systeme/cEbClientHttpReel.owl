@@ -1,0 +1,55 @@
+// Adaptateur réel du port iEbClientHttp : envoie la requête avec le client HTTP d'OWL (HTTPEnvoie) et mesure la durée.
+// Constaté avec OWL 1.6.0 : HTTPEnvoie ne lève rien quand la connexion échoue (CodeEtat 0, ErreurInfo() donne la cause, environ 2 s d'attente) ;
+// un 404 ou un 500 est une réponse normale ; boucler sur ..Entête donne la VALEUR puis le NOM ; OWL n'a pas de méthode OPTIONS (httpGet, Post, Put, Delete, Head, Patch).
+cEbClientHttpReel est une Classe implemente iEbClientHttp
+
+	PROCEDURE PUBLIQUE Envoie(demande est un cEbDemandeHttp) : cEbReponseHttp
+		req est un httpRequête
+		req..URL = demande.Url()
+		SELON demande.Methode()
+			CAS "POST"
+			req..Méthode = httpPost
+			CAS "PUT"
+			req..Méthode = httpPut
+			CAS "DELETE"
+			req..Méthode = httpDelete
+			CAS "PATCH"
+			req..Méthode = httpPatch
+			CAS "HEAD"
+			req..Méthode = httpHead
+			AUTRE CAS
+			req..Méthode = httpGet
+		FIN
+		tabNomsEnvoyes     est un tableau de chaînes = demande.NomsEntetes()
+		tabValeursEnvoyees est un tableau de chaînes = demande.ValeursEntetes()
+		POUR i = 1 À tabNomsEnvoyes..Occurrence
+			SI Minuscule(tabNomsEnvoyes[i]) = "content-type" ALORS
+				req..ContentType = tabValeursEnvoyees[i]
+			SINON
+				req..Entête[tabNomsEnvoyes[i]] = tabValeursEnvoyees[i]
+			FIN
+		FIN
+		SI demande.Corps() <> "" ALORS
+			req..Contenu = demande.Corps()
+		FIN
+
+		ChronoDébut("ebonyrequest")
+		rep est un httpRéponse = HTTPEnvoie(req)
+		nMs est un entier      = ChronoFin("ebonyrequest")
+
+		tabNomsRecus     est un tableau de chaînes
+		tabValeursRecues est un tableau de chaînes
+		SI rep..CodeEtat = 0 ALORS
+			// Pas de réponse : la cause, telle que la donne OWL.
+			sCause       est une chaîne                                                            = ErreurInfo()
+			oSansReponse est un cEbReponseHttp(0, sCause, tabNomsRecus, tabValeursRecues, "", nMs)
+			RENVOYER oSansReponse
+		FIN
+		POUR TOUT sValeur, sNom DE rep..Entête
+			TableauAjoute(tabNomsRecus, sNom)
+			TableauAjoute(tabValeursRecues, sValeur)
+		FIN
+		oReponse est un cEbReponseHttp(rep..CodeEtat, rep..DescriptionCodeEtat, tabNomsRecus, tabValeursRecues, rep..Contenu, nMs)
+		RENVOYER oReponse
+	FIN
+FIN

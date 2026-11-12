@@ -1,0 +1,61 @@
+EbCommandeMigrate est une CollectionDeProcédures
+
+	// Lance l'opération demandée : appliquer, défaire ou lister. Sans déclaration dans une branche (une déclaration dans une branche non exécutée peut corrompre les variables locales d'OWL).
+	PROCEDURE EbLanceMigrations(oExecuteur est un cEbExecuteurMigrations, oDemande est un cEbDemandeMigrate) : cEbEtatMigrations
+		SI oDemande.SousCommande() = "status" ALORS
+			RENVOYER oExecuteur.Statut()
+		FIN
+		SI oDemande.SousCommande() = "rollback" ALORS
+			RENVOYER oExecuteur.Descend(oDemande.NbPas(), oDemande.Simulation())
+		FIN
+		RENVOYER oExecuteur.Monte(oDemande.Simulation())
+	FIN
+
+	// Racine de composition de « migrate » : applique, défait ou liste les migrations du projet du dossier courant sur la base que dit sa configuration (voir cEbExecuteurMigrations).
+	// Même règles que « env » : un ebony.conf dans le dossier courant, OWL placé dans ce dossier, configuration valide (config/env.json, .env, .env.secrets : DB_FICHIER pour SQLite, DB_HOTE… pour PostgreSQL).
+	// Une erreur est une exception (codes 30, 31, 38, 39, 44 à 47 et 60), donc code de sortie 1 (70 sans le lanceur) ; une option incorrecte est un code 25 (sortie 2). La connexion est fermée dans tous les cas.
+	PROCEDURE EbExecuteMigrate()
+		bJson    est un booléen                = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes     = EbListeArgumentsApres("migrate")
+		oDemande est un cEbDemandeMigrate      = EbAnalyseArgumentsMigrate(tabArgs)
+		oSysteme est un cEbSystemeFichiersReel
+		oExamen  est un cEbExamenEnv(oSysteme)
+		oEnv     est un cEbEnv                 = oExamen.Execute()
+		oEnv.ExigeValide()
+		sLancement est une chaîne = oSysteme.DossierDeLancement()
+		sTexteConf est une chaîne = oSysteme.LitTexte(EbJointChemin(sLancement, "ebony.conf"))
+		EbExigeModuleDuProjet(sTexteConf, "db", "ebony migrate")
+		sBase est une chaîne = EbBaseDeLaConf(sTexteConf)
+		SI PAS EbValeurDansListe(sBase, "sqlite|postgresql|hfsql") ALORS
+			ExceptionDéclenche(38, "ebony.conf n'indique pas une base connue (base.fournisseur : « " + sBase + " » ; attendu : sqlite, postgresql ou hfsql). Corrigez-le, ou recréez le projet avec « ebony new ».")
+		FIN
+		SI sBase = "hfsql" ALORS
+			ExceptionDéclenche(39, "« ebony migrate » n'applique pas encore de migration sur HFSQL (non mesuré). Bases prises en charge : sqlite, postgresql.")
+		FIN
+		oHorloge   est un cEbHorlogeSysteme
+		oSortie    est un cEbSortieJournalFictive
+		oJournal   est un cEbJournal(oSortie, oHorloge, "error")
+		oConnexion est un cEbConnexionSqlReelle                  = EbConnexionApplication(sBase, oEnv, oJournal)
+		SI PAS oConnexion.Ouvre() ALORS
+			ExceptionDéclenche(45, "La base est injoignable : vérifiez la configuration (« ebony env ») et que la base tourne." + EbIndiceTls(oConnexion.DernierMessage()) + " Cause : " + oConnexion.DernierMessage())
+		FIN
+		oExecuteur est un cEbExecuteurMigrations(oSysteme, oConnexion, oHorloge, sLancement, sBase)
+		sCode      est une chaîne                                                                   = ""
+		sMessage   est une chaîne                                                                   = ""
+		QUAND EXCEPTION DANS
+			oEtat est un cEbEtatMigrations = EbLanceMigrations(oExecuteur, oDemande)
+			SI bJson ALORS
+				Trace(EbJsonMigrate(oEtat))
+			SINON
+				Trace(EbTexteMigrate(oEtat))
+			FIN
+		FAIRE
+			sCode    = ExceptionInfo(errCode)
+			sMessage = ExceptionInfo(errMessage)
+		FIN
+		oConnexion.Ferme()
+		SI sCode <> "" ALORS
+			ExceptionDéclenche(Val(sCode), sMessage)
+		FIN
+	FIN
+FIN

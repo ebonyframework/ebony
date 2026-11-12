@@ -1,0 +1,24 @@
+// Lance les vérifications une à une et en tire un rapport. Ne connaît que le contrat iEbVerification.
+// Une vérification qui lève une exception ne fait pas échouer « doctor » : elle devient une erreur du rapport.
+cEbDoctor est une Classe
+PRIVÉ
+	tabVerifications est un tableau de iEbVerification
+
+	PROCEDURE PUBLIQUE Ajoute(verification est un iEbVerification)
+		TableauAjoute(:tabVerifications, verification)
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbRapportDoctor
+		oRapport est un cEbRapportDoctor
+		POUR TOUT oVerif DE :tabVerifications
+			oResultat est un cEbResultatVerification("", eEbStatut.reussi, "", "")
+			QUAND EXCEPTION DANS
+				oResultat = oVerif.Execute()
+			FAIRE
+				oResultat = cEbResultatVerification("Vérification", eEbStatut.erreur, "La vérification a échoué : " + ExceptionInfo(errMessage), "Relancez la commande ; si cela se reproduit, signalez-le.")
+			FIN
+			oRapport.AjouteAvecId(oResultat, oVerif.Id())
+		FIN
+		RENVOYER oRapport
+	FIN
+FIN

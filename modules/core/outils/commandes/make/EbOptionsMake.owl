@@ -1,0 +1,192 @@
+// Lecture des arguments de « ebony make resource|migration <nom> --champs <liste> [--table <table>] [--dry-run] [--json] » : fonctions pures, testées dans tests/unitaires/commandes/make/.
+//   ebony make resource Client --champs id:entier*,nom:texte,email:texte?          entité, repositories (SQL et mémoire) et tests du module Client ; table par défaut « clients »
+//   ebony make resource Client --table clients_v2 --champs …                       une table qui existe déjà sous un autre nom
+//   ebony make migration CreeClients --champs id:entier*,nom:texte                 migration qui crée la table « clients » (le nom Cree<Table> donne la table ; sinon --table)
+// La grammaire de --champs est décrite dans EbChampsMake. Les mots du nom peuvent être séparés par des espaces (ebony make resource Bon de commande) ou collés (BonDeCommande).
+// Chaque option avec valeur s'écrit « --table clients » ou « --table=clients ». --champs prend TOUS les arguments qui suivent jusqu'à la prochaine option, joints par des virgules :
+// PowerShell découpe « a:entier*,b:texte » en deux arguments avant de le passer, et le résultat doit être le même.
+// Toute erreur est une exception de code 25 (usage incorrect, code de sortie 2) : sous-commande inconnue, nom absent, option inconnue ou sans valeur, champs incorrects, table introuvable.
+EbOptionsMake est une CollectionDeProcédures
+
+	// Les sous-commandes de « make », séparées par « | ».
+	PROCEDURE EbSousCommandesMake() : chaîne
+		RENVOYER "resource|migration"
+	FIN
+
+	// La table d'une ressource sans --table : le nom en minuscules, mots reliés par « _ », au pluriel naïf (Client → clients, BonCommande → bon_commandes).
+	PROCEDURE EbTableParDefaut(tabMots est un tableau de chaînes) : chaîne
+		RENVOYER EbPluriel(EbJointMots(tabMots, "_"))
+	FIN
+
+	// La table que nomme une migration « Cree<Table> » (CreeClients → clients, CreeBonsCommande → bons_commande), ou « » si le nom ne commence pas par Cree suivi d'un mot.
+	// Le nom de la table n'est pas mis au pluriel : la migration l'écrit déjà.
+	PROCEDURE EbTableDeMigration(tabMots est un tableau de chaînes) : chaîne
+		SI tabMots..Occurrence < 2 ALORS
+			RENVOYER ""
+		FIN
+		SI tabMots[1] <> "cree" ALORS
+			RENVOYER ""
+		FIN
+		tabReste est un tableau de chaînes
+		POUR i = 2 À tabMots..Occurrence
+			TableauAjoute(tabReste, tabMots[i])
+		FIN
+		RENVOYER EbJointMots(tabReste, "_")
+	FIN
+
+	// Le nom de table sans espaces autour de chaque partie : « crm. Clients » → crm.Clients.
+	PROCEDURE EbNormaliseTable(sTable est une chaîne) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT sPartie DE ChaîneDécoupe(sTable, ".")
+			SI sRes <> "" ALORS
+				sRes += "."
+			FIN
+			sRes += SansEspace(sPartie)
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Lève (code 25) si la table ne convient pas : vide, ou avec un nom (de schéma ou de table) qui ne s'écrit pas entre guillemets (voir EbVerifieNomSql). « schema.table » est accepté.
+	PROCEDURE EbExigeTable(sTable est une chaîne)
+		SI sTable = "" ALORS
+			ExceptionDéclenche(25, "Il manque le nom de la table.")
+		FIN
+		tabParties est un tableau de chaînes = ChaîneDécoupe(sTable, ".")
+		SI tabParties..Occurrence > 2 ALORS
+			ExceptionDéclenche(25, "La table « " + sTable + " » a trop de points. Formes : table ou schema.table.")
+		FIN
+		POUR TOUT sPartie DE tabParties
+			EbExigeNomSql(sPartie, "table")
+		FIN
+	FIN
+
+	// Un nom d'exemple pour les messages d'usage.
+	PROCEDURE EbExempleNomMake(sSousCommande est une chaîne) : chaîne
+		SI sSousCommande = "migration" ALORS
+			RENVOYER "CreeClients"
+		FIN
+		RENVOYER "Client"
+	FIN
+
+	// Lit les arguments qui suivent « make » (sans les options à un tiret du lanceur) et rend la demande.
+	PROCEDURE EbAnalyseArgumentsMake(tabArgs est un tableau de chaînes) : cEbDemandeMake
+		sSousCommande est une chaîne = ""
+		sNom          est une chaîne = ""
+		sChamps       est une chaîne = ""
+		bChamps       est un booléen = Faux
+		sTable        est une chaîne = ""
+		bSimulation   est un booléen = Faux
+		nNb           est un entier  = tabArgs..Occurrence
+		i             est un entier  = 1
+		TANTQUE i <= nNb
+			sArg est une chaîne = tabArgs[i]
+			i++
+			SI Gauche(sArg, 2) <> "--" ALORS
+				// Un argument à un tiret ou à barre oblique est une option du lanceur : ignorée, comme pour les autres commandes.
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					SI sSousCommande = "" ALORS
+						sSousCommande = sArg
+					SINON
+						SI sNom <> "" ALORS
+							sNom += " "
+						FIN
+						sNom += sArg
+					FIN
+				FIN
+				CONTINUER
+			FIN
+			sOption       est une chaîne = sArg
+			sValeur       est une chaîne = ""
+			bValeurDonnee est un booléen = Faux
+			bSuite        est un booléen = Faux
+			nEgal         est un entier  = Position(sArg, "=")
+			SI nEgal > 0 ALORS
+				sOption       = Gauche(sArg, nEgal - 1)
+				sValeur       = Milieu(sArg, nEgal + 1)
+				bValeurDonnee = Vrai
+			FIN
+			SELON sOption
+				CAS "--json"
+				// Le format de sortie (--json) est lu par la commande (EbOptionPresente) : rien à retenir ici.
+				CAS "--dry-run"
+				SI bValeurDonnee ALORS
+					ExceptionDéclenche(25, "L'option --dry-run ne prend pas de valeur.")
+				FIN
+				bSimulation = Vrai
+				CAS "--table"
+				SI PAS bValeurDonnee ET i <= nNb ALORS
+					SI Gauche(tabArgs[i], 1) <> "-" ALORS
+						sValeur       = tabArgs[i]
+						bValeurDonnee = Vrai
+						i++
+					FIN
+				FIN
+				SI PAS bValeurDonnee ALORS
+					ExceptionDéclenche(25, "Il manque la valeur de --table. Exemple : --table clients")
+				FIN
+				sTable = EbNormaliseTable(sValeur)
+				CAS "--champs"
+				bChamps = Vrai
+				SI bValeurDonnee ALORS
+					sChamps = sValeur
+				FIN
+				bSuite = Vrai
+				TANTQUE bSuite
+					bSuite = Faux
+					SI i <= nNb ALORS
+						SI Gauche(tabArgs[i], 2) <> "--" ALORS
+							SI sChamps <> "" ET Droite(sChamps, 1) <> "," ET Gauche(tabArgs[i], 1) <> "," ALORS
+								sChamps += ","
+							FIN
+							sChamps += tabArgs[i]
+							i++
+							bSuite = Vrai
+						FIN
+					FIN
+				FIN
+				AUTRE CAS
+				ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Options de « make » : --champs, --table, --dry-run, --json.")
+			FIN
+		FIN
+
+		SI sSousCommande = "" ALORS
+			ExceptionDéclenche(25, "Il manque la sous-commande. Sous-commandes de « make » : " + Remplace(EbSousCommandesMake(), "|", ", ") + ". Exemple : ebony make resource Client --champs id:entier*,nom:texte")
+		FIN
+		SI PAS EbValeurDansListe(sSousCommande, EbSousCommandesMake()) ALORS
+			ExceptionDéclenche(25, "Sous-commande inconnue : « " + sSousCommande + " ». Sous-commandes de « make » : " + Remplace(EbSousCommandesMake(), "|", ", ") + ".")
+		FIN
+		SI sNom = "" ALORS
+			ExceptionDéclenche(25, "Il manque le nom. Exemple : ebony make " + sSousCommande + " " + EbExempleNomMake(sSousCommande) + " --champs id:entier*,nom:texte")
+		FIN
+		tabMots est un tableau de chaînes = EbMotsDe(sNom)
+		SI tabMots..Occurrence = 0 ALORS
+			ExceptionDéclenche(25, "Le nom « " + sNom + " » ne contient aucune lettre ni aucun chiffre latin : ebony n'en tire aucun identifiant. Ajoutez un mot en lettres latines.")
+		FIN
+		sDossier est une chaîne = EbDossierModule(tabMots)
+		SI Taille(sDossier) > EbLongueurMaxDossierProjet() ALORS
+			ExceptionDéclenche(25, "Le nom « " + sNom + " » donne un dossier trop long (" + Taille(sDossier) + " caractères, " + EbLongueurMaxDossierProjet() + " au plus). Raccourcissez-le.")
+		FIN
+		SI PAS bChamps ALORS
+			ExceptionDéclenche(25, "Il manque --champs. Exemple : ebony make " + sSousCommande + " " + EbExempleNomMake(sSousCommande) + " --champs id:entier*,nom:texte,email:texte?")
+		FIN
+		tabChamps est un tableau de cEbChampTable = EbAnalyseChamps(sChamps)
+
+		SI sTable <> "" ALORS
+			EbExigeTable(sTable)
+		SINON
+			SI sSousCommande = "resource" ALORS
+				sTable = EbTableParDefaut(tabMots)
+			SINON
+				sTable = EbTableDeMigration(tabMots)
+			FIN
+		FIN
+		SI sTable = "" ALORS
+			ExceptionDéclenche(25, "La migration « " + sNom + " » ne dit pas quelle table créer. Nommez-la Cree<Table> (CreeClients) ou ajoutez --table clients.")
+		FIN
+		// Sans garde : cEbGenerationMake le remplace par celui que lisent les manifestes du projet (AvecGarde).
+		tabSansLigne est un tableau de chaînes
+		oSansGarde   est un cEbGardeRoutes(tabSansLigne, tabSansLigne)
+		oDemande     est un cEbDemandeMake(sSousCommande, sNom, EbPascalDe(tabMots), sDossier, sTable, tabChamps, bSimulation, oSansGarde)
+		RENVOYER oDemande
+	FIN
+FIN

@@ -1,0 +1,97 @@
+// Tests de cEbBaseApplication : la base d'une application, seul point de contact entre le cycle de vie (cEbApplication) et le SQL. Environnement et journal fictifs, SQLite en mémoire pour la vraie base,
+// un port fermé pour PostgreSQL injoignable. Que le service démarre et répond sur /health est prouvé par tests/integration/lanceur.ps1 et postgresql.ps1.
+
+// Un environnement chargé depuis un faux disque dont le schéma est ce JSON (aucune variable d'environnement réelle).
+PROCEDURE EbTestEnvBaseApp(sSchema est une chaîne) : cEbEnv
+	oDisque est un cEbLectureEnvFictive
+	oDisque.AjouteFichier("config/env.json", sSchema)
+	oEnv est un cEbEnv(oDisque)
+	oEnv.Charge("config/env.json", ".env", ".env.secrets")
+	oEnv.ExigeValide()
+	RENVOYER oEnv
+FIN
+
+// Le schéma d'un projet SQLite dont la base est en mémoire.
+PROCEDURE EbTestSchemaSqliteBaseApp() : chaîne
+	RENVOYER `{"variables":[{"cle":"DB_FICHIER","type":"chemin","defaut":":memory:"}]}`
+FIN
+
+// Combien de lignes du journal contiennent ce texte.
+PROCEDURE EbTestCompteBaseApp(oSortie est un cEbSortieJournalFictive, sTexte est une chaîne) : entier
+	nTrouvees est un entier = 0
+	POUR nLigne = 1 À oSortie.NbLignes()
+		SI Position(oSortie.Ligne(nLigne), sTexte) > 0 ALORS
+			nTrouvees++
+		FIN
+	FIN
+	RENVOYER nTrouvees
+FIN
+
+// Construire la base ne l'ouvre pas et n'écrit rien au journal : la connexion est seulement configurée.
+PROCEDURE scenario_construire_n_ouvre_rien()
+	oSortie  est un cEbSortieJournalFictive
+	oHorloge est un cEbHorlogeFictive
+	oJournal est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv     est un cEbEnv                                       = EbTestEnvBaseApp(EbTestSchemaSqliteBaseApp())
+	oBaseApp est un cEbBaseApplication("sqlite", oEnv, oJournal)
+	dbgVérifieEgalité(oSortie.NbLignes(), 0, "rien n'est journalisé avant Ouvre()")
+FIN
+
+// Ouvrir une base joignable le dit une fois au journal, et la sonde répond sans rien avertir.
+PROCEDURE scenario_ouverture_normale()
+	oSortie  est un cEbSortieJournalFictive
+	oHorloge est un cEbHorlogeFictive
+	oJournal est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv     est un cEbEnv                                       = EbTestEnvBaseApp(EbTestSchemaSqliteBaseApp())
+	oBaseApp est un cEbBaseApplication("sqlite", oEnv, oJournal)
+	oBaseApp.Ouvre()
+	dbgVérifieEgalité(EbTestCompteBaseApp(oSortie, "Base ouverte"), 1, "l'ouverture est journalisée")
+	dbgVérifieVrai(oBaseApp.Repond(), "la base répond")
+	dbgVérifieEgalité(EbTestCompteBaseApp(oSortie, "Sonde de la base en échec"), 0, "aucun échec de sonde")
+	oBaseApp.Ferme()
+FIN
+
+// La base résiliente rendue par Base() fonctionne vraiment : un ordre SQL écrit, puis relu (c'est ce que reçoivent les repositories et les jetons).
+PROCEDURE scenario_la_base_rendue_fonctionne()
+	oSortie  est un cEbSortieJournalFictive
+	oHorloge est un cEbHorlogeFictive
+	oJournal est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv     est un cEbEnv                                       = EbTestEnvBaseApp(EbTestSchemaSqliteBaseApp())
+	oBaseApp est un cEbBaseApplication("sqlite", oEnv, oJournal)
+	oBaseApp.Ouvre()
+	oBase    est un cEbBaseResiliente  = oBaseApp.Base()
+	tabAucun est un tableau associatif
+	dbgVérifieVrai(oBase.Execute("CREATE TABLE t (id INTEGER)", tabAucun).Succes(), "création")
+	dbgVérifieVrai(oBase.Execute("INSERT INTO t (id) VALUES (7)", tabAucun).Succes(), "insertion")
+	oLu est un cEbResultatSql = oBase.Execute("SELECT id FROM t", tabAucun)
+	dbgVérifieEgalité(oLu.Lignes()[1]["id"], 7, "la valeur relue")
+	oBaseApp.Ferme()
+FIN
+
+// PostgreSQL injoignable (port fermé) : Ouvre() ne lève rien et avertit ; la sonde dit que la base ne répond pas, et le journalise.
+PROCEDURE scenario_base_injoignable_avertit_sans_lever()
+	sSchema est une chaîne = `{"variables":[{"cle":"DB_HOTE","type":"texte","defaut":"127.0.0.1"},{"cle":"DB_PORT","type":"port","defaut":"1"},`
+	sSchema += `{"cle":"DB_NOM","type":"texte","defaut":"x"},{"cle":"DB_UTILISATEUR","type":"texte","defaut":"u"},{"cle":"DB_MOT_DE_PASSE","type":"texte","secret":true}]}`
+	oSortie  est un cEbSortieJournalFictive
+	oHorloge est un cEbHorlogeFictive
+	oJournal est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv     est un cEbEnv                                           = EbTestEnvBaseApp(sSchema)
+	oBaseApp est un cEbBaseApplication("postgresql", oEnv, oJournal)
+	oBaseApp.Ouvre()
+	dbgVérifieEgalité(EbTestCompteBaseApp(oSortie, "Base injoignable au démarrage"), 1, "avertissement journalisé")
+	dbgVérifieEgalité(EbTestCompteBaseApp(oSortie, "Base ouverte"), 0, "elle n'est pas dite ouverte")
+	dbgVérifieFaux(oBaseApp.Repond(), "la base ne répond pas")
+	dbgVérifieEgalité(EbTestCompteBaseApp(oSortie, "Sonde de la base en échec"), 1, "échec de sonde journalisé")
+	oBaseApp.Ferme()
+FIN
+
+// La base est un composant de l'application : sa sonde s'appelle « base » (clé de GET /api/health).
+PROCEDURE scenario_la_base_est_un_composant_nomme_base()
+	oSortie    est un cEbSortieJournalFictive
+	oHorloge   est un cEbHorlogeFictive
+	oJournal   est un cEbJournal(oSortie, oHorloge, "info")
+	oEnv       est un cEbEnv                                       = EbTestEnvBaseApp(EbTestSchemaSqliteBaseApp())
+	oBaseApp   est un cEbBaseApplication("sqlite", oEnv, oJournal)
+	oComposant est un iEbComposant                                 = oBaseApp
+	dbgVérifieEgalité(oComposant.Nom(), "base", "le nom de la sonde")
+FIN

@@ -1,0 +1,54 @@
+// Fonctions pures du journal : échappement JSON et rang des niveaux. Testées dans tests/unitaires/execution/journal/.
+// Le JSON est écrit à la main (pas avec les fonctions JSON d'OWL) : l'ordre des champs est à nous, donc le format est stable, et une ligne ne contient jamais de saut de ligne.
+EbJournalFormat est une CollectionDeProcédures
+
+	// Un chiffre hexadécimal minuscule (0 à 15).
+	PROCEDURE EbJournalHexa(nValeur est un entier) : chaîne
+		RENVOYER Milieu("0123456789abcdef", nValeur + 1, 1)
+	FIN
+
+	// Un texte entre guillemets, échappé comme l'exige JSON (RFC 8259) : guillemet, barre oblique inverse et caractères de commande (code inférieur à 32).
+	// Les sauts de ligne deviennent « \n » : un événement tient toujours sur une seule ligne. Les autres caractères, accents compris, restent tels quels (UTF-8).
+	PROCEDURE EbJournalChaineJson(sTexte est une chaîne) : chaîne
+		sRes est une chaîne = Caract(34)
+		POUR i = 1 À Taille(sTexte)
+			sCar  est une chaîne = Milieu(sTexte, i, 1)
+			nCode est un entier  = Asc(sCar)
+			SELON nCode
+				CAS 34
+				sRes += Caract(92) + Caract(34)
+				CAS 92
+				sRes += Caract(92) + Caract(92)
+				CAS 10
+				sRes += Caract(92) + "n"
+				CAS 13
+				sRes += Caract(92) + "r"
+				CAS 9
+				sRes += Caract(92) + "t"
+				AUTRE CAS
+				SI nCode < 32 ALORS
+					sRes += Caract(92) + "u00" + EbJournalHexa(PartieEntière(nCode / 16)) + EbJournalHexa(nCode % 16)
+				SINON
+					sRes += sCar
+				FIN
+			FIN
+		FIN
+		sRes += Caract(34)
+		RENVOYER sRes
+	FIN
+
+	// Le rang d'un niveau : debug 1, info 2, warn 3, error 4 ; 0 si le nom n'est pas un niveau. Un niveau plus haut masque les plus bas.
+	PROCEDURE EbJournalRangNiveau(sNiveau est une chaîne) : entier
+		SELON sNiveau
+			CAS "debug"
+			RENVOYER 1
+			CAS "info"
+			RENVOYER 2
+			CAS "warn"
+			RENVOYER 3
+			CAS "error"
+			RENVOYER 4
+		FIN
+		RENVOYER 0
+	FIN
+FIN

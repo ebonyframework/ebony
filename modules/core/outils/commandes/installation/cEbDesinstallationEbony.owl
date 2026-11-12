@@ -1,0 +1,24 @@
+// « ebony uninstall » : désinstalle ebony de l'utilisateur. OWL n'en fait que la vérification et l'annonce ; le lanceur (bin\ebony.cmd) fait le reste, car OWL ne peut ni modifier le PATH
+// ni supprimer un dossier de façon récursive (voir cEbInstallationEbony) : il retire ebony du PATH (bin\ebony-path.ps1 -Retire) puis supprime les versions installées (bin\ebony-supprime.ps1).
+// Une désinstallation qui laisse les fichiers ne désinstalle rien : c'est la SEULE exception à « ebony ne supprime jamais rien », et ebony-supprime.ps1
+// la borne : seuls les dossiers de version qui contiennent le marqueur INSTALLE (écrit en dernier par « ebony install ») sous un dossier nommé ebony, jamais un lien.
+// Ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque. Une erreur est une exception de code 41 (dossier des programmes inconnu : sans lui on ne sait pas où chercher),
+// et alors le lanceur ne touche à rien. Si ebony n'est pas installé, ce n'est PAS une erreur : le lanceur retire quand même une entrée de PATH orpheline (dossier supprimé à la main).
+cEbDesinstallationEbony est une Classe
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbEbonyDesinstalle
+		sProgrammes est une chaîne = :oSysteme.DossierProgrammes()
+		SI sProgrammes = "" ALORS
+			ExceptionDéclenche(41, "ebony ne connaît pas le dossier des programmes de l'utilisateur. Lancez ebony avec son lanceur (bin\ebony.cmd), pas directement avec owl.")
+		FIN
+		sBase        est une chaîne                                                    = EbJointChemin(sProgrammes, "ebony")
+		oDesinstalle est un cEbEbonyDesinstalle(sBase, :oSysteme.DossierExiste(sBase))
+		RENVOYER oDesinstalle
+	FIN
+FIN

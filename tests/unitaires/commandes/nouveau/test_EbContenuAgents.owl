@@ -1,0 +1,57 @@
+// Tests de EbContenuAgents : le texte de AGENTS.md écrit par « ebony new » et « ebony init » (fonction pure).
+
+// Le titre et le nom du projet.
+PROCEDURE scenario_agents_titre_et_nom_du_projet()
+	sContenu est une chaîne = EbContenuAgents("Café de la Gare")
+	dbgVérifieEgalité(Gauche(sContenu, 49), "# AGENTS.md : consignes pour un assistant de code", "le titre")
+	dbgVérifieVrai(Position(sContenu, "Ce projet (") > 0, "le texte parle du projet")
+FIN
+
+// Les sections que doit trouver un assistant de code.
+PROCEDURE scenario_agents_sections()
+	sContenu est une chaîne = EbContenuAgents("x")
+	dbgVérifieVrai(Position(sContenu, "## Avant de modifier du code") > 0, "avant de modifier")
+	dbgVérifieVrai(Position(sContenu, "## La structure") > 0, "la structure")
+	dbgVérifieVrai(Position(sContenu, "## Où écrire quoi") > 0, "où écrire quoi")
+	dbgVérifieVrai(Position(sContenu, "## Les commandes") > 0, "les commandes")
+	dbgVérifieVrai(Position(sContenu, "## Les pièges d'OWL à connaître") > 0, "les pièges d'OWL")
+	dbgVérifieVrai(Position(sContenu, "## Ce qu'il ne faut pas faire") > 0, "ce qu'il ne faut pas faire")
+FIN
+
+// Les substituts sont remplacés : aucun § ni ¤ ne reste, les accents graves et les guillemets sont ceux d'OWL.
+PROCEDURE scenario_agents_substituts_remplaces()
+	sContenu est une chaîne = EbContenuAgents("x")
+	dbgVérifieFaux(Position(sContenu, "§") > 0, "aucun § ne reste")
+	dbgVérifieFaux(Position(sContenu, "¤") > 0, "aucun ¤ ne reste")
+	dbgVérifieVrai(Position(sContenu, Caract(96) + "owl --check projet.owl" + Caract(96)) > 0, "accents graves autour d'une commande")
+	dbgVérifieVrai(Position(sContenu, "ExceptionDéclenche(409, " + Caract(34) + "message" + Caract(34) + ")") > 0, "guillemets droits dans l'exemple d'exception")
+FIN
+
+// Les consignes de répartition des couches : la validation dans le contrôleur, les règles dans le service.
+PROCEDURE scenario_agents_repartition_des_couches()
+	sContenu est une chaîne = EbContenuAgents("x")
+	dbgVérifieVrai(Position(sContenu, "dans le **contrôleur**") > 0, "validation dans le contrôleur")
+	dbgVérifieVrai(Position(sContenu, "dans le **service**") > 0, "règle métier dans le service")
+	dbgVérifieVrai(Position(sContenu, "dans le **repository**") > 0, "SQL dans le repository")
+FIN
+
+// Un texte sur plusieurs lignes, terminé par un saut de ligne, sans retour chariot.
+PROCEDURE scenario_agents_forme_du_texte()
+	sContenu est une chaîne = EbContenuAgents("x")
+	dbgVérifieVrai(Position(sContenu, Caract(10)) > 0, "plusieurs lignes")
+	dbgVérifieFaux(Position(sContenu, Caract(13)) > 0, "pas de retour chariot")
+	dbgVérifieEgalité(Droite(sContenu, 1), Caract(10), "terminé par un saut de ligne")
+FIN
+
+// Le kit slim : AGENTS.md ne décrit ni migrations, ni repositories, ni commandes make, migrate ou token, et dit que le projet est un kit slim ; sans option, le texte est celui du kit api.
+PROCEDURE scenario_agents_kit_slim()
+	oSlim est un cEbOptionsProjet("slim", "", Faux, "")
+	sSlim est une chaîne                                = EbContenuAgentsAvecOptions("x", oSlim)
+	dbgVérifieVrai(Position(sSlim, "kit slim") > 0, "dit que c'est un kit slim")
+	dbgVérifieEgalité(Position(sSlim, "database/migrations"), 0, "pas de migrations")
+	dbgVérifieEgalité(Position(sSlim, "repository"), 0, "pas de repository")
+	dbgVérifieEgalité(Position(sSlim, "AUTH_ROUTES"), 0, "pas de routes protégées")
+	dbgVérifieVrai(Position(sSlim, "owl --check projet.owl") > 0, "garde les conseils sur OWL")
+	oApi est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	dbgVérifieEgalité(EbContenuAgentsAvecOptions("x", oApi), EbContenuAgents("x"), "le kit api est le texte par défaut")
+FIN

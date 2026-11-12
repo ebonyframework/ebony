@@ -1,0 +1,10 @@
+// Adaptateur réel du port iEbHorloge : l'heure du poste convertie en UTC (DateHeureLocaleVersUTC tient compte du fuseau et de l'heure d'été du poste).
+// Précision d'une seconde : DateHeureSys() ne donne pas de fraction (les centièmes sont toujours à 00, mesuré, owl 1.6.0).
+cEbHorlogeSysteme est une Classe implemente iEbHorloge
+
+	PROCEDURE PUBLIQUE Maintenant() : chaîne
+		dhLocale est une dateheure = DateHeureSys()
+		dhUtc    est une dateheure = DateHeureLocaleVersUTC(dhLocale)
+		RENVOYER DateHeureVersChaîne(dhUtc, "AAAA-MM-JJ") + "T" + DateHeureVersChaîne(dhUtc, "HH:mm:SS") + "Z"
+	FIN
+FIN

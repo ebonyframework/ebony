@@ -1,0 +1,129 @@
+// Tests de EbOptionsRequete : la lecture des arguments de « ebony request » (méthode, chemin, --header, --body, --url, --port) et chaque refus avec son code 25.
+
+// Les arguments après « request », depuis une liste écrite avec des « ; ».
+PROCEDURE EbTestArgs(sListe est une chaîne) : tableau de chaînes
+	tabArgs est un tableau de chaînes
+	SI sListe <> "" ALORS
+		nDebut est un entier = 1
+		nFin   est un entier = Position(sListe, ";")
+		TANTQUE nFin > 0
+			TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+			nDebut = nFin + 1
+			nFin   = Position(sListe, ";", nDebut)
+		FIN
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	FIN
+	RENVOYER tabArgs
+FIN
+
+// Rend « code|message » si l'analyse lève, ou « » si elle réussit.
+PROCEDURE EbTestRefus(sListe est une chaîne) : chaîne
+	sRes    est une chaîne            = ""
+	tabArgs est un tableau de chaînes = EbTestArgs(sListe)
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeHttp = EbAnalyseArgumentsRequete(tabArgs)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Le cas le plus simple : GET sur le service d'« owl serve » par défaut, sans en-tête ni corps.
+PROCEDURE scenario_get_simple()
+	oDemande est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("GET;/clients/42"))
+	dbgVérifieEgalité(oDemande.Methode(), "GET", "méthode")
+	dbgVérifieEgalité(oDemande.Url(), "http://127.0.0.1:8080/clients/42", "URL par défaut")
+	dbgVérifieEgalité(oDemande.NomsEntetes()..Occurrence, 0, "aucun en-tête")
+	dbgVérifieEgalité(oDemande.Corps(), "", "pas de corps")
+FIN
+
+// La méthode s'écrit comme on veut ; le chemin garde sa requête (?a=1&b=2).
+PROCEDURE scenario_methode_en_minuscules_et_requete()
+	oDemande est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("delete;/clients?tri=nom&page=2"))
+	dbgVérifieEgalité(oDemande.Methode(), "DELETE", "méthode en majuscules")
+	dbgVérifieEgalité(oDemande.Url(), "http://127.0.0.1:8080/clients?tri=nom&page=2", "chemin avec requête")
+FIN
+
+// --port et --url, avec ou sans « = » ; la barre finale de --url est retirée.
+PROCEDURE scenario_port_et_url()
+	dbgVérifieEgalité(EbAnalyseArgumentsRequete(EbTestArgs("GET;/x;--port;9000")).Url(), "http://127.0.0.1:9000/x", "--port 9000")
+	dbgVérifieEgalité(EbAnalyseArgumentsRequete(EbTestArgs("GET;/x;--port=9000")).Url(), "http://127.0.0.1:9000/x", "--port=9000")
+	dbgVérifieEgalité(EbAnalyseArgumentsRequete(EbTestArgs("GET;/x;--url;http://exemple.test:81/")).Url(), "http://exemple.test:81/x", "--url, barre finale retirée")
+	dbgVérifieEgalité(EbAnalyseArgumentsRequete(EbTestArgs("GET;/x;--url=https://exemple.test")).Url(), "https://exemple.test/x", "--url https")
+FIN
+
+// Les options peuvent précéder les arguments ; --json est accepté partout et ne change rien à la requête.
+PROCEDURE scenario_options_avant_et_json()
+	oDemande est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("--json;--port;9000;GET;/x"))
+	dbgVérifieEgalité(oDemande.Methode(), "GET", "méthode")
+	dbgVérifieEgalité(oDemande.Url(), "http://127.0.0.1:9000/x", "URL")
+FIN
+
+// --header peut être répété ; nom et valeur sont débarrassés des espaces de bord, la valeur garde ses « : ».
+PROCEDURE scenario_en_tetes()
+	oDemande est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("GET;/x;--header;Accept: application/json;--header=X-Heure:12:30:00"))
+	dbgVérifieEgalité(oDemande.NomsEntetes()..Occurrence, 2, "deux en-têtes")
+	dbgVérifieEgalité(oDemande.NomsEntetes()[1], "Accept", "premier nom")
+	dbgVérifieEgalité(oDemande.ValeursEntetes()[1], "application/json", "première valeur")
+	dbgVérifieEgalité(oDemande.NomsEntetes()[2], "X-Heure", "second nom")
+	dbgVérifieEgalité(oDemande.ValeursEntetes()[2], "12:30:00", "la valeur garde ses deux-points")
+FIN
+
+// Avec un corps et sans Content-Type : application/json. Si l'utilisateur donne son Content-Type (quelle que soit la casse), on le respecte.
+PROCEDURE scenario_corps_et_type_de_contenu()
+	oAvec est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("POST;/clients;--body;" + Caract(123) + Caract(34) + "nom" + Caract(34) + ":" + Caract(34) + "Zoe" + Caract(34) + Caract(125)))
+	dbgVérifieEgalité(oAvec.Corps(), Caract(123) + Caract(34) + "nom" + Caract(34) + ":" + Caract(34) + "Zoe" + Caract(34) + Caract(125), "corps tel quel")
+	dbgVérifieEgalité(oAvec.NomsEntetes()..Occurrence, 1, "un en-tête ajouté")
+	dbgVérifieEgalité(oAvec.NomsEntetes()[1], "Content-Type", "Content-Type")
+	dbgVérifieEgalité(oAvec.ValeursEntetes()[1], "application/json", "par défaut JSON")
+	oPerso est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("POST;/x;--header;content-type: text/plain;--body;bonjour"))
+	dbgVérifieEgalité(oPerso.NomsEntetes()..Occurrence, 1, "pas de doublon")
+	dbgVérifieEgalité(oPerso.ValeursEntetes()[1], "text/plain", "le type de l'utilisateur est respecté")
+	oSans est un cEbDemandeHttp = EbAnalyseArgumentsRequete(EbTestArgs("GET;/x"))
+	dbgVérifieEgalité(oSans.NomsEntetes()..Occurrence, 0, "sans corps, pas de Content-Type")
+FIN
+
+// Chaque refus est un usage incorrect (code 25) qui dit quoi corriger.
+PROCEDURE scenario_refus_arguments_manquants()
+	dbgVérifieEgalité(Gauche(EbTestRefus(""), 3), "25|", "rien")
+	sRes est une chaîne = EbTestRefus("GET")
+	dbgVérifieEgalité(Gauche(sRes, 3), "25|", "pas de chemin")
+	dbgVérifieVrai(Position(sRes, "ebony request GET /clients/42") > 0, "donne un exemple : " + sRes)
+FIN
+
+PROCEDURE scenario_refus_methode_et_chemin()
+	sMethode est une chaîne = EbTestRefus("FETCH;/x")
+	dbgVérifieEgalité(Gauche(sMethode, 3), "25|", "méthode inconnue")
+	dbgVérifieVrai(Position(sMethode, "GET, POST, PUT, DELETE, PATCH, HEAD") > 0, "liste les méthodes : " + sMethode)
+	dbgVérifieEgalité(Gauche(EbTestRefus("OPTIONS;/x"), 3), "25|", "OPTIONS n'existe pas dans OWL")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;clients"), 3), "25|", "chemin sans barre initiale")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/a b"), 3), "25|", "espace dans le chemin")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;/y"), 3), "25|", "argument en trop")
+FIN
+
+PROCEDURE scenario_refus_port_et_url()
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--port;abc"), 3), "25|", "port non numérique")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--port;0"), 3), "25|", "port 0")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--port;70000"), 3), "25|", "port trop grand")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--port;80.5"), 3), "25|", "port décimal")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--url;ftp://x"), 3), "25|", "URL qui n'est pas http")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--url;localhost:8080"), 3), "25|", "URL sans schéma")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--url;http://a;--port;80"), 3), "25|", "--url et --port ensemble")
+FIN
+
+PROCEDURE scenario_refus_en_tetes()
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--header;sans deux points"), 3), "25|", "pas de « : »")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--header;: valeur"), 3), "25|", "nom vide")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--header;Nom Avec Espace: v"), 3), "25|", "nom avec des espaces")
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--header;X-A: v" + Caract(10) + "X-B: w"), 3), "25|", "saut de ligne (injection d'en-tête)")
+FIN
+
+PROCEDURE scenario_refus_options()
+	sInconnue est une chaîne = EbTestRefus("GET;/x;--timeout;5")
+	dbgVérifieEgalité(Gauche(sInconnue, 3), "25|", "option inconnue")
+	dbgVérifieVrai(Position(sInconnue, "Option inconnue : --timeout") > 0, "nomme l'option : " + sInconnue)
+	sAbsente est une chaîne = EbTestRefus("GET;/x;--port")
+	dbgVérifieEgalité(Gauche(sAbsente, 3), "25|", "valeur absente en fin de ligne")
+	dbgVérifieVrai(Position(sAbsente, "Il manque la valeur de --port") > 0, "dit laquelle manque : " + sAbsente)
+	dbgVérifieEgalité(Gauche(EbTestRefus("GET;/x;--port;--json"), 3), "25|", "une autre option à la place de la valeur")
+FIN

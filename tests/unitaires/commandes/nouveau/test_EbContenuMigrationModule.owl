@@ -1,0 +1,118 @@
+// Tests de EbContenuMigrationModule : le fichier de migration qu'un module fait écrire dans database/migrations/ du projet. Fonction pure. Preuve centrale : « ebony migrate » (EbExtraitMigration) sait LIRE ce qu'elle écrit.
+
+// Une migration de module : deux instructions à monter, une à défaire.
+PROCEDURE EbTestMigrationDeModule() : cEbMigrationModule
+	tabMonte   est un tableau de chaînes
+	tabDescend est un tableau de chaînes
+	TableauAjoute(tabMonte, "CREATE TABLE essai (id TEXT NOT NULL PRIMARY KEY, nom TEXT NOT NULL)")
+	TableauAjoute(tabMonte, "CREATE INDEX essai_nom ON essai (nom)")
+	TableauAjoute(tabDescend, "DROP TABLE essai")
+	oMigration est un cEbMigrationModule("essai", "202611100000", "CreeEssai", "", tabMonte, tabDescend)
+	RENVOYER oMigration
+FIN
+
+// Le nom et le chemin se déduisent de l'horodatage fixe et de l'intention, comme pour « make migration ».
+PROCEDURE scenario_nom_et_chemin_de_la_migration()
+	oMigration est un cEbMigrationModule = EbTestMigrationDeModule()
+	dbgVérifieEgalité(oMigration.Nom(), "M202611100000_CreeEssai", "nom")
+	dbgVérifieEgalité(oMigration.Fichier(), "database/migrations/M202611100000_CreeEssai.owl", "chemin dans le projet")
+	dbgVérifieEgalité(oMigration.Module(), "essai", "le module qui la fournit")
+FIN
+
+// « ebony migrate » relit exactement le SQL déclaré, instruction par instruction, dans l'ordre, pour Monte() comme pour Descend() ; le nom lu est celui du fichier.
+PROCEDURE scenario_migrate_relit_ce_qui_est_ecrit()
+	oMigration est un cEbMigrationModule = EbTestMigrationDeModule()
+	oLue       est un cEbMigrationLue    = EbExtraitMigration("M202611100000_CreeEssai.owl", EbContenuMigrationModule(oMigration))
+	dbgVérifieEgalité(oLue.Nom(), "M202611100000_CreeEssai", "nom lu")
+	dbgVérifieEgalité(oLue.Monte()..Occurrence, 2, "deux instructions à monter")
+	dbgVérifieEgalité(oLue.Monte()[1], "CREATE TABLE essai (id TEXT NOT NULL PRIMARY KEY, nom TEXT NOT NULL)", "première instruction")
+	dbgVérifieEgalité(oLue.Monte()[2], "CREATE INDEX essai_nom ON essai (nom)", "seconde instruction")
+	dbgVérifieEgalité(oLue.Descend()..Occurrence, 1, "une instruction à défaire")
+	dbgVérifieEgalité(oLue.Descend()[1], "DROP TABLE essai", "l'instruction qui défait")
+FIN
+
+// Le fichier dit d'où il vient (le module) et que le projet en est propriétaire ; la classe porte le préfixe c et implémente iEbMigration.
+PROCEDURE scenario_forme_du_fichier()
+	sTexte est une chaîne = EbContenuMigrationModule(EbTestMigrationDeModule())
+	dbgVérifieVrai(Position(sTexte, "fournie par le module « essai »") > 0, "le module est nommé")
+	dbgVérifieVrai(Position(sTexte, "le fichier est à vous") > 0, "le projet en est propriétaire")
+	dbgVérifieVrai(Position(sTexte, "cM202611100000_CreeEssai est une Classe implemente iEbMigration") > 0, "la classe")
+	dbgVérifieFaux(Position(sTexte, Caract(13)) > 0, "aucun CR : fins de ligne LF")
+	dbgVérifieEgalité(Droite(sTexte, 1), Caract(10), "saut de ligne final")
+FIN
+
+// Une migration qui dépend de l'option « auth » et porte {table_utilisateurs} : Resolue() remplace le jeton par la table du projet, dans Monte() comme dans Descend(), sans toucher à l'original.
+PROCEDURE EbTestMigrationUtilisateurs() : cEbMigrationModule
+	tabMonte   est un tableau de chaînes
+	tabDescend est un tableau de chaînes
+	TableauAjoute(tabMonte, "CREATE TABLE {table_utilisateurs} (identifiant TEXT NOT NULL PRIMARY KEY)")
+	TableauAjoute(tabDescend, "DROP TABLE {table_utilisateurs}")
+	oMigration est un cEbMigrationModule("essai", "202611100001", "CreeUtilisateurs", "auth", tabMonte, tabDescend)
+	RENVOYER oMigration
+FIN
+
+PROCEDURE scenario_resolue_remplace_la_table_des_utilisateurs()
+	oOriginale est un cEbMigrationModule = EbTestMigrationUtilisateurs()
+	oResolue   est un cEbMigrationModule = oOriginale.Resolue("users")
+	dbgVérifieEgalité(oResolue.Monte()[1], "CREATE TABLE users (identifiant TEXT NOT NULL PRIMARY KEY)", "monte")
+	dbgVérifieEgalité(oResolue.Descend()[1], "DROP TABLE users", "descend")
+	dbgVérifieEgalité(oResolue.Nom(), "M202611100001_CreeUtilisateurs", "le nom ne change pas")
+	dbgVérifieEgalité(oResolue.Option(), "auth", "l'option est gardée")
+	dbgVérifieEgalité(oOriginale.Monte()[1], "CREATE TABLE {table_utilisateurs} (identifiant TEXT NOT NULL PRIMARY KEY)", "l'original est intact")
+FIN
+
+// Quelles migrations écrire : sans option, toujours ; avec l'option auth, seulement dans un projet NEUF qui demande --auth (table résolue) ; jamais pour « init », dont le projet a déjà sa table des utilisateurs.
+PROCEDURE scenario_migrations_a_ecrire_selon_les_options()
+	tabToutes est un tableau
+	TableauAjoute(tabToutes, EbTestMigrationDeModule())
+	TableauAjoute(tabToutes, EbTestMigrationUtilisateurs())
+	oSansAuth   est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	oAvecAuth   est un cEbOptionsProjet("api", "sqlite", Vrai, "utilisateurs")
+	tabNeufSans est un tableau                                                 = EbMigrationsAEcrire(tabToutes, oSansAuth, Vrai)
+	dbgVérifieEgalité(tabNeufSans..Occurrence, 1, "projet neuf sans --auth : seulement la migration sans option")
+	tabNeufAvec est un tableau = EbMigrationsAEcrire(tabToutes, oAvecAuth, Vrai)
+	dbgVérifieEgalité(tabNeufAvec..Occurrence, 2, "projet neuf avec --auth : les deux")
+	oUtilisateurs est un cEbMigrationModule = tabNeufAvec[2]
+	dbgVérifieEgalité(oUtilisateurs.Monte()[1], "CREATE TABLE utilisateurs (identifiant TEXT NOT NULL PRIMARY KEY)", "la table du projet est écrite")
+	tabInit est un tableau = EbMigrationsAEcrire(tabToutes, oAvecAuth, Faux)
+	dbgVérifieEgalité(tabInit..Occurrence, 1, "init avec --auth : rien de l'option auth (la table existe déjà)")
+FIN
+
+// Un fichier de module avec le jeton {table_utilisateurs} : Resolue() le remplace par la table du projet, sans toucher à l'original, et garde chemin, option et module.
+PROCEDURE EbTestFichierDeModule() : cEbFichierModule
+	tabLignes est un tableau de chaînes
+	TableauAjoute(tabLignes, "RENVOYER " + Caract(34) + "{table_utilisateurs}" + Caract(34))
+	oFichier est un cEbFichierModule("essai", "config/Essai.owl", "auth", tabLignes)
+	RENVOYER oFichier
+FIN
+
+PROCEDURE EbTestFichierSansOption() : cEbFichierModule
+	tabLignes est un tableau de chaînes
+	TableauAjoute(tabLignes, "// toujours écrit")
+	oFichier est un cEbFichierModule("essai", "config/Toujours.owl", "", tabLignes)
+	RENVOYER oFichier
+FIN
+
+PROCEDURE scenario_fichier_resolu_remplace_la_table()
+	oOriginal est un cEbFichierModule = EbTestFichierDeModule()
+	oResolu   est un cEbFichierModule = oOriginal.Resolue("users")
+	dbgVérifieEgalité(oResolu.Contenu(), "RENVOYER " + Caract(34) + "users" + Caract(34) + Caract(10), "table remplacée")
+	dbgVérifieEgalité(oResolu.Chemin(), "config/Essai.owl", "chemin gardé")
+	dbgVérifieEgalité(oResolu.Option(), "auth", "option gardée")
+	dbgVérifieVrai(Position(oOriginal.Contenu(), "{table_utilisateurs}") > 0, "l'original est intact")
+FIN
+
+// Quels fichiers écrire : sans option, toujours ; avec l'option auth, seulement avec --auth (table résolue), pour « new » COMME pour « init » (contrairement aux migrations).
+PROCEDURE scenario_fichiers_a_ecrire_selon_les_options()
+	tabTous est un tableau
+	TableauAjoute(tabTous, EbTestFichierSansOption())
+	TableauAjoute(tabTous, EbTestFichierDeModule())
+	oSansAuth est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	oAvecAuth est un cEbOptionsProjet("api", "sqlite", Vrai, "utilisateurs")
+	tabSans   est un tableau                                                 = EbFichiersAEcrire(tabTous, oSansAuth)
+	dbgVérifieEgalité(tabSans..Occurrence, 1, "sans --auth : seulement le fichier sans option")
+	tabAvec est un tableau = EbFichiersAEcrire(tabTous, oAvecAuth)
+	dbgVérifieEgalité(tabAvec..Occurrence, 2, "avec --auth : les deux")
+	oUtilisateurs est un cEbFichierModule = tabAvec[2]
+	dbgVérifieEgalité(oUtilisateurs.Contenu(), "RENVOYER " + Caract(34) + "utilisateurs" + Caract(34) + Caract(10), "la table du projet est écrite")
+FIN

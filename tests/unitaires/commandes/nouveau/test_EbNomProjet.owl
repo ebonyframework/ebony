@@ -1,0 +1,195 @@
+// Tests de EbDossierProjet, EbIdentifiantProjet, EbVerifieNomProjet et EbSansAccent : du nom libre au dossier et à l'identifiant OWL.
+// Les accents sont écrits avec Caract(code) pour ne pas dépendre de l'encodage de ce fichier de test.
+
+// Un nom déjà propre devient tel quel le dossier.
+PROCEDURE scenario_nom_deja_propre()
+	dbgVérifieEgalité(EbDossierProjet("mon-app"), "mon-app", "mon-app")
+	dbgVérifieEgalité(EbDossierProjet("boutique"), "boutique", "un mot")
+	dbgVérifieEgalité(EbDossierProjet("serveur-http2"), "serveur-http2", "chiffre dans un mot")
+FIN
+
+// Majuscules et espaces : minuscules, tiret entre les mots.
+PROCEDURE scenario_majuscules_et_espaces()
+	dbgVérifieEgalité(EbDossierProjet("Mon App"), "mon-app", "espace")
+	dbgVérifieEgalité(EbDossierProjet("MonApp"), "monapp", "majuscules internes : un seul mot")
+	dbgVérifieEgalité(EbDossierProjet("MON APP"), "mon-app", "tout en majuscules")
+FIN
+
+// Les accents sont retirés (rien n'est refusé : c'est la conversion qui s'en charge).
+PROCEDURE scenario_accents_retires()
+	dbgVérifieEgalité(EbDossierProjet("Caf" + Caract(233) + " de la Gare"), "cafe-de-la-gare", "é")
+	dbgVérifieEgalité(EbDossierProjet("Fa" + Caract(231) + "ade"), "facade", "ç")
+	dbgVérifieEgalité(EbDossierProjet(Caract(201) + "t" + Caract(233)), "ete", "É majuscule")
+	dbgVérifieEgalité(EbDossierProjet("Mo" + Caract(238) + "se"), "moise", "î")
+	dbgVérifieEgalité(EbDossierProjet("No" + Caract(235) + "l"), "noel", "ë")
+	dbgVérifieEgalité(EbDossierProjet("Ma" + Caract(241) + "ana"), "manana", "ñ")
+	dbgVérifieEgalité(EbDossierProjet(Caract(192) + " la " + Caract(251) + "le"), "a-la-ule", "À et û")
+FIN
+
+// Ligatures et ß : deux lettres.
+PROCEDURE scenario_ligatures()
+	dbgVérifieEgalité(EbDossierProjet("c" + Caract(339) + "ur"), "coeur", "œ")
+	dbgVérifieEgalité(EbDossierProjet("Stra" + Caract(223) + "e"), "strasse", "ß")
+	dbgVérifieEgalité(EbDossierProjet(Caract(230) + "ther"), "aether", "æ")
+FIN
+
+// Les majuscules accentuées sont aussi retirées, y compris celles que Minuscule d'OWL ne convertit pas (Europe centrale et du Nord, Turquie).
+PROCEDURE scenario_majuscules_hors_latin1()
+	dbgVérifieEgalité(EbDossierProjet(Caract(321) + Caract(243) + "d" + Caract(378)), "lodz", "Łódź (polonais)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(381) + "lu" + Caract(357) + "ou" + Caract(269) + "k" + Caract(253)), "zlutoucky", "Žluťoučký (tchèque)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(304) + "stanbul"), "istanbul", "İstanbul (turc, I pointé)")
+	dbgVérifieEgalité(EbDossierProjet("Ba" + Caract(351) + "ak" + Caract(351) + "ehir"), "basaksehir", "ş (turc)")
+	dbgVérifieEgalité(EbDossierProjet("Bra" + Caract(537) + "ov"), "brasov", "ș (roumain, virgule souscrite)")
+	dbgVérifieEgalité(EbDossierProjet("Gy" + Caract(337) + "r"), "gyor", "ő (hongrois)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(352) + "koda"), "skoda", "Š majuscule")
+	dbgVérifieEgalité(EbDossierProjet(Caract(286) + Caract(305) + "da"), "gida", "Ğ majuscule et ı sans point")
+	dbgVérifieEgalité(EbDossierProjet(Caract(338) + "UVRE"), "oeuvre", "Œ majuscule")
+	dbgVérifieEgalité(EbDossierProjet(Caract(198) + "ther"), "aether", "Æ majuscule (Latin-1)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(222) + Caract(243) + "rr"), "thorr", "Þ majuscule (islandais)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(272) + "o" + Caract(273) + "o"), "dodo", "Đ et đ")
+	dbgVérifieEgalité(EbDossierProjet("S" + Caract(248) + "ren"), "soren", "ø (danois)")
+	dbgVérifieEgalité(EbDossierProjet(Caract(229) + "rhus"), "arhus", "å")
+FIN
+
+// Lettres à cas particulier, directement : ligature néerlandaise ĳ, eth, s long (dernier code de la table), thorn, ß, ligatures œ et æ dans les deux casses.
+// EbSansAccent est appelée sur le caractère tel quel : le Minuscule de EbDossierProjet n'a pas à les convertir d'abord.
+PROCEDURE scenario_lettres_a_cas_particulier()
+	dbgVérifieEgalité(EbSansAccent(Caract(306)), "ij", "Ĳ")
+	dbgVérifieEgalité(EbSansAccent(Caract(307)), "ij", "ĳ")
+	dbgVérifieEgalité(EbSansAccent(Caract(208)), "d", "Ð")
+	dbgVérifieEgalité(EbSansAccent(Caract(240)), "d", "ð")
+	dbgVérifieEgalité(EbSansAccent(Caract(383)), "s", "ſ (s long, U+017F)")
+	dbgVérifieEgalité(EbSansAccent(Caract(222)), "th", "Þ")
+	dbgVérifieEgalité(EbSansAccent(Caract(254)), "th", "þ")
+	dbgVérifieEgalité(EbSansAccent(Caract(198)), "ae", "Æ")
+	dbgVérifieEgalité(EbSansAccent(Caract(230)), "ae", "æ")
+	dbgVérifieEgalité(EbSansAccent(Caract(338)), "oe", "Œ")
+	dbgVérifieEgalité(EbSansAccent(Caract(339)), "oe", "œ")
+	dbgVérifieEgalité(EbSansAccent(Caract(536)), "s", "Ș")
+	dbgVérifieEgalité(EbSansAccent(Caract(539)), "t", "ț")
+	dbgVérifieEgalité(EbDossierProjet(Caract(306) + "ssel"), "ijssel", "Ĳssel (néerlandais)")
+	dbgVérifieEgalité(EbDossierProjet("Ma" + Caract(383) + "e"), "mase", "s long au milieu d'un mot")
+FIN
+
+// Les extrémités de chaque table : première et dernière lettre accentuée de U+00C0 à U+00FF et de U+0100 à U+017F.
+PROCEDURE scenario_bornes_des_tables()
+	dbgVérifieEgalité(EbSansAccent(Caract(192)), "a", "À, premier du Latin-1")
+	dbgVérifieEgalité(EbSansAccent(Caract(255)), "y", "ÿ, dernier du Latin-1")
+	dbgVérifieEgalité(EbSansAccent(Caract(256)), "a", "Ā, premier du Latin étendu A")
+	dbgVérifieEgalité(EbSansAccent(Caract(382)), "z", "ž, avant-dernier du Latin étendu A")
+	dbgVérifieEgalité(EbSansAccent(Caract(191)), Caract(191), "¿ juste avant la table : rendu tel quel")
+	dbgVérifieEgalité(EbSansAccent(Caract(384)), Caract(384), "ƀ juste après la table : rendu tel quel")
+FIN
+
+// × et ÷ sont des symboles, pas des lettres : ils séparent les mots.
+PROCEDURE scenario_symboles_latin1()
+	dbgVérifieEgalité(EbDossierProjet("a" + Caract(215) + "b"), "a-b", "multiplication")
+	dbgVérifieEgalité(EbDossierProjet("a" + Caract(247) + "b"), "a-b", "division")
+FIN
+
+// La ponctuation et les symboles deviennent des tirets, sans doublons ni tirets en bordure.
+PROCEDURE scenario_ponctuation()
+	dbgVérifieEgalité(EbDossierProjet("2D  Jeu!"), "2d-jeu", "espaces multiples et point d'exclamation")
+	dbgVérifieEgalité(EbDossierProjet("  mon   app  "), "mon-app", "espaces en bordure")
+	dbgVérifieEgalité(EbDossierProjet("a_b.c/d\e"), "a-b-c-d-e", "souligné, point, barres")
+	dbgVérifieEgalité(EbDossierProjet("--mon--app--"), "mon-app", "tirets multiples et en bordure")
+	dbgVérifieEgalité(EbDossierProjet("Caf" + Caract(233) + " & Co"), "cafe-co", "esperluette")
+FIN
+
+// Ce qui était refusé avant (mots réservés d'OWL, nom de la bibliothèque, une lettre) est maintenant accepté : le préfixe App règle le problème.
+PROCEDURE scenario_aucun_mot_n_est_refuse()
+	dbgVérifieEgalité(EbVerifieNomProjet("liste"), "", "liste")
+	dbgVérifieEgalité(EbVerifieNomProjet("Tous"), "", "Tous")
+	dbgVérifieEgalité(EbVerifieNomProjet("si"), "", "si")
+	dbgVérifieEgalité(EbVerifieNomProjet("or"), "", "or")
+	dbgVérifieEgalité(EbVerifieNomProjet("date"), "", "date")
+	dbgVérifieEgalité(EbVerifieNomProjet("a"), "", "a")
+	dbgVérifieEgalité(EbVerifieNomProjet("class"), "", "class")
+	dbgVérifieEgalité(EbVerifieNomProjet("eb-config"), "", "eb-config")
+	dbgVérifieEgalité(EbVerifieNomProjet("ebony-demo"), "", "ebony-demo")
+	dbgVérifieEgalité(EbVerifieNomProjet("Caf" + Caract(233) + " de la Gare"), "", "accents")
+FIN
+
+// L'identifiant OWL : « App » + majuscule initiale à chaque mot du dossier.
+PROCEDURE scenario_identifiant_deduit()
+	dbgVérifieEgalité(EbIdentifiantProjet("mon-app"), "AppMonApp", "mon-app")
+	dbgVérifieEgalité(EbIdentifiantProjet("boutique"), "AppBoutique", "un mot")
+	dbgVérifieEgalité(EbIdentifiantProjet("serveur-http2"), "AppServeurHttp2", "chiffre")
+	dbgVérifieEgalité(EbIdentifiantProjet("2d-jeu"), "App2dJeu", "commence par un chiffre")
+	dbgVérifieEgalité(EbIdentifiantProjet("a"), "AppA", "une lettre")
+	dbgVérifieEgalité(EbIdentifiantProjet("liste"), "AppListe", "mot réservé d'OWL")
+FIN
+
+// Du nom libre jusqu'à l'identifiant, en une chaîne de deux appels.
+PROCEDURE scenario_du_nom_a_l_identifiant()
+	dbgVérifieEgalité(EbIdentifiantProjet(EbDossierProjet("Caf" + Caract(233) + " de la Gare")), "AppCafeDeLaGare", "café de la gare")
+	dbgVérifieEgalité(EbIdentifiantProjet(EbDossierProjet("Client")), "AppClient", "Client (ne masque plus un paramètre client)")
+	dbgVérifieEgalité(EbIdentifiantProjet(EbDossierProjet("EbConfig")), "AppEbconfig", "EbConfig (pas la globale de la bibliothèque)")
+FIN
+
+// Le dossier déduit est le même quelle que soit la façon d'écrire le nom : « Mon App », « mon-app » et « MON-APP » désignent un seul projet.
+PROCEDURE scenario_ecritures_equivalentes()
+	dbgVérifieEgalité(EbDossierProjet("Mon App"), EbDossierProjet("mon-app"), "espace contre tiret")
+	dbgVérifieEgalité(EbDossierProjet("MON-APP"), EbDossierProjet("mon-app"), "majuscules")
+FIN
+
+// Un nom sans lettre ni chiffre latin ne donne aucun dossier : seul vrai refus, avec une explication et un exemple.
+PROCEDURE scenario_nom_sans_lettre_latine()
+	dbgVérifieEgalité(EbDossierProjet(""), "", "vide")
+	dbgVérifieEgalité(EbDossierProjet("!!! ???"), "", "symboles seuls")
+	dbgVérifieEgalité(EbDossierProjet(Caract(1087) + Caract(1088) + Caract(1080)), "", "alphabet cyrillique")
+	sMessage est une chaîne = EbVerifieNomProjet("???")
+	dbgVérifieVrai(Position(sMessage, "aucune lettre ni aucun chiffre latin") > 0, "dit pourquoi")
+	dbgVérifieVrai(Position(sMessage, "mon-app") > 0, "donne un exemple")
+	dbgVérifieVrai(Position(EbVerifieNomProjet(""), "aucune lettre") > 0, "le nom vide est refusé aussi")
+FIN
+
+// Le dossier est limité à 40 caractères (chemins Windows) : 40 passent, 41 non ; la limite porte sur le dossier déduit, pas sur le nom écrit.
+PROCEDURE scenario_longueur()
+	sQuarante est une chaîne = ""
+	POUR i = 1 À 40
+		sQuarante += "x"
+	FIN
+	dbgVérifieEgalité(EbVerifieNomProjet(sQuarante), "", "40 caractères")
+	sMessage est une chaîne = EbVerifieNomProjet(sQuarante + "x")
+	dbgVérifieVrai(Position(sMessage, "trop long") > 0, "41 caractères")
+	dbgVérifieVrai(Position(sMessage, "41") > 0 ET Position(sMessage, "40") > 0, "donne les deux longueurs")
+	dbgVérifieEgalité(EbVerifieNomProjet("x     x     x     x     x     x     x     x"), "", "beaucoup d'espaces : le dossier déduit est court")
+FIN
+
+// Les noms de périphériques réservés par Windows ne donnent pas un dossier impossible : « -app » est ajouté (con → con-app).
+PROCEDURE scenario_noms_reserves_windows()
+	dbgVérifieEgalité(EbDossierProjet("con"), "con-app", "con")
+	dbgVérifieEgalité(EbDossierProjet("CON"), "con-app", "CON (casse ignorée)")
+	dbgVérifieEgalité(EbDossierProjet("nul"), "nul-app", "nul")
+	dbgVérifieEgalité(EbDossierProjet("aux"), "aux-app", "aux")
+	dbgVérifieEgalité(EbDossierProjet("prn"), "prn-app", "prn")
+	dbgVérifieEgalité(EbDossierProjet("com1"), "com1-app", "com1")
+	dbgVérifieEgalité(EbDossierProjet("COM9"), "com9-app", "COM9")
+	dbgVérifieEgalité(EbDossierProjet("lpt3"), "lpt3-app", "lpt3")
+	dbgVérifieEgalité(EbDossierProjet(" con "), "con-app", "espaces autour")
+	dbgVérifieEgalité(EbIdentifiantProjet(EbDossierProjet("con")), "AppConApp", "l'identifiant suit le dossier")
+	dbgVérifieEgalité(EbVerifieNomProjet("con"), "", "pas refusé : converti")
+FIN
+
+// Seuls ces noms exacts sont concernés : un nom qui les contient, ou com0 et com10, restent tels quels.
+PROCEDURE scenario_noms_proches_non_reserves()
+	dbgVérifieEgalité(EbDossierProjet("conx"), "conx", "conx")
+	dbgVérifieEgalité(EbDossierProjet("app-con"), "app-con", "app-con")
+	dbgVérifieEgalité(EbDossierProjet("con-app"), "con-app", "con-app (déjà converti : inchangé)")
+	dbgVérifieEgalité(EbDossierProjet("com0"), "com0", "com0 n'est pas réservé")
+	dbgVérifieEgalité(EbDossierProjet("com10"), "com10", "com10 n'est pas réservé")
+	dbgVérifieEgalité(EbDossierProjet("com"), "com", "com")
+	dbgVérifieEgalité(EbDossierProjet("lpt"), "lpt", "lpt")
+	dbgVérifieEgalité(EbDossierProjet("comx"), "comx", "comx")
+	dbgVérifieEgalité(EbDossierProjet("console"), "console", "console")
+FIN
+
+// EbSansAccent : un caractère sans accent est rendu tel quel, un accent est retiré.
+PROCEDURE scenario_sans_accent()
+	dbgVérifieEgalité(EbSansAccent("a"), "a", "lettre ASCII")
+	dbgVérifieEgalité(EbSansAccent("-"), "-", "tiret")
+	dbgVérifieEgalité(EbSansAccent(Caract(233)), "e", "é")
+	dbgVérifieEgalité(EbSansAccent(Caract(339)), "oe", "œ")
+	dbgVérifieEgalité(EbSansAccent(Caract(1087)), Caract(1087), "lettre cyrillique : rendue telle quelle")
+FIN

@@ -1,0 +1,30 @@
+// Tests des fonctions pures du journal : échappement JSON et rang des niveaux.
+
+PROCEDURE scenario_chaine_simple()
+	dbgVérifieEgalité(EbJournalChaineJson("abc"), Caract(34) + "abc" + Caract(34), "entre guillemets")
+	dbgVérifieEgalité(EbJournalChaineJson(""), Caract(34) + Caract(34), "vide")
+FIN
+
+// Guillemet, barre oblique inverse, sauts de ligne et tabulation : rien ne casse la ligne.
+PROCEDURE scenario_chaine_echappee()
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(34) + "b"), Caract(34) + "a" + Caract(92) + Caract(34) + "b" + Caract(34), "guillemet")
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(92) + "b"), Caract(34) + "a" + Caract(92) + Caract(92) + "b" + Caract(34), "barre oblique inverse")
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(10) + "b"), Caract(34) + "a" + Caract(92) + "nb" + Caract(34), "saut de ligne")
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(13) + "b"), Caract(34) + "a" + Caract(92) + "rb" + Caract(34), "retour chariot")
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(9) + "b"), Caract(34) + "a" + Caract(92) + "tb" + Caract(34), "tabulation")
+	dbgVérifieEgalité(EbJournalChaineJson("a" + Caract(1) + "b"), Caract(34) + "a" + Caract(92) + "u0001b" + Caract(34), "caractère de commande")
+	dbgVérifieEgalité(Position(EbJournalChaineJson("l1" + Caract(10) + "l2" + Caract(13) + Caract(10) + "l3"), Caract(10)), 0, "aucun saut de ligne dans le résultat")
+FIN
+
+PROCEDURE scenario_accents_gardes()
+	dbgVérifieEgalité(EbJournalChaineJson("café"), Caract(34) + "café" + Caract(34), "les accents restent tels quels")
+FIN
+
+PROCEDURE scenario_rang_des_niveaux()
+	dbgVérifieEgalité(EbJournalRangNiveau("debug"), 1, "debug")
+	dbgVérifieEgalité(EbJournalRangNiveau("info"), 2, "info")
+	dbgVérifieEgalité(EbJournalRangNiveau("warn"), 3, "warn")
+	dbgVérifieEgalité(EbJournalRangNiveau("error"), 4, "error")
+	dbgVérifieEgalité(EbJournalRangNiveau("INFO"), 0, "la casse compte : inconnu")
+	dbgVérifieEgalité(EbJournalRangNiveau(""), 0, "vide : inconnu")
+FIN

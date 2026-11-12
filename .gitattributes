@@ -1,0 +1,12 @@
+# Fins de ligne : LF dans le dépôt et dans la copie de travail, quel que soit le système.
+* text=auto eol=lf
+
+# Scripts Windows : le CRLF est requis par cmd.exe.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binaires
+*.png binary
+*.ico binary
+*.gif binary
+*.jpg binary

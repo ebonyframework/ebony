@@ -1,0 +1,22 @@
+// Résultat de « ebony uninstall » côté OWL : où ebony est installé et s'il l'est. Objet valeur immuable, rempli par le constructeur.
+// OWL ne supprime rien lui-même : il annonce, puis le lanceur (bin\ebony.cmd) retire ebony du PATH et supprime les versions installées.
+cEbEbonyDesinstalle est une Classe
+PRIVÉ
+	sBase    est une chaîne = ""
+	bPresent est un booléen = Faux
+
+	PROCEDURE Constructeur(Base est une chaîne, Present est un booléen)
+		:sBase = Base
+		:bPresent = Present
+	FIN
+
+	// Le dossier qui contient les versions installées d'ebony, par exemple C:\Users\moi\AppData\Local\Programs\ebony.
+	PROCEDURE PUBLIQUE Base() : chaîne
+		RENVOYER :sBase
+	FIN
+
+	// Vrai si ce dossier existe. Faux : il n'y a rien à supprimer, mais le lanceur retire quand même du PATH une entrée d'ebony restée orpheline.
+	PROCEDURE PUBLIQUE Present() : booléen
+		RENVOYER :bPresent
+	FIN
+FIN

@@ -1,0 +1,33 @@
+// Fonctions pures des jetons d'accès : le secret, son empreinte, et la règle « ce jeton est-il utilisable ? ». Ne dépend que de natives d'OWL (aucun nom de src/) : la bibliothèque copiée dans une application les contient.
+// Le secret est 32 octets de HasardSécuriséOctets en Base64 URL, préfixé « eb_ » (un préfixe reconnaissable aide les outils qui cherchent des secrets oubliés). Il n'est montré qu'une fois ; la base ne garde que son empreinte SHA-256.
+// Un hachage rapide suffit parce que le secret est aléatoire sur 256 bits (OWL n'a pas de hachage lent : c'est aussi pourquoi il n'y a pas encore de mot de passe).
+EbJetons est une CollectionDeProcédures
+
+	// Un nouveau secret de jeton. Chaque appel en rend un autre.
+	PROCEDURE EbNouveauSecretJeton() : chaîne
+		octets est un buffer = HasardSécuriséOctets(32)
+		RENVOYER "eb_" + ChaîneVersBase64(octets, encodeBASE64URL)
+	FIN
+
+	// L'empreinte d'un secret : SHA-256 en hexadécimal minuscule (64 caractères). C'est la seule chose gardée en base.
+	PROCEDURE EbEmpreinteJeton(sSecret est une chaîne) : chaîne
+		RENVOYER Minuscule(HashChaîne(HA_SHA_256, sSecret))
+	FIN
+
+	// L'identifiant affiché par « ebony token list » et demandé par « revoke » : les 12 premiers caractères de l'empreinte. Il ne permet pas de retrouver le secret.
+	PROCEDURE EbIdentifiantJeton(sEmpreinte est une chaîne) : chaîne
+		RENVOYER Gauche(sEmpreinte, 12)
+	FIN
+
+	// Vrai si un jeton est utilisable à l'instant sMaintenant (AAAA-MM-JJTHH:MM:SSZ) : pas révoqué, et pas expiré. « » veut dire « jamais » pour l'expiration, « pas révoqué » pour la révocation.
+	// Les dates sont comparées comme du texte : ce format se trie dans l'ordre chronologique.
+	PROCEDURE EbJetonActif(sExpireLe est une chaîne, sRevoqueLe est une chaîne, sMaintenant est une chaîne) : booléen
+		SI sRevoqueLe <> "" ALORS
+			RENVOYER Faux
+		FIN
+		SI sExpireLe = "" ALORS
+			RENVOYER Vrai
+		FIN
+		RENVOYER sExpireLe > sMaintenant
+	FIN
+FIN

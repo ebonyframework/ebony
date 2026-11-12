@@ -1,0 +1,175 @@
+// Lecture des arguments de « ebony token create <nom> [--expire AAAA-MM-JJ] | list | revoke <identifiant> [--json] » : fonctions pures, testées dans tests/unitaires/commandes/token/.
+//   ebony token create ci-github                   crée un jeton nommé « ci-github » (sans expiration) et l'affiche UNE fois
+//   ebony token create robot nuit --expire 2027-03-31   le jeton « robot nuit » cesse de valoir à la fin du 31 mars 2027 (UTC) ; plusieurs mots forment un seul nom
+//   ebony token list                               liste les jetons (jamais leur secret) : identifiant, nom, dates, état
+//   ebony token revoke ba7816bf8f01                révoque le jeton dont « list » donne l'identifiant
+// Chaque option avec valeur s'écrit « --expire 2027-03-31 » ou « --expire=2027-03-31 ». Les arguments à un tiret ou à barre oblique sont des options du lanceur : ignorés, comme pour les autres commandes.
+// Toute erreur est une exception de code 25 (usage incorrect, code de sortie 2) : sous-commande absente ou inconnue, argument manquant ou en trop, option inconnue ou mal placée, nom, identifiant ou date incorrects.
+EbOptionsToken est une CollectionDeProcédures
+
+	// Les sous-commandes de « token », séparées par « | ».
+	PROCEDURE EbSousCommandesToken() : chaîne
+		RENVOYER "create|list|revoke"
+	FIN
+
+	// Longueur maximale du nom d'un jeton (c'est une étiquette lue par un humain dans « list »).
+	PROCEDURE EbTailleMaxNomJeton() : entier
+		RENVOYER 60
+	FIN
+
+	// Vrai si sTexte ne contient que des chiffres (et au moins un).
+	PROCEDURE EbSeulementChiffres(sTexte est une chaîne) : booléen
+		nTaille est un entier = Taille(sTexte)
+		SI nTaille < 1 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À nTaille
+			sCar est une chaîne = Milieu(sTexte, i, 1)
+			SI sCar < "0" OU sCar > "9" ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Le nombre de jours d'un mois (année bissextile comprise), 0 si le mois n'existe pas.
+	PROCEDURE EbJoursDuMois(nAnnee est un entier, nMois est un entier) : entier
+		SI nMois < 1 OU nMois > 12 ALORS
+			RENVOYER 0
+		FIN
+		SI nMois = 2 ALORS
+			SI (Modulo(nAnnee, 4) = 0 ET Modulo(nAnnee, 100) <> 0) OU Modulo(nAnnee, 400) = 0 ALORS
+				RENVOYER 29
+			FIN
+			RENVOYER 28
+		FIN
+		SI nMois = 4 OU nMois = 6 OU nMois = 9 OU nMois = 11 ALORS
+			RENVOYER 30
+		FIN
+		RENVOYER 31
+	FIN
+
+	// L'instant d'expiration d'un jour « AAAA-MM-JJ » : la fin de ce jour en UTC, « AAAA-MM-JJT23:59:59Z ». « » si ce n'est pas une date du calendrier.
+	PROCEDURE EbExpirationDeJour(sJour est une chaîne) : chaîne
+		SI Taille(sJour) <> 10 OU Milieu(sJour, 5, 1) <> "-" OU Milieu(sJour, 8, 1) <> "-" ALORS
+			RENVOYER ""
+		FIN
+		sAnnee est une chaîne = Gauche(sJour, 4)
+		sMois  est une chaîne = Milieu(sJour, 6, 2)
+		sJ     est une chaîne = Milieu(sJour, 9, 2)
+		SI PAS EbSeulementChiffres(sAnnee) OU PAS EbSeulementChiffres(sMois) OU PAS EbSeulementChiffres(sJ) ALORS
+			RENVOYER ""
+		FIN
+		nAnnee est un entier = Val(sAnnee)
+		nMois  est un entier = Val(sMois)
+		nJour  est un entier = Val(sJ)
+		SI nAnnee < 2000 OU nJour < 1 OU nJour > EbJoursDuMois(nAnnee, nMois) ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER sJour + "T23:59:59Z"
+	FIN
+
+	// Vrai si sId a la forme d'un identifiant de jeton : 12 caractères hexadécimaux en minuscules.
+	PROCEDURE EbIdentifiantJetonValide(sId est une chaîne) : booléen
+		SI Taille(sId) <> 12 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À 12
+			sCar est une chaîne = Milieu(sId, i, 1)
+			SI PAS ((sCar >= "0" ET sCar <= "9") OU (sCar >= "a" ET sCar <= "f")) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Lit les arguments qui suivent « token » et rend la demande.
+	PROCEDURE EbAnalyseArgumentsToken(tabArgs est un tableau de chaînes) : cEbDemandeToken
+		sSousCommande est une chaîne = ""
+		sArgument     est une chaîne = ""
+		sExpireLe     est une chaîne = ""
+		bExpire       est un booléen = Faux
+		nNb           est un entier  = tabArgs..Occurrence
+		i             est un entier  = 1
+		TANTQUE i <= nNb
+			sArg est une chaîne = tabArgs[i]
+			i++
+			SI Gauche(sArg, 2) <> "--" ALORS
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					SI sSousCommande = "" ALORS
+						sSousCommande = sArg
+					SINON
+						// Le nom d'un jeton est libre : plusieurs mots de « create » forment un seul nom (comme « ebony new Café de la Gare »), le lanceur ne garde pas toujours les guillemets d'un argument à espaces.
+						SI sArgument <> "" ET sSousCommande = "create" ALORS
+							sArgument += " " + sArg
+						SINON
+							SI sArgument <> "" ALORS
+								ExceptionDéclenche(25, "Argument en trop : « " + sArg + " ». Usage : ebony token create <nom> [--expire AAAA-MM-JJ] | list | revoke <identifiant> [--json].")
+							FIN
+							sArgument = sArg
+						FIN
+					FIN
+				FIN
+				CONTINUER
+			FIN
+			sOption       est une chaîne = sArg
+			sValeur       est une chaîne = ""
+			bValeurDonnee est un booléen = Faux
+			nEgal         est un entier  = Position(sArg, "=")
+			SI nEgal > 0 ALORS
+				sOption       = Gauche(sArg, nEgal - 1)
+				sValeur       = Milieu(sArg, nEgal + 1)
+				bValeurDonnee = Vrai
+			FIN
+			SELON sOption
+				CAS "--json"
+				// Le format de sortie (--json) est lu par la commande (EbOptionPresente) : rien à retenir ici.
+				CAS "--expire"
+				SI PAS bValeurDonnee ET i <= nNb ALORS
+					SI Gauche(tabArgs[i], 1) <> "-" ALORS
+						sValeur       = tabArgs[i]
+						bValeurDonnee = Vrai
+						i++
+					FIN
+				FIN
+				SI PAS bValeurDonnee ALORS
+					ExceptionDéclenche(25, "Il manque la valeur de --expire. Exemple : ebony token create ci --expire 2027-03-31")
+				FIN
+				sExpireLe = EbExpirationDeJour(sValeur)
+				SI sExpireLe = "" ALORS
+					ExceptionDéclenche(25, "La date « " + sValeur + " » n'est pas valide pour --expire : écrivez AAAA-MM-JJ (une date du calendrier, UTC). Exemple : --expire 2027-03-31")
+				FIN
+				bExpire = Vrai
+				AUTRE CAS
+				ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Options de « token » : --expire (avec create), --json.")
+			FIN
+		FIN
+
+		SI sSousCommande = "" ALORS
+			ExceptionDéclenche(25, "Il manque la sous-commande. Usage : ebony token create <nom> [--expire AAAA-MM-JJ] | list | revoke <identifiant> [--json].")
+		FIN
+		SI PAS EbValeurDansListe(sSousCommande, EbSousCommandesToken()) ALORS
+			ExceptionDéclenche(25, "Sous-commande inconnue : « " + sSousCommande + " ». Sous-commandes de « token » : " + Remplace(EbSousCommandesToken(), "|", ", ") + ".")
+		FIN
+		SI bExpire ET sSousCommande <> "create" ALORS
+			ExceptionDéclenche(25, "--expire ne va qu'avec « create ». Exemple : ebony token create ci --expire 2027-03-31")
+		FIN
+		SI sSousCommande = "create" ET sArgument = "" ALORS
+			ExceptionDéclenche(25, "Il manque le nom du jeton. Exemple : ebony token create ci-github")
+		FIN
+		SI sSousCommande = "create" ET Taille(sArgument) > EbTailleMaxNomJeton() ALORS
+			ExceptionDéclenche(25, "Le nom du jeton est trop long (" + Taille(sArgument) + " caractères ; au plus " + EbTailleMaxNomJeton() + ").")
+		FIN
+		SI sSousCommande = "revoke" ET sArgument = "" ALORS
+			ExceptionDéclenche(25, "Il manque l'identifiant du jeton à révoquer (« ebony token list » le donne). Exemple : ebony token revoke ba7816bf8f01")
+		FIN
+		SI sSousCommande = "revoke" ET PAS EbIdentifiantJetonValide(sArgument) ALORS
+			ExceptionDéclenche(25, "L'identifiant « " + sArgument + " » n'est pas valide : 12 caractères hexadécimaux en minuscules, comme « ebony token list » les affiche.")
+		FIN
+		SI sSousCommande = "list" ET sArgument <> "" ALORS
+			ExceptionDéclenche(25, "« ebony token list » ne prend pas d'argument : « " + sArgument + " » en trop.")
+		FIN
+		oDemande est un cEbDemandeToken(sSousCommande, sArgument, sExpireLe)
+		RENVOYER oDemande
+	FIN
+FIN

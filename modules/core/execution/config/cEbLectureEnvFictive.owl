@@ -1,0 +1,20 @@
+// Adaptateur de test du port iEbLectureEnv : des fichiers en mémoire, rien sur le disque.
+cEbLectureEnvFictive est une Classe implemente iEbLectureEnv
+PRIVÉ
+	contenus est un tableau associatif de chaînes
+
+	PROCEDURE PUBLIQUE AjouteFichier(chemin est une chaîne, texte est une chaîne)
+		:contenus[chemin] = texte
+	FIN
+
+	PROCEDURE PUBLIQUE Existe(chemin est une chaîne) : booléen
+		RENVOYER TableauCherche(:contenus, chemin)
+	FIN
+
+	PROCEDURE PUBLIQUE Lit(chemin est une chaîne) : chaîne
+		SI PAS TableauCherche(:contenus, chemin) ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER :contenus[chemin]
+	FIN
+FIN

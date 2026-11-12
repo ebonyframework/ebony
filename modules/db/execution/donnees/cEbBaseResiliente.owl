@@ -1,0 +1,84 @@
+// Connexion partagée à la base, qui se rétablit toute seule. Constat (OWL 1.6.0, Linux, PostgreSQL 18) : une connexion ouverte UNE fois dans FinInitialisation et fermée dans Fermeture
+// tient 390 à 690 requêtes/s (contre ~40 en ouvrant à chaque requête), MAIS après un arrêt de la base elle ne se rétablit jamais : OWL ne lève rien (échec « doux », Succès faux), le service répond 200 avec 0 ligne.
+// Schéma d'Execute :
+//   1. envoyer la requête ; si elle aboutit, c'est fini ;
+//   2. sinon, SONDER la connexion (SELECT 1) : si elle répond, l'échec est celui de la requête (SQL faux, contrainte violée…) : on le rend tel quel, SANS rejouer ni fermer
+//      (rejouer une écriture sur une connexion saine serait une erreur) ;
+//   3. sinon la connexion est perdue : fermer, rouvrir ; si la base reste injoignable, rendre « indisponible » (le service répond 503, la reprise se fait à la requête suivante) ;
+//   4. rejouer UNE fois la requête sur la connexion rétablie.
+// Limites connues : OWL sert les requêtes une par une (pas de concurrence à protéger) ; une transaction ouverte est perdue avec la connexion (pas de transaction dans cette version) ;
+// une écriture dont la réponse s'est perdue en route peut être rejouée alors qu'elle avait abouti : écrire les requêtes d'écriture de façon idempotente quand c'est possible.
+// Ne connaît que le port iEbConnexionSql : se teste avec cEbConnexionSqlFictive, sans base.
+cEbBaseResiliente est une Classe implemente iEbConnexionSql
+PRIVÉ
+	oConnexion est un iEbConnexionSql
+
+	PROCEDURE Constructeur(connexion est un iEbConnexionSql)
+		:oConnexion = connexion
+	FIN
+
+	// À appeler une fois, dans FinInitialisation. Faux si la base est injoignable au démarrage : l'application démarre quand même, la première requête retentera.
+	PROCEDURE PUBLIQUE Ouvre() : booléen
+		RENVOYER :oConnexion.Ouvre()
+	FIN
+
+	// À appeler dans Fermeture (appelée aussi sur SIGTERM).
+	PROCEDURE PUBLIQUE Ferme()
+		:oConnexion.Ferme()
+	FIN
+
+	PROCEDURE PUBLIQUE Execute(code est une chaîne, parametres est un tableau associatif) : cEbResultatSql
+		// Toutes les variables sont déclarées ici : OWL 1.6.0 corrompt les variables locales quand une déclaration est dans une branche non exécutée.
+		tabVide       est un tableau
+		sCause        est une chaîne        = ""
+		oPremier      est un cEbResultatSql = :oConnexion.Envoie(code, parametres)
+		oIndisponible est un cEbResultatSql = oPremier
+		oRejoue       est un cEbResultatSql = oPremier
+		oRetabli      est un cEbResultatSql = oPremier
+		bRetablie     est un booléen        = Faux
+
+		SI oPremier.Succes() ALORS
+			RENVOYER oPremier
+		FIN
+		// Échec : la requête est fausse, ou la connexion est perdue ?
+		SI :oConnexion.Sonde() ALORS
+			RENVOYER oPremier
+		FIN
+
+		// Connexion perdue : fermer, rouvrir.
+		:oConnexion.Ferme()
+		bRetablie = :oConnexion.Ouvre()
+		SI PAS bRetablie ALORS
+			sCause        = :oConnexion.DernierMessage()
+			oIndisponible = cEbResultatSql(Faux, "Base injoignable : " + sCause, tabVide, 0, 0, Vrai, Faux)
+			RENVOYER oIndisponible
+		FIN
+
+		// Connexion rétablie : rejouer UNE fois.
+		oRejoue = :oConnexion.Envoie(code, parametres)
+		SI oRejoue.Succes() ALORS
+			oRetabli = cEbResultatSql(Vrai, "", oRejoue.Lignes(), oRejoue.NbLignes(), oRejoue.LignesAffectees(), Faux, Vrai)
+			RENVOYER oRetabli
+		FIN
+		SI :oConnexion.Sonde() ALORS
+			// La connexion est revenue mais la requête est refusée : c'est la requête, pas la base.
+			oRetabli = cEbResultatSql(Faux, oRejoue.Message(), tabVide, 0, 0, Faux, Vrai)
+			RENVOYER oRetabli
+		FIN
+		oIndisponible = cEbResultatSql(Faux, "Base injoignable : la connexion rétablie s'est perdue de nouveau (" + oRejoue.Message() + ")", tabVide, 0, 0, Vrai, Vrai)
+		RENVOYER oIndisponible
+	FIN
+
+	// Le port iEbConnexionSql : la base résiliente PEUT être donnée à tout code qui attend une connexion (jetons, repositories). Envoie passe par Execute, donc par la reprise sur connexion perdue.
+	PROCEDURE PUBLIQUE Envoie(code est une chaîne, parametres est un tableau associatif) : cEbResultatSql
+		RENVOYER :Execute(code, parametres)
+	FIN
+
+	PROCEDURE PUBLIQUE Sonde() : booléen
+		RENVOYER :oConnexion.Sonde()
+	FIN
+
+	PROCEDURE PUBLIQUE DernierMessage() : chaîne
+		RENVOYER :oConnexion.DernierMessage()
+	FIN
+FIN

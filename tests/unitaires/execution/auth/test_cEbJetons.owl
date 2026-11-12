@@ -1,0 +1,152 @@
+// Tests de cEbJetons : une VRAIE base SQLite en mémoire (neuve avant chaque scénario, fermée après) et une horloge fictive.
+
+PROCEDURE EbTestConnexionJetons() : cEbConnexionSqlReelle
+	cnx est une sqlConnexion
+	cnx..Provider = sqlSqlite
+	cnx..Source   = ":memory:"
+	oConnexion est un cEbConnexionSqlReelle(cnx, "SELECT 1")
+	oConnexion.Ouvre()
+	RENVOYER oConnexion
+FIN
+
+gConnexionJetons est un cEbConnexionSqlReelle = EbTestConnexionJetons()
+gHorlogeJetons   est un cEbHorlogeFictive
+
+PROCEDURE avantChaqueTest()
+	gConnexionJetons = EbTestConnexionJetons()
+	gHorlogeJetons   = cEbHorlogeFictive()
+	gHorlogeJetons.Definit("2026-11-07T09:30:00Z")
+FIN
+
+PROCEDURE apresChaqueTest()
+	gConnexionJetons.Ferme()
+FIN
+
+// Crée la table comme le fait la migration du module auth (modules/auth/execution/modules/auth.json : même SQL, à tenir identique). Rend la cause de l'échec, « » si elle a abouti.
+PROCEDURE EbTestCreeTableJetons(oConnexion est un cEbConnexionSqlReelle) : chaîne
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = oConnexion.Envoie("CREATE TABLE eb_jetons (empreinte TEXT NOT NULL PRIMARY KEY, nom TEXT NOT NULL, cree_le TEXT NOT NULL, expire_le TEXT NOT NULL, revoque_le TEXT NOT NULL)", tabAucun)
+	SI oResultat.Succes() ALORS
+		RENVOYER ""
+	FIN
+	RENVOYER oResultat.Message()
+FIN
+
+// Des jetons sur la base du scénario, table déjà créée (par la migration, ici son SQL).
+PROCEDURE EbTestJetonsPrets() : cEbJetons
+	oJetons est un cEbJetons(gConnexionJetons, gHorlogeJetons)
+	sCause  est une chaîne                                     = EbTestCreeTableJetons(gConnexionJetons)
+	dbgVérifieEgalité(sCause, "", "la table se crée")
+	RENVOYER oJetons
+FIN
+
+// Tout ce que la table contient, en une seule chaîne : sert à prouver que le secret n'y est pas.
+PROCEDURE EbTestContenuJetons() : chaîne
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionJetons.Envoie("SELECT * FROM " + Caract(34) + "eb_jetons" + Caract(34), tabAucun)
+	sTout     est une chaîne            = ""
+	POUR TOUT ligne DE oResultat.Lignes()
+		POUR TOUT valeur, nom DE ligne
+			sTout += valeur + "|"
+		FIN
+	FIN
+	RENVOYER sTout
+FIN
+
+// Sans la table (la migration n'a pas été jouée), enregistrer un jeton ne lève pas : la cause de la base est rendue, à l'appelant d'en faire une erreur ; identifier refuse, et la table n'est pas créée en silence.
+PROCEDURE scenario_sans_la_table_rien_n_est_cree_en_silence()
+	oJetons est un cEbJetons(gConnexionJetons, gHorlogeJetons)
+	dbgVérifieVrai(oJetons.Enregistre("ci", "eb_secret1", "") <> "", "l'enregistrement rend la cause")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "aucun jeton reconnu")
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionJetons.Envoie("SELECT 1 FROM eb_jetons", tabAucun)
+	dbgVérifieFaux(oResultat.Succes(), "la table n'a pas été créée")
+FIN
+
+// Un jeton enregistré est reconnu par son secret et rend son nom.
+PROCEDURE scenario_jeton_enregistre_est_reconnu()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("ci", "eb_secret1", "")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "ci", "le nom du jeton")
+FIN
+
+// Le secret n'est jamais écrit : la base ne garde que l'empreinte.
+PROCEDURE scenario_secret_jamais_en_base()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("ci", "eb_secret1", "")
+	sTout est une chaîne = EbTestContenuJetons()
+	dbgVérifieEgalité(Position(sTout, "eb_secret1"), 0, "le secret est absent de la table")
+	dbgVérifieVrai(Position(sTout, EbEmpreinteJeton("eb_secret1")) > 0, "son empreinte y est")
+FIN
+
+// Un secret inconnu, un secret presque juste et un secret vide sont refusés.
+PROCEDURE scenario_secret_inconnu_refuse()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("ci", "eb_secret1", "")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret2"), "", "inconnu")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret"), "", "presque juste")
+	dbgVérifieEgalité(oJetons.Identifie(""), "", "vide")
+FIN
+
+// Sans table (avant tout « token create »), tout jeton est refusé : on ne laisse jamais passer faute de pouvoir vérifier.
+PROCEDURE scenario_sans_table_tout_refuse()
+	oJetons est un cEbJetons(gConnexionJetons, gHorlogeJetons)
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "refusé sans table")
+	dbgVérifieEgalité(oJetons.Enumere()..Occurrence, 0, "rien à lister")
+FIN
+
+// Un jeton expiré est refusé : valable avant l'instant d'expiration, refusé à partir de cet instant.
+PROCEDURE scenario_jeton_expire_refuse()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("court", "eb_secret1", "2026-11-07T10:00:00Z")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "court", "avant l'expiration")
+	gHorlogeJetons.Definit("2026-11-07T10:00:00Z")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "à l'expiration")
+FIN
+
+// Révoquer un jeton le refuse aussitôt, sans toucher aux autres ; révoquer deux fois ne révoque rien la seconde fois.
+PROCEDURE scenario_revocation()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("un", "eb_secret1", "")
+	oJetons.Enregistre("deux", "eb_secret2", "")
+	sId est une chaîne = EbIdentifiantJeton(EbEmpreinteJeton("eb_secret1"))
+	dbgVérifieEgalité(oJetons.Revoque(sId), 1, "un jeton révoqué")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "le jeton révoqué est refusé")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret2"), "deux", "l'autre reste valable")
+	dbgVérifieEgalité(oJetons.Revoque(sId), 0, "déjà révoqué : rien à faire")
+FIN
+
+// Révoquer un identifiant inconnu ne fait rien.
+PROCEDURE scenario_revocation_identifiant_inconnu()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("un", "eb_secret1", "")
+	dbgVérifieEgalité(oJetons.Revoque("000000000000"), 0, "aucun jeton")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "un", "le jeton reste valable")
+FIN
+
+// La liste montre identifiant, nom et dates, du plus récent au plus ancien, sans empreinte entière ni secret.
+PROCEDURE scenario_enumere_ne_montre_ni_secret_ni_empreinte()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	oJetons.Enregistre("ancien", "eb_secret1", "")
+	gHorlogeJetons.Definit("2026-11-08T09:30:00Z")
+	oJetons.Enregistre("recent", "eb_secret2", "2026-12-01T00:00:00Z")
+	tabLignes est un tableau = oJetons.Enumere()
+	dbgVérifieEgalité(tabLignes..Occurrence, 2, "deux jetons")
+	dbgVérifieEgalité(tabLignes[1]["nom"], "recent", "le plus récent d'abord")
+	dbgVérifieEgalité(tabLignes[2]["nom"], "ancien", "puis l'ancien")
+	dbgVérifieEgalité(tabLignes[1]["identifiant"], EbIdentifiantJeton(EbEmpreinteJeton("eb_secret2")), "identifiant = début d'empreinte")
+	dbgVérifieEgalité(tabLignes[1]["expire_le"], "2026-12-01T00:00:00Z", "expiration")
+	dbgVérifieEgalité(tabLignes[2]["expire_le"], "", "sans expiration")
+	dbgVérifieEgalité(tabLignes[1]["revoque_le"], "", "pas révoqué")
+	dbgVérifieVrai(TableauCherche(tabLignes[1], "nom") > 0, "la colonne nom est dans la liste")
+	dbgVérifieVrai(TableauCherche(tabLignes[1], "empreinte") < 1, "pas de colonne empreinte dans la liste")
+FIN
+
+// Deux jetons de même nom sont permis (un nom est une étiquette, pas une clé) ; deux fois le même secret ne l'est pas.
+PROCEDURE scenario_meme_nom_permis_meme_secret_refuse()
+	oJetons est un cEbJetons = EbTestJetonsPrets()
+	dbgVérifieEgalité(oJetons.Enregistre("ci", "eb_secret1", ""), "", "premier")
+	dbgVérifieEgalité(oJetons.Enregistre("ci", "eb_secret2", ""), "", "même nom, autre secret")
+	dbgVérifieVrai(oJetons.Enregistre("autre", "eb_secret1", "") <> "", "même secret refusé par la clé primaire")
+	dbgVérifieEgalité(oJetons.Enumere()..Occurrence, 2, "deux jetons")
+FIN

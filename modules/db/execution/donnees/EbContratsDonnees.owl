@@ -1,0 +1,29 @@
+// Contrat (port) entre la bibliothèque et la base de données. Une interface doit être déclarée dans une Collection pour être reconnue.
+// Adaptateurs : cEbConnexionSqlReelle (les connecteurs SQL d'OWL), cEbConnexionSqlFictive (tests, sans base).
+EbContratsDonnees est une CollectionDeProcédures
+
+	// Une connexion à une base SQL. Aucune méthode ne LÈVE : OWL non plus (les erreurs d'E/S sont « douces »), l'échec se lit dans le résultat ou dans le booléen rendu.
+	iEbConnexionSql est une Interface
+		// Ouvre la connexion. Faux si la base est injoignable (la cause est alors dans DernierMessage()).
+		PROCEDURE PUBLIQUE Ouvre() : booléen
+		// Ferme la connexion (sans effet si elle n'est pas ouverte).
+		PROCEDURE PUBLIQUE Ferme()
+		// Envoie une requête (texte SQL avec des « {nom} » et leurs valeurs : jamais de valeur écrite dans le texte, c'est ce qui neutralise l'injection SQL).
+		PROCEDURE PUBLIQUE Envoie(code est une chaîne, parametres est un tableau associatif) : cEbResultatSql
+		// Vrai si la connexion répond à une requête triviale (SELECT 1) : sépare « la requête est fausse » de « la connexion est perdue ».
+		PROCEDURE PUBLIQUE Sonde() : booléen
+		// La cause du dernier échec (« » s'il n'y en a pas eu). Ne jamais lire ErreurInfo() après un succès : OWL ne l'efface pas.
+		PROCEDURE PUBLIQUE DernierMessage() : chaîne
+	FIN
+
+	// Une migration de schéma, écrite par « ebony make migration » (database/migrations/M<horodatage>_<Intention>.owl). Une classe par migration, qui implémente ce contrat.
+	// Elle ne fait que DIRE le SQL : l'envoyer à la base est le travail de l'exécuteur de migrations (« ebony migrate », cEbExecuteurMigrations), qui lit le SQL dans le fichier de la migration.
+	iEbMigration est une Interface
+		// Le nom de la migration, celui du fichier sans extension : « M202611021015_CreeClients ». L'ordre alphabétique est l'ordre chronologique.
+		PROCEDURE PUBLIQUE Nom() : chaîne
+		// Les instructions SQL qui appliquent la migration, dans l'ordre d'envoi.
+		PROCEDURE PUBLIQUE Monte() : tableau de chaînes
+		// Les instructions SQL qui la défont, dans l'ordre d'envoi.
+		PROCEDURE PUBLIQUE Descend() : tableau de chaînes
+	FIN
+FIN

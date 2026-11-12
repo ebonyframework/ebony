@@ -1,0 +1,7 @@
+// Adaptateur réel du port iEbSortieJournal : la sortie standard, une ligne par événement. C'est ce qu'un hébergeur collecte (le journal d'OWL n'a pas d'autre sortie).
+cEbSortieJournalConsole est une Classe implemente iEbSortieJournal
+
+	PROCEDURE PUBLIQUE Ecrit(ligne est une chaîne)
+		Trace(ligne)
+	FIN
+FIN

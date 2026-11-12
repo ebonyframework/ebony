@@ -1,0 +1,94 @@
+// « ebony new <nom> » : crée un projet minimal (ebony.conf, projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json (le schéma de la configuration), app/http/Service<Nom>.owl (le service REST), README.md et ebony/, copie de la bibliothèque d'exécution) dans un dossier neuf
+// du dossier d'où l'utilisateur a lancé ebony. Le nom est libre ; le dossier et l'identifiant OWL en sont déduits (voir EbNomProjet).
+// Tout est vérifié AVANT d'écrire : nom, placement d'OWL, installation d'ebony, version de la bibliothèque, dossier cible. OWL n'a pas de suppression récursive
+// de dossier : on ne tente pas de « défaire » une création, on dit précisément ce qui a pu rester si une écriture échoue malgré tout.
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 20 nom refusé, 21 OWL mal placé, 22 installation d'ebony illisible, 23 dossier cible occupé, 24 écriture interrompue.
+cEbCreationProjet est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	// Sans choix particulier : API REST, SQLite, sans authentification.
+	PROCEDURE PUBLIQUE Execute(nom est une chaîne) : cEbProjetCree
+		oDefaut est un cEbOptionsProjet = EbOptionsParDefaut()
+		oCree   est un cEbProjetCree    = :ExecuteAvecOptions(nom, oDefaut)
+		RENVOYER oCree
+	FIN
+
+	PROCEDURE PUBLIQUE ExecuteAvecOptions(nom est une chaîne, options est un cEbOptionsProjet) : cEbProjetCree
+		sRefus est une chaîne = EbVerifieNomProjet(nom)
+		SI sRefus <> "" ALORS
+			ExceptionDéclenche(20, sRefus)
+		FIN
+		sDossier     est une chaîne = EbDossierProjet(nom)
+		sIdentifiant est une chaîne = EbIdentifiantProjet(sDossier)
+
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(21, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		// Le projet ne reçoit que les modules de son kit (noté dans ebony.conf) : le cœur, et ceux que le kit liste.
+		oInstallee.Choisit(EbModulesDuKit(options.Kit()))
+		oInstallee.Verifie()
+		sVersion est une chaîne = oInstallee.Version()
+		// Ce que les modules installés déclarent dans leur manifeste : leurs variables s'ajoutent au schéma de configuration, leurs migrations sont copiées dans database/migrations/.
+		// Pas de migration pour HFSQL : « ebony migrate » le refuse (non mesuré).
+		tabMigrations est un tableau
+		SI options.ABase() ET options.BaseDonnees() <> "hfsql" ALORS
+			tabMigrations = EbMigrationsAEcrire(oInstallee.MigrationsModules(), options, Vrai)
+		FIN
+		options = options.AvecModules(oInstallee.VariablesModules(), tabMigrations, EbFichiersAEcrire(oInstallee.FichiersModules(), options))
+
+		sCible est une chaîne = EbJointChemin(sLancement, sDossier)
+		SI :oSysteme.FichierExiste(sCible) ALORS
+			ExceptionDéclenche(23, "Un fichier porte déjà le nom « " + sDossier + " » dans " + sLancement + " : impossible d'y créer le projet. Choisissez un autre nom.")
+		FIN
+		SI :oSysteme.DossierExiste(sCible) ET PAS :oSysteme.DossierEstVide(sCible) ALORS
+			ExceptionDéclenche(23, "Le dossier « " + sCible + " » existe déjà et n'est pas vide : ebony n'y écrit rien. Choisissez un autre nom, ou videz ce dossier.")
+		FIN
+
+		QUAND EXCEPTION DANS
+			:oEcriture.CreeDossier(sCible)
+			oInstallee.Copie(:oEcriture, EbJointChemin(sCible, "ebony"))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, "ebony.conf"), EbContenuConfAvecOptions(nom, sDossier, sIdentifiant, sVersion, options))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, "projet.owl"), EbAligneDeclarations(EbContenuProjetOwl(nom, sIdentifiant)))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, ".gitignore"), EbContenuGitignore())
+			:oEcriture.EcritTexte(EbJointChemin(sCible, ".env.exemple"), EbContenuEnvExemple(sDossier, options))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, ".env.secrets.exemple"), EbContenuSecretsExemple(options))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, "README.md"), EbContenuReadmeAvecOptions(nom, options))
+			:oEcriture.EcritTexte(EbJointChemin(sCible, "AGENTS.md"), EbContenuAgentsAvecOptions(nom, options))
+			sConfig est une chaîne = EbJointChemin(sCible, "config")
+			:oEcriture.CreeDossier(sConfig)
+			:oEcriture.EcritTexte(EbJointChemin(sConfig, "env.json"), EbContenuSchemaEnv(sDossier, options))
+			sApp  est une chaîne = EbJointChemin(sCible, "app")
+			sHttp est une chaîne = EbJointChemin(sApp, "http")
+			:oEcriture.CreeDossier(sApp)
+			:oEcriture.CreeDossier(sHttp)
+			:oEcriture.EcritTexte(EbJointChemin(sHttp, EbNomService(sIdentifiant) + ".owl"), EbAligneDeclarations(EbContenuService(nom, sIdentifiant, options)))
+			POUR TOUT oFichierModule DE options.FichiersModules()
+				sFichierModule est une chaîne = EbJointChemin(sCible, Remplace(oFichierModule.Chemin(), "/", "\"))
+				:oEcriture.CreeDossier(EbParentChemin(sFichierModule))
+				:oEcriture.EcritTexte(sFichierModule, EbAligneDeclarations(oFichierModule.Contenu()))
+			FIN
+			SI options.MigrationsModules()..Occurrence > 0 ALORS
+				:oEcriture.CreeDossier(EbJointChemin(EbJointChemin(sCible, "database"), "migrations"))
+				POUR TOUT oMigration DE options.MigrationsModules()
+					:oEcriture.EcritTexte(EbJointChemin(sCible, Remplace(oMigration.Fichier(), "/", "\")), EbContenuMigrationModule(oMigration))
+				FIN
+			FIN
+		FAIRE
+			ExceptionDéclenche(24, "Création interrompue : " + ExceptionInfo(errMessage) + ". Le dossier " + sCible + " a pu être laissé incomplet : supprimez-le, puis recommencez.")
+		FIN
+
+		oCree est un cEbProjetCree(nom, sDossier, sIdentifiant, sCible, options)
+		RENVOYER oCree
+	FIN
+FIN

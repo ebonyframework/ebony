@@ -1,0 +1,19 @@
+// « ebony request » : envoie une requête à un service en cours d'exécution et rend sa réponse. Un 404 ou un 500 est une RÉPONSE (rendue telle quelle, code de sortie 0) :
+// c'est le service qui l'a donnée. Seule l'absence de réponse est une erreur (code 50) : service arrêté, mauvais port, URL invalide.
+// Ne connaît que le port iEbClientHttp : se teste avec le client fictif, sans réseau.
+cEbEnvoiRequete est une Classe
+PRIVÉ
+	oClient est un iEbClientHttp
+
+	PROCEDURE Constructeur(client est un iEbClientHttp)
+		:oClient = client
+	FIN
+
+	PROCEDURE PUBLIQUE Execute(demande est un cEbDemandeHttp) : cEbReponseHttp
+		oReponse est un cEbReponseHttp = :oClient.Envoie(demande)
+		SI oReponse.Statut() = 0 ALORS
+			ExceptionDéclenche(50, "Aucune réponse de " + demande.Url() + " : " + oReponse.Raison() + " Le service est-il lancé (owl serve) et le port est-il le bon (--port) ?")
+		FIN
+		RENVOYER oReponse
+	FIN
+FIN

@@ -1,0 +1,68 @@
+// Résultat de « ebony init » : ce qui a été ajouté à un projet OWL existant. Objet valeur immuable, rempli par le constructeur.
+cEbEbonyAjoute est une Classe
+PRIVÉ
+	sNom         est une chaîne            = ""
+	sDossier     est une chaîne            = ""
+	sIdentifiant est une chaîne            = ""
+	sChemin      est une chaîne            = ""
+	oOptions     est un cEbOptionsProjet
+	tabCrees     est un tableau de chaînes
+	tabConserves est un tableau de chaînes
+	tabNotes     est un tableau de chaînes
+
+	PROCEDURE Constructeur(Nom est une chaîne, Dossier est une chaîne, Identifiant est une chaîne, Chemin est une chaîne, Options est un cEbOptionsProjet, Crees est un tableau de chaînes, Conserves est un tableau de chaînes, Notes est un tableau de chaînes)
+		:sNom = Nom
+		:sDossier = Dossier
+		:sIdentifiant = Identifiant
+		:sChemin = Chemin
+		:oOptions = Options
+		POUR TOUT sCree DE Crees
+			TableauAjoute(:tabCrees, sCree)
+		FIN
+		POUR TOUT sConserve DE Conserves
+			TableauAjoute(:tabConserves, sConserve)
+		FIN
+		POUR TOUT sNote DE Notes
+			TableauAjoute(:tabNotes, sNote)
+		FIN
+	FIN
+
+	// Le nom du projet : celui du dossier où ebony a été lancé.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Le nom de dossier déduit (voir EbDossierProjet), enregistré dans ebony.conf.
+	PROCEDURE PUBLIQUE Dossier() : chaîne
+		RENVOYER :sDossier
+	FIN
+
+	// L'identifiant OWL du projet : celui du bloc « est un Projet » de projet.owl, ou « App… » déduit du dossier s'il n'y en a pas.
+	PROCEDURE PUBLIQUE Identifiant() : chaîne
+		RENVOYER :sIdentifiant
+	FIN
+
+	// Le chemin complet du projet (le dossier où ebony a été lancé).
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	PROCEDURE PUBLIQUE Options() : cEbOptionsProjet
+		RENVOYER :oOptions
+	FIN
+
+	// Les fichiers et dossiers créés (« ebony/ » pour le dossier), relatifs au projet.
+	PROCEDURE PUBLIQUE Crees() : tableau de chaînes
+		RENVOYER :tabCrees
+	FIN
+
+	// Les fichiers qui existaient déjà et que ebony n'a pas touchés (projet.owl, et ceux qu'il aurait créés s'ils manquaient).
+	PROCEDURE PUBLIQUE Conserves() : tableau de chaînes
+		RENVOYER :tabConserves
+	FIN
+
+	// Ce que l'utilisateur doit faire lui-même dans ses propres fichiers (une phrase par note).
+	PROCEDURE PUBLIQUE Notes() : tableau de chaînes
+		RENVOYER :tabNotes
+	FIN
+FIN

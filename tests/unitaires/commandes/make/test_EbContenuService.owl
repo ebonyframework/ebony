@@ -1,0 +1,72 @@
+// Tests de EbContenuService : le service d'une ressource et son test (chemins, structure du texte, clé entière ou texte).
+// Que ce texte COMPILE et que le test du service PASSE est prouvé par tests/integration/lanceur.ps1 (groupe « make », vrai owl test sur le projet généré).
+
+// Les chemins : le service sous app/services, son test sous tests/unitaires, avec des barres obliques.
+PROCEDURE scenario_chemins_du_service()
+	oDemande est un cEbDemandeMake = EbTestDemandeService("resource;Bon de commande;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(EbCheminService(oDemande), "app/services/bon-de-commande/cServiceBonDeCommande.owl", "chemin du service")
+	dbgVérifieEgalité(EbCheminTestService(oDemande), "tests/unitaires/bon-de-commande/test_cServiceBonDeCommande.owl", "chemin du test du service")
+FIN
+
+// Le service reçoit le repository par son contrat, a une méthode par opération du repository et ne connaît ni HTTP ni SQL.
+PROCEDURE scenario_service_clef_entiere()
+	oDemande est un cEbDemandeMake = EbTestDemandeService("resource;Client;--champs;id:entier*,nom:texte")
+	sTexte   est une chaîne        = EbTexteService(oDemande)
+	dbgVérifieVrai(Position(sTexte, "cServiceClient est une Classe") > 0, "la classe")
+	dbgVérifieVrai(Position(sTexte, "PRIVÉ") > 0, "champs privés")
+	dbgVérifieVrai(Position(sTexte, "oRepository est un iRepoClient") > 0, "le repository est reçu par son contrat")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE Constructeur(repository est un iRepoClient)") > 0, "constructeur")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Enumere() : tableau de cClient") > 0, "Enumere")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Trouve(cle est un entier) : cClient") > 0, "Trouve, clé entière")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Ajoute(entite est un cClient) : cClient") > 0, "Ajoute")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Modifie(entite est un cClient)") > 0, "Modifie")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Supprime(cle est un entier)") > 0, "Supprime, clé entière")
+	dbgVérifieVrai(Position(sTexte, "RENVOYER :oRepository.Trouve(cle)") > 0, "passe l'appel au repository")
+	dbgVérifieEgalité(Position(sTexte, "cEbServiceApplication"), 0, "ne connaît pas l'application HTTP")
+	dbgVérifieEgalité(Position(sTexte, "cRepoClientSql"), 0, "ne connaît pas le repository SQL")
+	dbgVérifieEgalité(Position(sTexte, "Execute("), 0, "n'écrit aucune requête")
+	dbgVérifieEgalité(Position(sTexte, "http"), 0, "ne connaît pas HTTP")
+FIN
+
+// Une clé texte : les méthodes prennent une chaîne.
+PROCEDURE scenario_service_cle_texte()
+	oDemande est un cEbDemandeMake = EbTestDemandeService("resource;Pays;--champs;code:texte*,nom:texte")
+	sTexte   est une chaîne        = EbTexteService(oDemande)
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Trouve(cle est une chaîne) : cPays") > 0, "Trouve, clé texte")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE PUBLIQUE Supprime(cle est une chaîne)") > 0, "Supprime, clé texte")
+FIN
+
+// Le test du service : il passe le repository en mémoire, vérifie chaque méthode et la propagation de l'erreur 404.
+PROCEDURE scenario_test_du_service()
+	oDemande est un cEbDemandeMake = EbTestDemandeService("resource;Client;--champs;id:entier*,nom:texte")
+	sTexte   est une chaîne        = EbTexteTestService(oDemande)
+	dbgVérifieVrai(Position(sTexte, "oRepository est un cRepoClientMemoire") > 0, "repository en mémoire")
+	dbgVérifieVrai(Position(sTexte, "oService est un cServiceClient(oRepository)") > 0, "le service reçoit le repository")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE scenario_service_ajoute_puis_trouve()") > 0, "ajout puis lecture")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE scenario_service_enumere_les_lignes()") > 0, "énumération")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE scenario_service_modifie_remplace_les_valeurs()") > 0, "modification")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE scenario_service_supprime_retire_la_ligne()") > 0, "suppression")
+	dbgVérifieVrai(Position(sTexte, "PROCEDURE scenario_service_cle_absente_leve_404()") > 0, "clé absente : 404")
+	dbgVérifieVrai(Position(sTexte, "dbgVérifieEgalité(nCode, 404") > 0, "le code 404 est vérifié")
+	dbgVérifieEgalité(Position(sTexte, "cRepoClientSql"), 0, "pas de base : le repository SQL a son propre test")
+FIN
+
+// Les textes se terminent par un saut de ligne, sans retour chariot ni triple saut de ligne.
+PROCEDURE scenario_forme_des_textes()
+	oDemande  est un cEbDemandeMake     = EbTestDemandeService("resource;Bon de commande;--champs;id:entier*,nom:texte")
+	tabTextes est un tableau de chaînes
+	TableauAjoute(tabTextes, EbTexteService(oDemande))
+	TableauAjoute(tabTextes, EbTexteTestService(oDemande))
+	POUR TOUT sTexte DE tabTextes
+		dbgVérifieEgalité(Droite(sTexte, 1), Caract(10), "saut de ligne final")
+		dbgVérifieEgalité(Position(sTexte, Caract(13)), 0, "pas de retour chariot")
+		dbgVérifieEgalité(Position(sTexte, Caract(10) + Caract(10) + Caract(10)), 0, "pas de double ligne vide")
+	FIN
+FIN
+
+// La demande de make resource, depuis des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeService(sListe est une chaîne) : cEbDemandeMake
+	tabArgs  est un tableau de chaînes = ChaîneDécoupe(sListe, ";")
+	oDemande est un cEbDemandeMake     = EbAnalyseArgumentsMake(tabArgs)
+	RENVOYER oDemande
+FIN

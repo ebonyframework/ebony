@@ -1,0 +1,140 @@
+// Nom d'un projet créé par « ebony new » : de ce que l'utilisateur écrit librement au dossier et à l'identifiant OWL. Fonctions pures (aucun accès au disque),
+// testées dans tests/unitaires/commandes/nouveau/.
+//
+// Principe (convention plutôt que configuration) : le mot de l'utilisateur ne devient JAMAIS tel quel un identifiant OWL. OWL n'a qu'un espace de noms global, et l'identifiant
+// du projet est une globale qui masque tout paramètre ou variable de même nom (mesuré : un projet « Client » casse un paramètre « client »), et les mots réservés
+// (Liste, Date, Si…) sont refusés. On sépare donc trois noms :
+//   - le NOM du projet : libre (accents, espaces, majuscules), gardé dans ebony.conf et affiché dans le README ;
+//   - le DOSSIER : déduit du nom (sans accent, minuscules, tirets), jamais refusé, car owl n'ouvre pas un chemin accentué sous Windows ;
+//   - l'IDENTIFIANT OWL : « App » + le dossier en majuscules initiales (cafe-de-la-gare → AppCafeDeLaGare). Le préfixe App est réservé à l'identifiant du projet :
+//     mesuré avec owl 1.5.0, tous les noms refusés tels quels (Liste, Tous, Si, Or, Date, A, Json, Modulo…) compilent avec ce préfixe, et un paramètre « client » n'est plus masqué.
+// Les autres identifiants fabriqués depuis un mot de l'utilisateur suivent la même règle (c, i, e, Service, Repo… + le mot) ; Eb est réservé à la bibliothèque.
+EbNomProjet est une CollectionDeProcédures
+
+	// Longueur maximale du dossier déduit (les chemins Windows sont limités).
+	PROCEDURE EbLongueurMaxDossierProjet() : entier
+		RENVOYER 40
+	FIN
+
+	// Équivalent ASCII en minuscules d'une lettre latine accentuée, majuscule ou minuscule (é → e, Ł → l, Š → s, œ → oe, ß → ss, þ → th), ou le caractère lui-même
+	// s'il n'en a pas (lettre ASCII, chiffre, symbole, autre alphabet). Mesuré avec owl 1.5.0 : Minuscule convertit les majuscules du Latin-1 (U+00C0 à U+00FF)
+	// mais PAS celles du Latin étendu A (Ł Š Ž Č Ő Ğ İ Œ…) et owl n'a aucune fonction de normalisation : cette table couvre donc les deux casses elle-même.
+	PROCEDURE EbSansAccent(sCar est une chaîne) : chaîne
+		SI Taille(sCar) <> 1 ALORS
+			RENVOYER sCar
+		FIN
+		nCode est un entier = Asc(sCar)
+		// Lettres qui donnent plusieurs lettres, ou une lettre particulière.
+		SELON nCode
+			CAS 223
+			RENVOYER "ss"
+			CAS 198, 230
+			RENVOYER "ae"
+			CAS 306, 307
+			RENVOYER "ij"
+			CAS 338, 339
+			RENVOYER "oe"
+			CAS 222, 254
+			RENVOYER "th"
+			CAS 208, 240
+			RENVOYER "d"
+			CAS 536, 537
+			RENVOYER "s"
+			CAS 538, 539
+			RENVOYER "t"
+		FIN
+		// Tables ASCII indexées par code : « ? » marque ce qui n'est pas une lettre simple (× ÷) ou qu'on a traité plus haut.
+		// Latin-1, de U+00C0 à U+00FF (64 caractères), puis Latin étendu A, de U+0100 à U+017F (128 caractères) : les deux casses y sont donc couvertes.
+		sLatin1 est une chaîne = "aaaaaa?ceeeeiiii?nooooo?ouuuuy??aaaaaa?ceeeeiiii?nooooo?ouuuuy?y"
+		sEtendu est une chaîne = "aaaaaacccccccc" + "dddd" + "eeeeeeeeee" + "gggggggg" + "hhhh" + "iiiiiiiiii" + "??" + "jj" + "kkk" + "llllllllll" + "nnnnnnnnn" + "oooooo" + "??" + "rrrrrr" + "ssssssss" + "tttttt" + "uuuuuuuuuuuu" + "ww" + "yyy" + "zzzzzz" + "s"
+		sLettre est une chaîne = "?"
+		SI nCode >= 192 ET nCode <= 255 ALORS
+			sLettre = Milieu(sLatin1, nCode - 191, 1)
+		FIN
+		SI nCode >= 256 ET nCode <= 383 ALORS
+			sLettre = Milieu(sEtendu, nCode - 255, 1)
+		FIN
+		SI sLettre = "?" ALORS
+			RENVOYER sCar
+		FIN
+		RENVOYER sLettre
+	FIN
+
+	// Vrai si le nom (minuscules) est un nom de périphérique réservé par Windows : con, prn, aux, nul, com1 à com9, lpt1 à lpt9.
+	// Constaté avec OWL 1.5.0 sous Windows 11 : fRepCree renvoie Vrai pour con, nul, aux et com1 et crée des dossiers portant ces noms (con, aux, com1 ; pas nul),
+	// alors que New-Item de PowerShell « réussit » sans rien produire de visible (Test-Path renvoie Faux) pour con, aux, prn, com1 et lpt1. Windows réserve ces noms :
+	// on évite de créer ce genre de dossier. Non mesuré : ce que d'autres outils (Explorateur, git, éditeurs) en font ; la suppression par script a fonctionné.
+	PROCEDURE EbEstNomReserveWindows(sNom est une chaîne) : booléen
+		SELON sNom
+			CAS "con", "prn", "aux", "nul"
+			RENVOYER Vrai
+		FIN
+		SI Taille(sNom) = 4 ET (Gauche(sNom, 3) = "com" OU Gauche(sNom, 3) = "lpt") ALORS
+			nChiffre est un entier = Asc(Droite(sNom, 1))
+			RENVOYER nChiffre >= 49 ET nChiffre <= 57
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Dossier déduit du nom : minuscules, accents retirés, tout ce qui n'est pas une lettre ou un chiffre latin devient un tiret, tirets multiples ou en bordure supprimés.
+	// « Café de la Gare » → cafe-de-la-gare ; « 2D  Jeu! » → 2d-jeu. Vide si le nom n'a ni lettre ni chiffre latin (alphabet non latin, symboles seuls).
+	// Un dossier qui serait un nom de périphérique Windows (con, nul, com1…) reçoit « -app » (con → con-app) : conversion, pas refus.
+	PROCEDURE EbDossierProjet(sNom est une chaîne) : chaîne
+		sBrut  est une chaîne = Minuscule(sNom)
+		sAscii est une chaîne = ""
+		POUR i = 1 À Taille(sBrut)
+			sCar  est une chaîne = Milieu(sBrut, i, 1)
+			nCode est un entier  = Asc(sCar)
+			SI (nCode >= 97 ET nCode <= 122) OU (nCode >= 48 ET nCode <= 57) ALORS
+				sAscii += sCar
+			SINON
+				sPlain est une chaîne = EbSansAccent(sCar)
+				SI sPlain <> sCar ALORS
+					sAscii += sPlain
+				SINON
+					sAscii += "-"
+				FIN
+			FIN
+		FIN
+		tabMots  est un tableau de chaînes = ChaîneDécoupe(sAscii, "-")
+		sDossier est une chaîne            = ""
+		POUR TOUT sMot DE tabMots
+			SI sMot <> "" ALORS
+				SI sDossier <> "" ALORS
+					sDossier += "-"
+				FIN
+				sDossier += sMot
+			FIN
+		FIN
+		SI EbEstNomReserveWindows(sDossier) ALORS
+			sDossier += "-app"
+		FIN
+		RENVOYER sDossier
+	FIN
+
+	// Identifiant OWL du projet : « App » + chaque mot du dossier avec une majuscule initiale, tirets supprimés (mon-app → AppMonApp, 2d-jeu → App2dJeu).
+	// À appeler sur un dossier issu de EbDossierProjet.
+	PROCEDURE EbIdentifiantProjet(sDossier est une chaîne) : chaîne
+		tabMots      est un tableau de chaînes = ChaîneDécoupe(sDossier, "-")
+		sIdentifiant est une chaîne            = "App"
+		POUR TOUT sMot DE tabMots
+			SI sMot <> "" ALORS
+				sIdentifiant += Majuscule(Gauche(sMot, 1)) + Droite(sMot, Taille(sMot) - 1)
+			FIN
+		FIN
+		RENVOYER sIdentifiant
+	FIN
+
+	// Chaîne vide si on peut créer un projet de ce nom ; sinon une phrase qui dit pourquoi. Presque tout est accepté : seuls un nom sans lettre ni chiffre latin
+	// (rien à mettre dans un dossier) et un dossier déduit trop long sont refusés.
+	PROCEDURE EbVerifieNomProjet(sNom est une chaîne) : chaîne
+		sDossier est une chaîne = EbDossierProjet(sNom)
+		SI sDossier = "" ALORS
+			RENVOYER "Le nom « " + sNom + " » ne contient aucune lettre ni aucun chiffre latin : impossible d'en déduire un dossier. Ajoutez au moins un mot en lettres latines, par exemple « mon-app »."
+		FIN
+		SI Taille(sDossier) > EbLongueurMaxDossierProjet() ALORS
+			RENVOYER "Le dossier déduit de « " + sNom + " » (" + sDossier + ") est trop long : " + Taille(sDossier) + " caractères, " + EbLongueurMaxDossierProjet() + " au plus. Raccourcissez le nom."
+		FIN
+		RENVOYER ""
+	FIN
+FIN

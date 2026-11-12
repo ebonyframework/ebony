@@ -1,0 +1,49 @@
+// La réponse à une requête HTTP (« ebony request »). Objet valeur immuable, rempli par le constructeur.
+// Un statut 0 veut dire « aucune réponse » (connexion impossible, URL invalide…) : la Raison donne alors la cause rapportée par OWL.
+cEbReponseHttp est une Classe
+PRIVÉ
+	nStatut    est un entier             = 0
+	sRaison    est une chaîne            = ""
+	tabNoms    est un tableau de chaînes
+	tabValeurs est un tableau de chaînes
+	sCorps     est une chaîne            = ""
+	nMs        est un entier             = 0
+
+	PROCEDURE Constructeur(Statut est un entier, Raison est une chaîne, noms est un tableau de chaînes, valeurs est un tableau de chaînes, Corps est une chaîne, ms est un entier)
+		:nStatut = Statut
+		:sRaison = Raison
+		POUR i = 1 À noms..Occurrence
+			TableauAjoute(:tabNoms, noms[i])
+			TableauAjoute(:tabValeurs, valeurs[i])
+		FIN
+		:sCorps = Corps
+		:nMs = ms
+	FIN
+
+	// Le code d'état (200, 404…), ou 0 si le service n'a pas répondu.
+	PROCEDURE PUBLIQUE Statut() : entier
+		RENVOYER :nStatut
+	FIN
+
+	// « OK », « Not Found »… ; sans réponse, la cause de l'échec.
+	PROCEDURE PUBLIQUE Raison() : chaîne
+		RENVOYER :sRaison
+	FIN
+
+	PROCEDURE PUBLIQUE NomsEntetes() : tableau de chaînes
+		RENVOYER :tabNoms
+	FIN
+
+	PROCEDURE PUBLIQUE ValeursEntetes() : tableau de chaînes
+		RENVOYER :tabValeurs
+	FIN
+
+	PROCEDURE PUBLIQUE Corps() : chaîne
+		RENVOYER :sCorps
+	FIN
+
+	// Durée de l'échange, en millisecondes.
+	PROCEDURE PUBLIQUE Millisecondes() : entier
+		RENVOYER :nMs
+	FIN
+FIN

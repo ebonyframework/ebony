@@ -1,0 +1,68 @@
+// Résultat de « ebony make » : ce qui a été créé (ou le serait, avec --dry-run), ce qui existait déjà et n'a pas été touché, et ce que l'utilisateur doit faire ensuite. Objet valeur immuable, rempli par le constructeur.
+// Les chemins sont relatifs au projet, avec des « / » (c'est ce que l'IDE ouvre).
+cEbMakeGenere est une Classe
+PRIVÉ
+	sNomCommande est une chaîne            = ""
+	sNom         est une chaîne            = ""
+	sNomTable    est une chaîne            = ""
+	sChemin      est une chaîne            = ""
+	bSimulation  est un booléen            = Faux
+	tabCrees     est un tableau de chaînes
+	tabConserves est un tableau de chaînes
+	tabNotes     est un tableau de chaînes
+
+	PROCEDURE Constructeur(NomCommande est une chaîne, Nom est une chaîne, NomTable est une chaîne, Chemin est une chaîne, Simulation est un booléen, Crees est un tableau de chaînes, Conserves est un tableau de chaînes, Notes est un tableau de chaînes)
+		:sNomCommande = NomCommande
+		:sNom = Nom
+		:sNomTable = NomTable
+		:sChemin = Chemin
+		:bSimulation = Simulation
+		POUR TOUT sCree DE Crees
+			TableauAjoute(:tabCrees, sCree)
+		FIN
+		POUR TOUT sConserve DE Conserves
+			TableauAjoute(:tabConserves, sConserve)
+		FIN
+		POUR TOUT sNote DE Notes
+			TableauAjoute(:tabNotes, sNote)
+		FIN
+	FIN
+
+	// « make resource » ou « make migration ».
+	PROCEDURE PUBLIQUE NomCommande() : chaîne
+		RENVOYER :sNomCommande
+	FIN
+
+	// Le nom donné par l'utilisateur.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// La table sur laquelle portent les fichiers générés.
+	PROCEDURE PUBLIQUE NomTable() : chaîne
+		RENVOYER :sNomTable
+	FIN
+
+	// Le dossier du projet (celui où ebony a été lancé).
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Vrai pour --dry-run : rien n'a été écrit, « Crees » dit ce qui le serait.
+	PROCEDURE PUBLIQUE Simulation() : booléen
+		RENVOYER :bSimulation
+	FIN
+
+	PROCEDURE PUBLIQUE Crees() : tableau de chaînes
+		RENVOYER :tabCrees
+	FIN
+
+	// Les fichiers qui existaient déjà et que ebony n'a pas touchés.
+	PROCEDURE PUBLIQUE Conserves() : tableau de chaînes
+		RENVOYER :tabConserves
+	FIN
+
+	PROCEDURE PUBLIQUE Notes() : tableau de chaînes
+		RENVOYER :tabNotes
+	FIN
+FIN

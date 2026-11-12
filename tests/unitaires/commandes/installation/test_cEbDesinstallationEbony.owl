@@ -1,0 +1,48 @@
+// Tests de cEbDesinstallationEbony (« ebony uninstall », côté OWL) avec un faux disque : OWL vérifie et annonce, le lanceur retire du PATH et supprime.
+
+// Ebony est installé : le dossier qui contient les versions existe.
+PROCEDURE scenario_ebony_installe()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitProgrammes("C:\Users\moi\AppData\Local\Programs")
+	oDisque.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	nDossiers est un entier              = oDisque.NbDossiers()
+	oRes      est un cEbEbonyDesinstalle = (cEbDesinstallationEbony(oDisque)).Execute()
+	dbgVérifieVrai(oRes.Present(), "présent")
+	dbgVérifieEgalité(oRes.Base(), "C:\Users\moi\AppData\Local\Programs\ebony", "le dossier à nettoyer")
+	dbgVérifieEgalité(oDisque.NbDossiers(), nDossiers, "OWL ne supprime ni ne crée rien")
+FIN
+
+// Ebony n'est pas installé (dossier supprimé à la main, par exemple) : ce n'est PAS une erreur, le lanceur retirera quand même l'entrée de PATH orpheline.
+PROCEDURE scenario_ebony_absent_n_est_pas_une_erreur()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitProgrammes("C:\Users\moi\AppData\Local\Programs")
+	oDisque.CreeDossier("C:\Users\moi\AppData\Local\Programs")
+	oRes est un cEbEbonyDesinstalle = (cEbDesinstallationEbony(oDisque)).Execute()
+	dbgVérifieFaux(oRes.Present(), "absent")
+	dbgVérifieEgalité(oRes.Base(), "C:\Users\moi\AppData\Local\Programs\ebony", "le dossier qui aurait été nettoyé")
+FIN
+
+// Dossier des programmes inconnu : erreur 41 (on ne sait pas où chercher), le lanceur ne touchera à rien.
+PROCEDURE scenario_programmes_inconnu()
+	oDisque  est un cEbSystemeFichiersFictif("C:\Projets")
+	sCode    est une chaîne                                = ""
+	sMessage est une chaîne                                = ""
+	QUAND EXCEPTION DANS
+		oRes est un cEbEbonyDesinstalle = (cEbDesinstallationEbony(oDisque)).Execute()
+	FAIRE
+		sCode    = ExceptionInfo(errCode)
+		sMessage = ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(sCode, "41", "code 41")
+	dbgVérifieVrai(Position(sMessage, "ebony.cmd") > 0, "cite le lanceur")
+FIN
+
+// Le dossier des programmes écrit avec des barres obliques donne un chemin à barres inverses.
+PROCEDURE scenario_barres_obliques()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitProgrammes("C:/Users/moi/AppData/Local/Programs")
+	oDisque.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony")
+	oRes est un cEbEbonyDesinstalle = (cEbDesinstallationEbony(oDisque)).Execute()
+	dbgVérifieVrai(oRes.Present(), "présent malgré les barres obliques")
+	dbgVérifieEgalité(oRes.Base(), "C:\Users\moi\AppData\Local\Programs\ebony", "barres inverses")
+FIN

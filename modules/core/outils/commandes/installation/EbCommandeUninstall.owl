@@ -1,0 +1,15 @@
+EbCommandeUninstall est une CollectionDeProcédures
+
+	// Racine de composition de « uninstall » : OWL vérifie et annonce ; le lanceur retire ebony du PATH puis supprime les versions installées (OWL ne sait faire ni l'un ni l'autre).
+	// Une erreur est une exception (code 41), donc code de sortie 1 (70 sans le lanceur) et le lanceur ne touche à rien.
+	PROCEDURE EbExecuteUninstall()
+		oSysteme         est un cEbSystemeFichiersReel
+		oDesinstallation est un cEbDesinstallationEbony(oSysteme)
+		oDesinstalle     est un cEbEbonyDesinstalle               = oDesinstallation.Execute()
+		SI oDesinstalle.Present() ALORS
+			Trace("Désinstallation d'ebony : les versions installées dans " + oDesinstalle.Base() + " vont être supprimées et ebony retiré du PATH.")
+		SINON
+			Trace("ebony n'est pas installé dans " + oDesinstalle.Base() + " : rien à supprimer. Si une entrée d'ebony reste dans le PATH, elle va être retirée.")
+		FIN
+	FIN
+FIN

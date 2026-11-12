@@ -1,0 +1,116 @@
+// Tests de cEbVerifInstallationLisible : ebony retrouve-t-il la bibliothèque de chaque module (modules/<nom>/execution/) dans son dossier d'installation ? Utilise un faux disque.
+
+// Ajoute au faux disque la bibliothèque d'exécution des deux modules de l'installation (le cœur et auth) sous cette racine.
+PROCEDURE EbTestAjouteModulesLisibles(oDisque est un cEbSystemeFichiersFictif, sRacine est une chaîne)
+	oDisque.AjouteDossier(sRacine + "\modules\core\execution")
+	oDisque.AjouteDossier(sRacine + "\modules\auth\execution")
+FIN
+
+// Cas normal : la bibliothèque de chaque module est là.
+PROCEDURE scenario_installation_complete()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:\ebony")
+	EbTestAjouteModulesLisibles(oDisque, "C:\ebony")
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+FIN
+
+// Le lanceur ne transmet pas la racine : on ne devine rien, on le dit.
+PROCEDURE scenario_racine_inconnue()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oVerif  est un cEbVerifInstallationLisible(oDisque)
+	oRes    est un cEbResultatVerification                = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(oRes.EstBloquant(), "bloquant")
+	dbgVérifieVrai(Position(oRes.Correction(), "ebony.cmd") > 0, "la correction cite le lanceur")
+FIN
+
+// La bibliothèque du cœur manque alors que celle d'auth est là : le message nomme celle du cœur seule.
+PROCEDURE scenario_un_dossier_manque()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:\ebony")
+	oDisque.AjouteDossier("C:\ebony\modules\auth\execution")
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "modules\core\execution") > 0, "nomme la bibliothèque du cœur, qui manque")
+	dbgVérifieFaux(Position(oRes.Message(), "modules\auth\execution") > 0, "ne cite pas celle d'auth, qui est là")
+	dbgVérifieFaux(Position(oRes.Message(), "non ASCII") > 0, "n'accuse pas les accents")
+	dbgVérifieVrai(Position(oRes.Correction(), "Réinstallez") > 0, "la correction dit quoi faire")
+FIN
+
+// Tout manque : la bibliothèque du cœur est nommée (les autres modules ne se découvrent que dans modules/, qui n'existe pas).
+PROCEDURE scenario_tout_manque()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:\ebony")
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "modules\core\execution") > 0, "la bibliothèque du cœur est nommée")
+FIN
+
+// Un module de plus dans modules/ (zeta) ou un dossier sans execution/ (outils seuls) ne change pas le verdict : une installation complète reste lisible.
+PROCEDURE scenario_un_module_de_plus_ne_change_pas_le_verdict()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:\ebony")
+	EbTestAjouteModulesLisibles(oDisque, "C:\ebony")
+	oDisque.AjouteDossier("C:\ebony\modules\zeta\execution")
+	oDisque.AjouteDossier("C:\ebony\modules\outils-seuls\outils")
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "tout est lisible : " + oRes.Message())
+FIN
+
+// Le cas réel sur un volume sans noms courts : le chemin a un accent et owl ne peut rien ouvrir.
+PROCEDURE scenario_installation_accentuee_illisible()
+	sRacine est une chaîne                                = "D:\Outils\Mod" + Caract(232) + "les\ebony"
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation(sRacine)
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(oRes.EstBloquant(), "bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "non ASCII") > 0, "le message nomme la cause")
+	dbgVérifieVrai(Position(oRes.Message(), sRacine) > 0, "le message cite le dossier fautif")
+	dbgVérifieVrai(Position(oRes.Correction(), "ni accent") > 0, "la correction dit quoi faire")
+FIN
+
+// Un chemin accentué que owl sait lire (nom court, ou version future d'OWL) n'est pas refusé pour autant.
+PROCEDURE scenario_installation_accentuee_mais_lisible()
+	sRacine est une chaîne                                = "D:\Outils\Mod" + Caract(232) + "les\ebony"
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation(sRacine)
+	EbTestAjouteModulesLisibles(oDisque, sRacine)
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	dbgVérifieEgalité(oVerif.Execute().Statut(), eEbStatut.reussi, "accepté puisque owl y accède")
+FIN
+
+// Une racine écrite avec des barres obliques (le lanceur en met parfois) trouve les mêmes dossiers.
+PROCEDURE scenario_barres_obliques()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:/ebony")
+	EbTestAjouteModulesLisibles(oDisque, "C:\ebony")
+	oVerif est un cEbVerifInstallationLisible(oDisque)
+	dbgVérifieEgalité(oVerif.Execute().Statut(), eEbStatut.reussi, "C:/ebony équivaut à C:\ebony")
+FIN
+
+// Le message cite le nom LONG du dossier (lisible), pas le nom court 8.3 avec lequel owl ouvre les fichiers ; les dossiers sont pourtant cherchés avec le nom court.
+PROCEDURE scenario_message_avec_le_nom_long()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("C:\Users\moi\AppData\Local\Programs\ebony\0170E4~1.0")
+	oDisque.DefinitInstallationAffichee("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	EbTestAjouteModulesLisibles(oDisque, "C:\Users\moi\AppData\Local\Programs\ebony\0170E4~1.0")
+	oRes est un cEbResultatVerification = (cEbVerifInstallationLisible(oDisque)).Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "les dossiers sont trouvés avec le nom court")
+	dbgVérifieVrai(Position(oRes.Message(), "ebony\0.1.0") > 0, "le message cite le nom long")
+	dbgVérifieFaux(Position(oRes.Message(), "~") > 0, "le message ne cite pas le nom court")
+	oManque est un cEbSystemeFichiersFictif("C:\Projets")
+	oManque.DefinitInstallation("C:\Users\moi\AppData\Local\Programs\ebony\0170E4~1.0")
+	oManque.DefinitInstallationAffichee("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	oResManque est un cEbResultatVerification = (cEbVerifInstallationLisible(oManque)).Execute()
+	dbgVérifieEgalité(oResManque.Statut(), eEbStatut.erreur, "dossiers absents : erreur")
+	dbgVérifieVrai(Position(oResManque.Message(), "ebony\0.1.0") > 0 ET PAS (Position(oResManque.Message(), "~") > 0), "l'erreur cite aussi le nom long")
+FIN

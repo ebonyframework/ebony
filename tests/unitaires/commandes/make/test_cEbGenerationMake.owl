@@ -1,0 +1,306 @@
+// Tests de cEbGenerationMake (« ebony make ») avec un faux disque : le cas normal, --dry-run, la preuve que RIEN de l'utilisateur n'est remplacé, les migrations par base,
+// chaque refus avec son code, et que rien n'est écrit quand une vérification échoue.
+
+// Un projet ebony dans C:\Projets\Mon App, dont la base est sqlite ou postgresql ou hfsql (ebony.conf écrit comme « ebony new »).
+PROCEDURE EbTestDisqueMake(sBase est une chaîne) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oDisque.AjouteDossier("C:\Projets")
+	oDisque.AjouteDossier("C:\Projets\Mon App")
+	oOptions est un cEbOptionsProjet("api", sBase, Faux, "")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony.conf", EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oOptions))
+	RENVOYER oDisque
+FIN
+
+// La demande lue dans des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeMake(sListe est une chaîne) : cEbDemandeMake
+	tabArgs est un tableau de chaînes
+	nDebut  est un entier             = 1
+	nFin    est un entier             = Position(sListe, ";")
+	TANTQUE nFin > 0
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+		nDebut = nFin + 1
+		nFin   = Position(sListe, ";", nDebut)
+	FIN
+	TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(tabArgs)
+	RENVOYER oDemande
+FIN
+
+// Lance la génération et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestEchecMake(oDisque est un cEbSystemeFichiersFictif, sArgs est une chaîne) : chaîne
+	sRes     est une chaîne           = ""
+	oHorloge est un cEbHorlogeFictive
+	oHorloge.Definit("2026-11-02T10:15:30Z")
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	QUAND EXCEPTION DANS
+		oGenere est un cEbMakeGenere = oGeneration.Execute(EbTestDemandeMake(sArgs))
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Le même projet, avec le module auth copié dans ebony/ (ce que « ebony new » fait toujours).
+PROCEDURE EbTestDisqueMakeAvecAuth(sBase est une chaîne) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake(sBase)
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony\modules")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony\modules\auth.json", `{ "nom": "auth", "routes": { "proprietes": [ "Authentification = httpAuthBearer" ], "procedures": [ "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen", "\tsIdentite est une chaîne = EbIdentiteDuJeton(sJeton)", "\tRENVOYER Vrai", "FIN" ] } }`)
+	RENVOYER oDisque
+FIN
+
+// Le module auth est dans le projet : le contrôleur écrit est PROTÉGÉ, et la note le dit.
+PROCEDURE scenario_controleur_protege_quand_le_module_auth_est_present()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMakeAvecAuth("sqlite")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	sControleur est une chaîne                                       = oDisque.LitTexte("C:\Projets\Mon App\app\http\client\ControleurClient.owl")
+	dbgVérifieVrai(Position(sControleur, "Authentification = httpAuthBearer") > 0, "protégé : schéma Bearer")
+	dbgVérifieVrai(Position(sControleur, "EbIdentiteDuJeton(sJeton)") > 0, "protégé : il décide par le module auth")
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "Les routes sont PROTÉGÉES") > 0, "la note le dit")
+FIN
+
+// Le module auth est ABSENT du projet : le contrôleur est écrit OUVERT (il ne pourrait pas compiler en appelant le module), et la note le dit. Rien n'est refusé.
+PROCEDURE scenario_controleur_ouvert_quand_le_module_auth_est_absent()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMake("sqlite")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	sControleur est une chaîne                                       = oDisque.LitTexte("C:\Projets\Mon App\app\http\client\ControleurClient.owl")
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 10, "les dix fichiers sont écrits quand même")
+	dbgVérifieEgalité(Position(sControleur, "EbIdentiteDuJeton"), 0, "aucun appel au module absent")
+	dbgVérifieVrai(Position(sControleur, "ROUTES OUVERTES") > 0, "le fichier dit que les routes sont ouvertes")
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "Les routes sont OUVERTES") > 0, "la note le dit")
+FIN
+
+// Cas normal d'une ressource : les dix fichiers sont créés avec le contenu des fonctions, rien n'est conservé.
+PROCEDURE scenario_ressource_complete()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMake("sqlite")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oDemande    est un cEbDemandeMake                                = EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte,email:texte?")
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(oDemande)
+	dbgVérifieEgalité(oGenere.NomCommande(), "make resource", "commande")
+	dbgVérifieEgalité(oGenere.Nom(), "Client", "nom")
+	dbgVérifieEgalité(oGenere.NomTable(), "clients", "table")
+	dbgVérifieEgalité(oGenere.Chemin(), "C:\Projets\Mon App", "dossier du projet")
+	dbgVérifieFaux(oGenere.Simulation(), "pas un aperçu")
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 10, "dix fichiers créés")
+	dbgVérifieEgalité(oGenere.Conserves()..Occurrence, 0, "aucun conservé")
+	dbgVérifieEgalité(oGenere.Crees()[1], "app/domaine/client/cClient.owl", "chemin relatif avec des barres obliques")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\app\domaine\client\cClient.owl"), EbAligneDeclarations(EbContenuEntite(oDemande)), "entité écrite")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\app\donnees\client\cRepoClientSql.owl"), EbAligneDeclarations(EbContenuDepotSql(oDemande)), "repository SQL écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\tests\integration\client\test_cRepoClientSql.owl"), EbAligneDeclarations(EbContenuTestDepotSql(oDemande)), "test SQL écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\app\services\client\cServiceClient.owl"), EbAligneDeclarations(EbTexteService(oDemande)), "service écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\tests\unitaires\client\test_cServiceClient.owl"), EbAligneDeclarations(EbTexteTestService(oDemande)), "test du service écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"), EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", EbOptionsParDefaut()), "ebony.conf intact")
+FIN
+
+// --dry-run dit la même chose mais n'écrit rien : ni fichier ni dossier.
+PROCEDURE scenario_apercu_n_ecrit_rien()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMake("sqlite")
+	nFichiers   est un entier                                        = oDisque.NbFichiers()
+	nDossiers   est un entier                                        = oDisque.NbDossiers()
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte;--dry-run"))
+	dbgVérifieVrai(oGenere.Simulation(), "aperçu")
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 10, "dit ce qui serait créé")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+	dbgVérifieEgalité(oDisque.NbDossiers(), nDossiers, "aucun dossier créé")
+FIN
+
+// Un fichier qui existe n'est JAMAIS remplacé : il est conservé tel quel, listé, avec une note ; les autres sont créés.
+PROCEDURE scenario_fichier_existant_conserve()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.AjouteDossier("C:\Projets\Mon App\app")
+	oDisque.AjouteDossier("C:\Projets\Mon App\app\domaine")
+	oDisque.AjouteDossier("C:\Projets\Mon App\app\domaine\client")
+	oDisque.AjouteFichier("C:\Projets\Mon App\app\domaine\client\cClient.owl", "// ma version" + Caract(10))
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\app\domaine\client\cClient.owl"), "// ma version" + Caract(10), "fichier de l'utilisateur intact")
+	dbgVérifieEgalité(oGenere.Conserves()..Occurrence, 1, "un conservé")
+	dbgVérifieEgalité(oGenere.Conserves()[1], "app/domaine/client/cClient.owl", "lequel")
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 9, "les neuf autres sont créés")
+	sNotes est une chaîne = EbListeVirgules(oGenere.Notes())
+	dbgVérifieVrai(Position(sNotes, "cClient.owl existe déjà : conservé, non modifié") > 0, "une note dit pourquoi")
+FIN
+
+// Relancer la même commande ne change rien : tout est conservé, rien n'est créé.
+PROCEDURE scenario_relance_ne_change_rien()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMake("sqlite")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	nFichiers est un entier        = oDisque.NbFichiers()
+	oGenere   est un cEbMakeGenere = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte,email:texte"))
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 0, "rien de créé")
+	dbgVérifieEgalité(oGenere.Conserves()..Occurrence, 10, "tout est conservé")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier de plus")
+FIN
+
+// Une migration SQLite : le fichier est daté par l'horloge (UTC, à la minute) et accompagné de son test.
+PROCEDURE scenario_migration_sqlite()
+	oDisque  est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oHorloge est un cEbHorlogeFictive
+	oHorloge.Definit("2026-11-02T10:15:30Z")
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oDemande    est un cEbDemandeMake                                = EbTestDemandeMake("migration;CreeClients;--champs;id:entier*,nom:texte")
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(oDemande)
+	dbgVérifieEgalité(oGenere.NomCommande(), "make migration", "commande")
+	dbgVérifieEgalité(oGenere.NomTable(), "clients", "table")
+	dbgVérifieEgalité(EbListeVirgules(oGenere.Crees()), "database/migrations/M202611021015_CreeClients.owl, tests/integration/migrations/test_M202611021015_CreeClients.owl", "migration et test")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\database\migrations\M202611021015_CreeClients.owl"), EbContenuMigration(oDemande, "202611021015", "sqlite"), "migration écrite")
+FIN
+
+// Une migration PostgreSQL : le SQL est celui de PostgreSQL, et aucun test n'est généré (il faudrait un serveur).
+PROCEDURE scenario_migration_postgresql_sans_test()
+	oDisque     est un cEbSystemeFichiersFictif                      = EbTestDisqueMake("postgresql")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("migration;CreeClients;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 1, "la migration seule")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\Mon App\database\migrations\M202601020304_CreeClients.owl"), "GENERATED BY DEFAULT AS IDENTITY") > 0, "SQL PostgreSQL")
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "aucun test") > 0, "une note dit qu'il n'y a pas de test")
+FIN
+
+// HFSQL : une migration est refusée (code 39), une ressource est écrite avec une note qui dit que le SQL n'est pas vérifié.
+PROCEDURE scenario_hfsql()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("hfsql")
+	dbgVérifieEgalité(Gauche(EbTestEchecMake(oDisque, "migration;CreeClients;--champs;id:entier*,nom:texte"), 3), "39|", "migration refusée")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "rien d'écrit (seulement ebony.conf)")
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oGenere.Crees()..Occurrence, 10, "ressource écrite")
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "HFSQL") > 0, "note HFSQL")
+FIN
+
+// Pas un projet ebony (31), OWL mal placé (30), ebony.conf sans base (38) : refusés, rien d'écrit.
+PROCEDURE scenario_refus_du_projet()
+	oHors est un cEbSystemeFichiersFictif("C:\Projets\Vide")
+	oHors.AjouteDossier("C:\Projets\Vide")
+	dbgVérifieEgalité(Gauche(EbTestEchecMake(oHors, "resource;Client;--champs;id:entier*,nom:texte"), 3), "31|", "sans ebony.conf")
+	dbgVérifieEgalité(oHors.NbFichiers(), 0, "rien d'écrit hors projet")
+	oMalPlace est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oMalPlace.DefinitActif("C:\Autre")
+	dbgVérifieEgalité(Gauche(EbTestEchecMake(oMalPlace, "resource;Client;--champs;id:entier*,nom:texte"), 3), "30|", "owl mal placé")
+	oSansBase est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oSansBase.AjouteDossier("C:\Projets\Mon App")
+	oSansBase.AjouteFichier("C:\Projets\Mon App\ebony.conf", "{}" + Caract(10))
+	dbgVérifieEgalité(Gauche(EbTestEchecMake(oSansBase, "resource;Client;--champs;id:entier*,nom:texte"), 3), "38|", "ebony.conf sans base")
+FIN
+
+// Un dossier à la place d'un fichier, ou un fichier à la place d'un dossier, est un conflit (28) : tous listés, RIEN n'est écrit.
+PROCEDURE scenario_conflit_de_chemin_refuse()
+	oDossier est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDossier.CreeDossier("C:\Projets\Mon App\app\domaine\client\cClient.owl")
+	sRefus est une chaîne = EbTestEchecMake(oDossier, "resource;Client;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "28|", "un dossier porte le nom du fichier")
+	dbgVérifieVrai(Position(sRefus, "cClient.owl (un dossier porte ce nom)") > 0, "dit lequel")
+	dbgVérifieFaux(oDossier.FichierExiste("C:\Projets\Mon App\app\donnees\client\cRepoClientSql.owl"), "rien d'écrit")
+	oFichier est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oFichier.AjouteFichier("C:\Projets\Mon App\app", "je suis un fichier")
+	dbgVérifieVrai(Position(EbTestEchecMake(oFichier, "resource;Client;--champs;id:entier*,nom:texte"), "app (un fichier porte ce nom") > 0, "un fichier à la place d'un dossier")
+FIN
+
+// Une écriture qui échoue en route lève 24 et le message dit ce qui a pu être écrit.
+PROCEDURE scenario_ecriture_interrompue()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.DefinitEchecSur("cRepoClientSql")
+	sRefus est une chaîne = EbTestEchecMake(oDisque, "resource;Client;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "24|", "code 24")
+	dbgVérifieVrai(Position(sRefus, "Génération interrompue") > 0, "message")
+FIN
+
+// Une horloge qui rend un instant illisible empêche de dater la migration (29), sans rien écrire.
+PROCEDURE scenario_horloge_illisible()
+	oDisque  est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oHorloge est un cEbHorlogeFictive
+	oHorloge.Definit("n'importe quoi")
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	nCode       est un entier                                        = 0
+	QUAND EXCEPTION DANS
+		oGeneration.Execute(EbTestDemandeMake("migration;CreeClients;--champs;id:entier*,nom:texte"))
+	FAIRE
+		nCode = ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(nCode, 29, "code 29")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "rien d'écrit")
+FIN
+
+// Un fournisseur que ebony ne connaît pas (mysql, SQLite, postgres) est refusé (38), au lieu d'écrire du SQL SQLite sous une étiquette fausse.
+PROCEDURE scenario_fournisseur_inconnu_refuse()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("mysql")
+	sRefus  est une chaîne                  = EbTestEchecMake(oDisque, "migration;CreeClients;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "38|", "code 38")
+	dbgVérifieVrai(Position(sRefus, "mysql") > 0, "cite le fournisseur")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "rien d'écrit")
+FIN
+
+// Une copie d'ebony/ sans iEbMigration (projet généré avant ce contrat) : la migration est écrite, avec une note qui dit de restaurer ebony/.
+PROCEDURE scenario_bibliotheque_ancienne_signalee()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.CreeDossier("C:\Projets\Mon App\ebony\donnees")
+	oDisque.EcritTexte("C:\Projets\Mon App\ebony\donnees\EbContratsDonnees.owl", "EbContratsDonnees est une CollectionDeProcédures" + Caract(10) + "FIN" + Caract(10))
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("migration;CreeClients;--champs;id:entier*,nom:texte"))
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "ebony restore") > 0, "note : restaurer ebony/")
+	oDisque.EcritTexte("C:\Projets\Mon App\ebony\donnees\EbContratsDonnees.owl", "iEbMigration est une Interface" + Caract(10))
+	oRecente est un cEbMakeGenere = oGeneration.Execute(EbTestDemandeMake("migration;CreeAutre;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(Position(EbListeVirgules(oRecente.Notes()), "ebony restore"), 0, "pas de note avec une bibliothèque récente")
+FIN
+
+// Une table d'un schéma : le test SQLite généré attache d'abord une base en mémoire sous ce nom de schéma.
+PROCEDURE scenario_table_avec_schema_attachee_dans_les_tests()
+	oDemande est un cEbDemandeMake = EbTestDemandeMake("resource;Client;--table;crm.Clients;--champs;id:entier*,nom:texte")
+	sTest    est une chaîne        = EbContenuTestDepotSql(oDemande)
+	dbgVérifieVrai(Position(sTest, `ATTACH DATABASE ':memory:' AS "crm"`) > 0, "ATTACH")
+	dbgVérifieVrai(Position(sTest, `CREATE TABLE "crm"."Clients"`) > 0, "table qualifiée")
+	dbgVérifieEgalité(Position(EbContenuTestDepotSql(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte")), "ATTACH"), 0, "pas d'ATTACH sans schéma")
+FIN
+
+// Un manifeste SANS membre « routes » (un module qui ne fournit aucun garde) ne protège rien : le contrôleur est écrit OUVERT. Le cœur ne sait pas quel module protège : seul le contenu des manifestes compte.
+PROCEDURE scenario_manifeste_sans_routes_ne_protege_pas()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony\modules")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony\modules\autre.json", `{ "nom": "autre" }`)
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	sControleur est une chaîne                                       = oDisque.LitTexte("C:\Projets\Mon App\app\http\client\ControleurClient.owl")
+	dbgVérifieVrai(Position(sControleur, "ROUTES OUVERTES") > 0, "ouvert : aucun garde")
+	dbgVérifieVrai(Position(EbListeVirgules(oGenere.Notes()), "Les routes sont OUVERTES") > 0, "la note le dit")
+FIN
+
+// Le garde peut venir de n'importe quel manifeste de ebony/modules/ : ici un module qui ne s'appelle pas « auth ».
+PROCEDURE scenario_le_garde_vient_de_n_importe_quel_module()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony\modules")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony\modules\ailleurs.json", `{ "routes": { "proprietes": [ "Authentification = httpAuthBearer" ], "procedures": [ "// Garde d'un autre module.", "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen", "\tRENVOYER Vrai", "FIN" ] } }`)
+	oHorloge    est un cEbHorlogeFictive
+	oGeneration est un cEbGenerationMake(oDisque, oDisque, oHorloge)
+	oGenere     est un cEbMakeGenere                                 = oGeneration.Execute(EbTestDemandeMake("resource;Client;--champs;id:entier*,nom:texte"))
+	sControleur est une chaîne                                       = oDisque.LitTexte("C:\Projets\Mon App\app\http\client\ControleurClient.owl")
+	dbgVérifieVrai(Position(sControleur, "// Garde d'un autre module.") > 0, "les lignes de cet autre module sont écrites")
+	dbgVérifieEgalité(Position(sControleur, "ROUTES OUVERTES"), 0, "protégé")
+FIN
+
+// Un manifeste illisible dans le projet : erreur 22 qui le nomme, et rien n'est écrit (pas de contrôleur ouvert par défaut).
+PROCEDURE scenario_manifeste_illisible_refuse()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueMake("sqlite")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony")
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony\modules")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony\modules\auth.json", "pas du json {")
+	nFichiers est un entier  = oDisque.NbFichiers()
+	sEchec    est une chaîne = EbTestEchecMake(oDisque, "resource;Client;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(Gauche(sEchec, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sEchec, "auth.json") > 0, "le manifeste est nommé")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien n'a été écrit")
+FIN

@@ -1,0 +1,9 @@
+// Contrat (port) entre ebony et le réseau. Une interface doit être déclarée dans une Collection pour être reconnue.
+EbContratsHttp est une CollectionDeProcédures
+
+	// Envoi d'une requête HTTP. Adaptateurs : cEbClientHttpReel (HTTPEnvoie d'OWL), cEbClientHttpFictif (tests, sans réseau).
+	iEbClientHttp est une Interface
+		// Envoie la requête et rend la réponse. NE LÈVE PAS quand le service ne répond pas (OWL non plus) : la réponse a alors le statut 0 et la cause dans sa Raison.
+		PROCEDURE PUBLIQUE Envoie(demande est un cEbDemandeHttp) : cEbReponseHttp
+	FIN
+FIN

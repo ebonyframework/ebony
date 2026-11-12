@@ -1,0 +1,68 @@
+#!/bin/sh
+# Lanceur de la commande ebony (Linux). Même rôle que bin/ebony.cmd (Windows).
+# OWL ne donne pas le dossier d'un script : ce lanceur calcule le sien et le passe à ebony.owl (-racine=).
+# Pas d'« ebony install » ni d'« ebony uninstall » ici : ils modifient le PATH par le registre de Windows (voir « Linux » dans le README).
+
+# Le dossier de l'installation : celui qui contient bin/, en suivant les liens symboliques.
+CHEMIN_LANCEUR=$(readlink -f "$0")
+BIN=$(dirname "$CHEMIN_LANCEUR")
+RACINE=$(dirname "$BIN")
+
+# « ebony --version » (ou -V) : une ligne « ebony X.Y.Z » lue dans modules/core/execution/VERSION, sans lancer owl.
+if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-V" ]; then
+    VERSION_EBONY=$(head -n 1 "$RACINE/modules/core/execution/VERSION" 2>/dev/null)
+    if [ -z "$VERSION_EBONY" ]; then
+        echo "ebony : version introuvable dans \"$RACINE/modules/core/execution/VERSION\"." >&2
+        exit 1
+    fi
+    echo "ebony $VERSION_EBONY"
+    exit 0
+fi
+
+if ! command -v owl >/dev/null 2>&1; then
+    echo "ebony : la commande « owl » est introuvable dans le PATH. Installez OWL (https://github.com/followthewhiteowl/neowl)." >&2
+    exit 1
+fi
+
+# L'installation et la désinstallation sont propres à Windows : refus net plutôt qu'une demi-installation.
+case "${1:-}" in
+    install|uninstall)
+        echo "ebony : « $1 » n'existe pas sous Linux. Placez ce dossier où vous voulez et ajoutez son sous-dossier bin au PATH (voir « Linux » dans le README)." >&2
+        exit 2
+        ;;
+esac
+
+VERSION_OWL=$(owl --version | awk '{print $2}')
+
+# owl se place dans la racine du projet quand le script est dans un projet : on transmet donc le dossier de lancement (-cwd=).
+LANCEMENT=$PWD
+
+# Dossier des programmes de l'utilisateur (ebony install, propre à Windows) : EBONY_PROGRAMMES le redirige (utilisé par les tests), sinon vide.
+PROGRAMMES=${EBONY_PROGRAMMES:-}
+
+# OWL ne sait pas donner de code de sortie : toute erreur serait le code 70 avec une pile d'appels. ebony.owl écrit donc le code voulu (1 = échec, 2 = usage incorrect)
+# dans ce fichier (-sortie=) et on le relit après owl.
+SORTIE_FICHIER=$(mktemp "${TMPDIR:-/tmp}/ebony-sortie.XXXXXX") || exit 1
+rm -f "$SORTIE_FICHIER"
+
+# Un mini-projet par commande (scripts/construit-entrees.ps1) : OWL analyse tout le projet à chaque lancement. Il est utilisé s'il existe (archive de distribution).
+# Le nom du dossier vient de CETTE liste, jamais du texte tapé : pas de chemin forgé.
+ENTREE=$RACINE/ebony.owl
+for C in doctor new init make migrate token env request restore upgrade install uninstall; do
+    if [ "${1:-}" = "$C" ] && [ -f "$RACINE/.commandes/$C/ebony.owl" ]; then
+        ENTREE=$RACINE/.commandes/$C/ebony.owl
+    fi
+done
+
+owl "$ENTREE" "-racine=$RACINE" "-affiche=$RACINE" "-owl=$VERSION_OWL" "-cwd=$LANCEMENT" "-programmes=$PROGRAMMES" "-sortie=$SORTIE_FICHIER" "$@"
+CODE_OWL=$?
+
+# Le code écrit par ebony.owl l'emporte sur celui d'owl ; le fichier est supprimé dans tous les cas.
+if [ -f "$SORTIE_FICHIER" ]; then
+    CODE_FICHIER=$(head -n 1 "$SORTIE_FICHIER")
+    rm -f "$SORTIE_FICHIER"
+    if [ -n "$CODE_FICHIER" ]; then
+        CODE_OWL=$CODE_FICHIER
+    fi
+fi
+exit "$CODE_OWL"

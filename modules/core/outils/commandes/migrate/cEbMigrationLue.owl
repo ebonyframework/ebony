@@ -1,0 +1,33 @@
+// Une migration lue dans son fichier (database/migrations/M<horodatage>_<Intention>.owl) : son nom, les instructions SQL de Monte() et celles de Descend(), dans l'ordre d'envoi.
+// Objet valeur immuable, rempli par le constructeur (voir EbExtraitMigration, qui lit le texte du fichier).
+cEbMigrationLue est une Classe
+PRIVÉ
+	sNom       est une chaîne            = ""
+	tabMonte   est un tableau de chaînes
+	tabDescend est un tableau de chaînes
+
+	PROCEDURE Constructeur(Nom est une chaîne, Monte est un tableau de chaînes, Descend est un tableau de chaînes)
+		:sNom = Nom
+		POUR TOUT sSql DE Monte
+			TableauAjoute(:tabMonte, sSql)
+		FIN
+		POUR TOUT sSql DE Descend
+			TableauAjoute(:tabDescend, sSql)
+		FIN
+	FIN
+
+	// Le nom du fichier sans extension : « M202611021015_CreeClients ». L'ordre alphabétique est l'ordre chronologique.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Les instructions qui appliquent la migration.
+	PROCEDURE PUBLIQUE Monte() : tableau de chaînes
+		RENVOYER :tabMonte
+	FIN
+
+	// Les instructions qui la défont.
+	PROCEDURE PUBLIQUE Descend() : tableau de chaînes
+		RENVOYER :tabDescend
+	FIN
+FIN

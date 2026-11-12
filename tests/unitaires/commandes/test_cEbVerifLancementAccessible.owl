@@ -1,0 +1,57 @@
+// Tests de cEbVerifLancementAccessible : compare le dossier demandé et celui où OWL se trouve. Utilise un faux disque.
+
+// Quand OWL est bien dans le dossier de lancement, tout va bien.
+PROCEDURE scenario_bien_place()
+	oDisque est un cEbSystemeFichiersFictif("C:\Users\Jose\Projets")
+	oVerif  est un cEbVerifLancementAccessible(oDisque)
+	oRes    est un cEbResultatVerification                           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+FIN
+
+// Le cas réel : le dossier de lancement a un accent, owl n'a pas pu s'y placer et est resté dans le dépôt d'ebony.
+PROCEDURE scenario_accent_et_placement_echoue()
+	sLancement est une chaîne                              = "C:\Users\Jos" + Caract(233) + "\Projets"
+	oDisque    est un cEbSystemeFichiersFictif(sLancement)
+	oDisque.DefinitActif("D:\Projets\ElmiraLabs\ebonycore")
+	oVerif est un cEbVerifLancementAccessible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(oRes.EstBloquant(), "bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "non ASCII") > 0, "le message nomme la cause")
+	dbgVérifieVrai(Position(oRes.Message(), sLancement) > 0, "le message cite le dossier fautif")
+	dbgVérifieVrai(Position(oRes.Correction(), "sans accent") > 0 OU Position(oRes.Correction(), "n'a ni accent") > 0, "la correction dit quoi faire")
+FIN
+
+// Un écart sans accent n'est pas attribué à tort aux accents : le message décrit l'écart constaté.
+PROCEDURE scenario_ecart_sans_accent()
+	oDisque est un cEbSystemeFichiersFictif("C:\Users\Jose")
+	oDisque.DefinitActif("D:\Autre")
+	oVerif est un cEbVerifLancementAccessible(oDisque)
+	oRes   est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieFaux(Position(oRes.Message(), "non ASCII") > 0, "n'accuse pas les accents")
+	dbgVérifieVrai(Position(oRes.Message(), "D:\Autre") > 0 ET Position(oRes.Message(), "C:\Users\Jose") > 0, "les deux dossiers sont cités")
+FIN
+
+// Une différence d'écriture seule (barre oblique, majuscules, barre finale) n'est pas un écart.
+PROCEDURE scenario_ecriture_differente_mais_meme_dossier()
+	oDisque est un cEbSystemeFichiersFictif("D:/")
+	oDisque.DefinitActif("D:\")
+	oVerif est un cEbVerifLancementAccessible(oDisque)
+	dbgVérifieEgalité(oVerif.Execute().Statut(), eEbStatut.reussi, "racine D:/ contre D:\")
+	oDisque2 est un cEbSystemeFichiersFictif("c:/users/jose/")
+	oDisque2.DefinitActif("C:\Users\Jose")
+	oVerif2 est un cEbVerifLancementAccessible(oDisque2)
+	dbgVérifieEgalité(oVerif2.Execute().Statut(), eEbStatut.reussi, "casse et barres")
+FIN
+
+// Si un jour OWL savait se placer dans un dossier accentué, la vérification ne devrait pas le refuser pour autant.
+PROCEDURE scenario_accent_mais_bien_place()
+	sLancement est une chaîne                              = "C:\Users\Jos" + Caract(233)
+	oDisque    est un cEbSystemeFichiersFictif(sLancement)
+	oVerif     est un cEbVerifLancementAccessible(oDisque)
+	oRes       est un cEbResultatVerification              = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "accepté puisque OWL y est bien")
+FIN

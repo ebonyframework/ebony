@@ -1,0 +1,136 @@
+// Lecture des arguments de « ebony new <nom> [--kit api|slim] [--base sqlite|postgresql|hfsql] [--auth [--table utilisateurs|users]] [--json] » : fonctions pures, testées dans tests/unitaires/commandes/nouveau/.
+// Chaque option avec valeur s'écrit « --base sqlite » ou « --base=sqlite ». Les options à un seul tiret ou à barre oblique (« -racine=… » du lanceur) sont ignorées, comme pour les autres commandes.
+// Toute erreur est une exception de code 25 (usage incorrect, code de sortie 2) : option inconnue, valeur absente ou refusée, « --table » sans « --auth ».
+EbOptionsNouveau est une CollectionDeProcédures
+
+	// Les choix d'un projet créé sans option : API REST, SQLite, sans authentification.
+	PROCEDURE EbOptionsParDefaut() : cEbOptionsProjet
+		oOptions est un cEbOptionsProjet(EbKitDefaut(), EbBaseDefaut(), Faux, "")
+		RENVOYER oOptions
+	FIN
+
+	// Table des utilisateurs choisie quand « --auth » est donné sans « --table ».
+	PROCEDURE EbTableAuthDefaut() : chaîne
+		RENVOYER "utilisateurs"
+	FIN
+
+	// Vrai si la valeur figure dans la liste (valeurs séparées par « | »).
+	PROCEDURE EbValeurDansListe(sValeur est une chaîne, sListe est une chaîne) : booléen
+		RENVOYER Position("|" + sListe + "|", "|" + sValeur + "|") > 0
+	FIN
+
+	// Refuse (code 25) une valeur absente de la liste, en disant celles qui existent.
+	PROCEDURE EbVerifieValeurOption(sOption est une chaîne, sValeur est une chaîne, sListe est une chaîne)
+		SI PAS EbValeurDansListe(sValeur, sListe) ALORS
+			ExceptionDéclenche(25, "Valeur refusée pour " + sOption + " : « " + sValeur + " ». Valeurs possibles : " + Remplace(sListe, "|", ", ") + ".")
+		FIN
+	FIN
+
+	// Lit les arguments qui suivent « new » (sans les options à un tiret) et rend le nom et les choix.
+	PROCEDURE EbAnalyseArgumentsNew(tabArgs est un tableau de chaînes) : cEbDemandeNew
+		sNom   est une chaîne = ""
+		sType  est une chaîne = EbKitDefaut()
+		sBase  est une chaîne = EbBaseDefaut()
+		bAuth  est un booléen = Faux
+		sTable est une chaîne = ""
+		bSaute est un booléen = Faux
+		nNb    est un entier  = tabArgs..Occurrence
+		// Vrai si --base a été écrit (le défaut ne compte pas) : le kit slim le refuse.
+		bBaseChoisie est un booléen = Faux
+		POUR i = 1 À nNb
+			SI bSaute ALORS
+				// Cet argument était la valeur de l'option précédente.
+				bSaute = Faux
+				CONTINUER
+			FIN
+			sArg est une chaîne = tabArgs[i]
+			SI Gauche(sArg, 2) <> "--" ALORS
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					SI sNom <> "" ALORS
+						sNom += " "
+					FIN
+					sNom += sArg
+				FIN
+				CONTINUER
+			FIN
+			sOption       est une chaîne = sArg
+			sValeur       est une chaîne = ""
+			bValeurDonnee est un booléen = Faux
+			nEgal         est un entier  = Position(sArg, "=")
+			SI nEgal > 0 ALORS
+				sOption       = Gauche(sArg, nEgal - 1)
+				sValeur       = Milieu(sArg, nEgal + 1)
+				bValeurDonnee = Vrai
+			FIN
+			SELON sOption
+				CAS "--json"
+				// Le format de sortie (--json) est lu par la commande (EbOptionPresente) : rien à retenir ici.
+				CAS "--auth"
+				SI bValeurDonnee ALORS
+					ExceptionDéclenche(25, "L'option --auth ne prend pas de valeur. Pour choisir la table : --auth --table utilisateurs")
+				FIN
+				bAuth = Vrai
+				CAS "--kit", "--base", "--table"
+				SI PAS bValeurDonnee ALORS
+					// La valeur est l'argument suivant, qui ne doit pas être une autre option.
+					SI i < nNb ALORS
+						SI Gauche(tabArgs[i + 1], 1) <> "-" ALORS
+							sValeur       = tabArgs[i + 1]
+							bValeurDonnee = Vrai
+							bSaute        = Vrai
+						FIN
+					FIN
+				FIN
+				SI PAS bValeurDonnee ALORS
+					ExceptionDéclenche(25, "Il manque la valeur de " + sOption + ". Exemple : " + sOption + " " + EbExempleValeur(sOption))
+				FIN
+				sValeur = Minuscule(sValeur)
+				SELON sOption
+					CAS "--kit"
+					EbVerifieValeurOption(sOption, sValeur, EbKitsConnus())
+					sType = sValeur
+					CAS "--base"
+					EbVerifieValeurOption(sOption, sValeur, "sqlite|postgresql|hfsql")
+					sBase        = sValeur
+					bBaseChoisie = Vrai
+					AUTRE CAS
+					EbVerifieValeurOption(sOption, sValeur, "utilisateurs|users")
+					sTable = sValeur
+				FIN
+				AUTRE CAS
+				ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Options de « new » et de « init » : --kit, --base, --auth, --table, --json.")
+			FIN
+		FIN
+		SI sTable <> "" ET PAS bAuth ALORS
+			ExceptionDéclenche(25, "L'option --table n'a de sens qu'avec --auth. Exemple : --auth --table " + sTable)
+		FIN
+		// Le kit slim est le cœur seul : ni base de données ni authentification (qui en dépend). Le dire, plutôt que de les ignorer en silence.
+		SI sType = "slim" ALORS
+			SI bBaseChoisie ALORS
+				ExceptionDéclenche(25, "L'option --base n'a de sens qu'avec le kit api : le kit slim n'a pas de base de données. Pour une base : --kit api (le défaut).")
+			FIN
+			SI bAuth ALORS
+				ExceptionDéclenche(25, "L'option --auth n'a de sens qu'avec le kit api : le kit slim n'a ni base ni authentification. Pour l'authentification : --kit api (le défaut).")
+			FIN
+			sBase = ""
+		FIN
+		SI bAuth ET sTable = "" ALORS
+			sTable = EbTableAuthDefaut()
+		FIN
+		oOptions est un cEbOptionsProjet(sType, sBase, bAuth, sTable)
+		oDemande est un cEbDemandeNew(sNom, oOptions)
+		RENVOYER oDemande
+	FIN
+
+	// Un exemple de valeur pour le message « il manque la valeur ».
+	PROCEDURE EbExempleValeur(sOption est une chaîne) : chaîne
+		SELON sOption
+			CAS "--kit"
+			RENVOYER "api"
+			CAS "--base"
+			RENVOYER "sqlite"
+			AUTRE CAS
+			RENVOYER "utilisateurs"
+		FIN
+	FIN
+FIN

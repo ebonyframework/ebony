@@ -1,0 +1,71 @@
+// Contenu du fichier d'une migration fournie par un module (cEbMigrationModule) : fonction pure (aucun accès au disque), testée dans tests/unitaires/commandes/nouveau/.
+// Même forme que celle de « ebony make migration » (voir EbContenuMigration) : une classe qui implémente iEbMigration, dont Monte() et Descend() ne font que TableauAjoute(tabSql, `instruction`) puis RENVOYER tabSql,
+// car « ebony migrate » LIT le fichier sans l'exécuter (voir EbLectureMigration). Le fichier est ensuite celui du projet : il peut le modifier.
+EbContenuMigrationModule est une CollectionDeProcédures
+
+	// Le fichier de la migration : database/migrations/M<horodatage>_<Intention>.owl.
+	PROCEDURE EbContenuMigrationModule(oMigration est un cEbMigrationModule) : chaîne
+		sNom   est une chaîne      = oMigration.Nom()
+		oTexte est un cEbTexteCode
+		oTexte.Ligne(0, "// Migration " + sNom + ", fournie par le module « " + oMigration.Module() + " » et copiée par « ebony new » : le fichier est à vous.")
+		oTexte.Ligne(0, "// « ebony migrate » l'applique en LISANT ce fichier (il ne l'exécute pas) : gardez la forme (une instruction par TableauAjoute(tabSql, texte), puis RENVOYER tabSql) ; une migration qui calcule son SQL est refusée.")
+		oTexte.Ligne(0, "c" + sNom + " est une Classe implemente iEbMigration")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Nom() : chaîne")
+		oTexte.Ligne(2, "RENVOYER " + EbGuillemets(sNom))
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Monte() : tableau de chaînes")
+		EbLignesInstructionsMigration(oTexte, oMigration.Monte())
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Descend() : tableau de chaînes")
+		EbLignesInstructionsMigration(oTexte, oMigration.Descend())
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Le corps d'une méthode Monte ou Descend : la déclaration de la liste, une ligne par instruction (entre accents graves), puis le renvoi.
+	PROCEDURE EbLignesInstructionsMigration(oTexte est un cEbTexteCode, instructions est un tableau de chaînes)
+		oTexte.Ligne(2, "tabSql est un tableau de chaînes")
+		POUR TOUT sSql DE instructions
+			oTexte.Ligne(2, "TableauAjoute(tabSql, " + Caract(96) + sSql + Caract(96) + ")")
+		FIN
+		oTexte.Ligne(2, "RENVOYER tabSql")
+	FIN
+
+	// Les migrations des modules à écrire pour ce projet : celles qui ne dépendent d'aucune option, plus celles de l'option « auth » si le projet est NEUF et demande --auth, avec {table_utilisateurs} remplacé.
+	// Un projet existant (« ebony init ») a déjà sa table des utilisateurs : y écrire un CREATE TABLE ferait échouer « ebony migrate », donc bProjetNeuf est Faux pour lui et rien de l'option auth n'est écrit.
+	PROCEDURE EbMigrationsAEcrire(migrations est un tableau, oOptions est un cEbOptionsProjet, bProjetNeuf est un booléen) : tableau
+		tabAEcrire est un tableau
+		POUR TOUT oMigration DE migrations
+			SI oMigration.Option() = "" ALORS
+				TableauAjoute(tabAEcrire, oMigration)
+			SINON
+				SI oMigration.Option() = "auth" ET bProjetNeuf ET oOptions.Auth() ALORS
+					oResolue est un cEbMigrationModule = oMigration.Resolue(oOptions.TableUtilisateurs())
+					TableauAjoute(tabAEcrire, oResolue)
+				FIN
+			FIN
+		FIN
+		RENVOYER tabAEcrire
+	FIN
+
+	// Les fichiers des modules à écrire pour ce projet : ceux qui ne dépendent d'aucune option, plus ceux de l'option « auth » si le projet demande --auth (« new » comme « init »), avec {table_utilisateurs} remplacé.
+	// Contrairement aux migrations, ils sont écrits aussi par « ebony init » : ils ne remplacent jamais un fichier existant (un conflit est refusé).
+	PROCEDURE EbFichiersAEcrire(fichiers est un tableau, oOptions est un cEbOptionsProjet) : tableau
+		tabAEcrire est un tableau
+		POUR TOUT oFichier DE fichiers
+			SI oFichier.Option() = "" ALORS
+				TableauAjoute(tabAEcrire, oFichier)
+			SINON
+				SI oFichier.Option() = "auth" ET oOptions.Auth() ALORS
+					oResolu est un cEbFichierModule = oFichier.Resolue(oOptions.TableUtilisateurs())
+					TableauAjoute(tabAEcrire, oResolu)
+				FIN
+			FIN
+		FIN
+		RENVOYER tabAEcrire
+	FIN
+FIN

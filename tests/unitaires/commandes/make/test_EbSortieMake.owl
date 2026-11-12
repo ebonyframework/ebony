@@ -1,0 +1,109 @@
+// Tests de EbSortieMake : l'objet JSON de « ebony make --json » (le contrat lu par les outils), le texte lisible et les notes.
+
+// La demande lue dans des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeSortie(sListe est une chaîne) : cEbDemandeMake
+	tabArgs est un tableau de chaînes
+	nDebut  est un entier             = 1
+	nFin    est un entier             = Position(sListe, ";")
+	TANTQUE nFin > 0
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+		nDebut = nFin + 1
+		nFin   = Position(sListe, ";", nDebut)
+	FIN
+	TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	oDemande est un cEbDemandeMake     = EbAnalyseArgumentsMake(tabArgs)
+	tabP     est un tableau de chaînes
+	tabC     est un tableau de chaînes
+	TableauAjoute(tabP, "Authentification = httpAuthBearer")
+	TableauAjoute(tabC, "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen")
+	oGarde    est un cEbGardeRoutes(tabP, tabC)
+	oProtegee est un cEbDemandeMake             = oDemande.AvecGarde(oGarde)
+	RENVOYER oProtegee
+FIN
+
+// Un résultat de ressource, avec un fichier créé, un conservé et une note.
+PROCEDURE EbTestGenere(bSimulation est un booléen) : cEbMakeGenere
+	tabCrees est un tableau de chaînes
+	TableauAjoute(tabCrees, "app/domaine/client/cClient.owl")
+	tabConserves est un tableau de chaînes
+	TableauAjoute(tabConserves, "app/domaine/client/ContratsClient.owl")
+	tabNotes est un tableau de chaînes
+	TableauAjoute(tabNotes, "Une note.")
+	oGenere est un cEbMakeGenere("make resource", "Client", "clients", "C:\Projets\Mon App", bSimulation, tabCrees, tabConserves, tabNotes)
+	RENVOYER oGenere
+FIN
+
+// Le contrat JSON : une seule ligne, les clés ok, command, name, table, dir, dryRun, created, kept, notes, dans cet ordre.
+PROCEDURE scenario_json_du_contrat()
+	dbgVérifieEgalité(EbJsonMakeGenere(EbTestGenere(Faux)), `{"ok":true,"command":"make resource","name":"Client","table":"clients","dir":"C:\\Projets\\Mon App","dryRun":false,"created":["app/domaine/client/cClient.owl"],"kept":["app/domaine/client/ContratsClient.owl"],"notes":["Une note."]}`, "objet JSON")
+	dbgVérifieEgalité(Position(EbJsonMakeGenere(EbTestGenere(Faux)), Caract(10)), 0, "une seule ligne")
+FIN
+
+// Avec --dry-run, le même objet dit dryRun à true.
+PROCEDURE scenario_json_d_un_apercu()
+	dbgVérifieVrai(Position(EbJsonMakeGenere(EbTestGenere(Vrai)), `"dryRun":true`) > 0, "dryRun")
+FIN
+
+// Le JSON reste valide avec un nom d'utilisateur qui contient un guillemet ou une barre oblique inverse.
+PROCEDURE scenario_json_echappe_le_nom()
+	tabVide est un tableau de chaînes
+	oGenere est un cEbMakeGenere("make resource", "Un " + Caract(34) + "nom" + Caract(34) + " a\b", "t", "C:\x", Faux, tabVide, tabVide, tabVide)
+	sJson   est une chaîne                                                                                                                        = EbJsonMakeGenere(oGenere)
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide")
+	dbgVérifieEgalité(ChaîneVersJSON(sJson).Name, "Un " + Caract(34) + "nom" + Caract(34) + " a\b", "nom relu à l'identique")
+FIN
+
+// Le texte lisible : un aperçu le dit et ne parle pas de fichiers « créés ».
+PROCEDURE scenario_texte_lisible()
+	sTexte  est une chaîne = EbTexteMakeGenere(EbTestGenere(Faux))
+	sApercu est une chaîne = EbTexteMakeGenere(EbTestGenere(Vrai))
+	dbgVérifieVrai(Position(sTexte, "ebony make resource : Client (table clients)") > 0, "titre")
+	dbgVérifieVrai(Position(sTexte, "Créés (1) :") > 0, "créés")
+	dbgVérifieVrai(Position(sTexte, "Conservés, non modifiés (1) :") > 0, "conservés")
+	dbgVérifieVrai(Position(sTexte, "  - Une note.") > 0, "note")
+	dbgVérifieVrai(Position(sApercu, "rien n'a été écrit") > 0, "l'aperçu le dit")
+	dbgVérifieVrai(Position(sApercu, "Seraient créés (1) :") > 0, "au conditionnel")
+	dbgVérifieVrai(Droite(sTexte, 1) <> Caract(10), "pas de saut de ligne final : Trace en ajoute un")
+FIN
+
+// Une colonne dont le nom serait ignoré en silence par OWL comme membre du corps : pas de routes, et la note dit laquelle et comment brancher le repository à la main.
+PROCEDURE scenario_note_quand_les_routes_ne_sont_pas_ecrites()
+	tabAucun est un tableau de chaînes
+	sNotes   est une chaîne            = EbListeVirgules(EbNotesMake(EbTestDemandeSortie("resource;Client;--champs;id:entier*,nom:texte,liste:texte,fin:texte"), "sqlite", tabAucun))
+	dbgVérifieVrai(Position(sNotes, "Le contrôleur n'est pas écrit") > 0, "le contrôleur n'est pas écrit")
+	dbgVérifieVrai(Position(sNotes, "liste, fin") > 0, "les colonnes en cause")
+	dbgVérifieVrai(Position(sNotes, "cRepoClientSql(cEbServiceBase.Base())") > 0, "comment brancher")
+	dbgVérifieEgalité(Position(sNotes, "Le contrôleur est dans"), 0, "pas de promesse de contrôleur")
+FIN
+
+// Sans garde (aucun module du projet n'en fournit), la note dit que les routes sont OUVERTES (et plus qu'elles sont protégées).
+PROCEDURE scenario_note_routes_ouvertes_sans_garde()
+	tabAucun   est un tableau de chaînes
+	oSansGarde est un cEbGardeRoutes(tabAucun, tabAucun)
+	oAvecAuth  est un cEbDemandeMake                     = EbTestDemandeSortie("resource;Client;--champs;id:entier*,nom:texte")
+	oSansAuth  est un cEbDemandeMake                     = oAvecAuth.AvecGarde(oSansGarde)
+	sRessource est une chaîne                            = EbListeVirgules(EbNotesMake(oSansAuth, "sqlite", tabAucun))
+	dbgVérifieVrai(Position(sRessource, "Les routes sont OUVERTES") > 0, "la note dit que les routes sont ouvertes")
+	dbgVérifieVrai(Position(sRessource, "ebony/modules/*.json") > 0, "elle nomme les manifestes qui ne fournissent aucun garde")
+	dbgVérifieEgalité(Position(sRessource, "Les routes sont PROTÉGÉES"), 0, "elle ne promet pas une protection qui n'existe pas")
+FIN
+
+// Les notes d'une ressource disent où sont les routes, la clé générée et les NULL ; celles d'une migration disent que rien ne l'applique.
+PROCEDURE scenario_notes_selon_la_commande()
+	tabAucun   est un tableau de chaînes
+	sRessource est une chaîne            = EbListeVirgules(EbNotesMake(EbTestDemandeSortie("resource;Client;--champs;id:entier*,nom:texte,email:texte?,naissance:date?"), "sqlite", tabAucun))
+	sMigration est une chaîne            = EbListeVirgules(EbNotesMake(EbTestDemandeSortie("migration;CreeClients;--champs;id:entier*,nom:texte,pays_id:entier@pays"), "postgresql", tabAucun))
+	dbgVérifieVrai(Position(sRessource, "Le contrôleur est dans app/http/client/ControleurClient.owl") > 0, "où est le contrôleur")
+	dbgVérifieVrai(Position(sRessource, "/api/clients") > 0, "l'adresse des routes")
+	dbgVérifieVrai(Position(sRessource, "Les routes sont PROTÉGÉES") > 0, "les routes sont protégées quand un module fournit un garde")
+	dbgVérifieVrai(Position(sRessource, "commentaire au début du contrôleur") > 0, "la note renvoie au commentaire du contrôleur pour obtenir un accès ou ouvrir les routes")
+	dbgVérifieEgalité(Position(sRessource, "aucune authentification n'est posée"), 0, "l'ancienne note, devenue fausse, a disparu")
+	dbgVérifieVrai(Position(sRessource, "de façon tolérante") > 0, "la lecture tolérante du corps")
+	dbgVérifieEgalité(Position(sRessource, "Le contrôleur n'est pas écrit"), 0, "le contrôleur est écrit")
+	dbgVérifieVrai(Position(sRessource, "supposée générée par la base") > 0, "clé générée")
+	dbgVérifieVrai(Position(sRessource, "NULL") > 0, "NULL")
+	dbgVérifieVrai(Position(sRessource, "texte ISO 8601") > 0, "dates")
+	dbgVérifieVrai(Position(sMigration, "« ebony migrate » l'applique") > 0, "la note renvoie vers migrate")
+	dbgVérifieVrai(Position(sMigration, "table référencée existe déjà") > 0, "clé étrangère")
+	dbgVérifieVrai(Position(sMigration, "PostgreSQL : aucun test") > 0, "PostgreSQL")
+FIN

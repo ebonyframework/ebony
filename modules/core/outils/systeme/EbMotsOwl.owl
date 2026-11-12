@@ -1,0 +1,14 @@
+// Les mots réservés d'OWL, constatés avec OWL 1.7.0 : refusés comme nom de variable ou de PARAMÈTRE (« Le mot 'A' est un mot-clé réservé du langage »), et ignorés EN SILENCE comme nom de membre d'une structure (le membre est accepté à la compilation, jamais rempli depuis le JSON).
+// 58 mots, en minuscules sans accent (OWL ne distingue ni la casse ni les accents) ; « owl list keywords » est incomplet. Utilisé par « make resource » (colonnes).
+EbMotsOwl est une CollectionDeProcédures
+
+	// Les 58 mots, séparés par « | ».
+	PROCEDURE EbMotsReservesOwl() : chaîne
+		RENVOYER "a|alors|autre|avec|booleen|boucle|buffer|cas|chaine|classe|combinaison|constante|constructeur|continuer|dans|de|destructeur|enfin|entier|est|et|exception|faire|faux|fin|fonction|global|implemente|interface|liste|local|modulo|moimeme|monchamp|null|objet|ou|par|pas|pour|prive|procedure|public|quand|reel|renvoyer|retour|selon|si|sinon|sont|sortir|structure|sur|tableau|tantque|tout|vrai"
+	FIN
+
+	// Vrai si le nom est l'un de ces mots, sans tenir compte de la casse.
+	PROCEDURE EbEstMotReserveOwl(sNom est une chaîne) : booléen
+		RENVOYER Position("|" + EbMotsReservesOwl() + "|", "|" + Minuscule(sNom) + "|") > 0
+	FIN
+FIN

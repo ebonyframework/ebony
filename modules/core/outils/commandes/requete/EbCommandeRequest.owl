@@ -1,0 +1,18 @@
+EbCommandeRequest est une CollectionDeProcédures
+
+	// Racine de composition de « request » : envoie une requête HTTP à un service en cours d'exécution (par défaut 127.0.0.1:8080, celui d'« owl serve ») et affiche la réponse.
+	// Une réponse 404 ou 500 est une réponse : code de sortie 0. Seule l'absence de réponse est une erreur (code 50, donc code de sortie 1). Une option incorrecte est un code 25 (sortie 2).
+	PROCEDURE EbExecuteRequest()
+		bJson    est un booléen                  = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes       = EbListeArgumentsApres("request")
+		oDemande est un cEbDemandeHttp           = EbAnalyseArgumentsRequete(tabArgs)
+		oClient  est un cEbClientHttpReel
+		oEnvoi   est un cEbEnvoiRequete(oClient)
+		oReponse est un cEbReponseHttp           = oEnvoi.Execute(oDemande)
+		SI bJson ALORS
+			Trace(EbJsonReponse(oReponse))
+		SINON
+			Trace(EbTexteReponse(oReponse))
+		FIN
+	FIN
+FIN

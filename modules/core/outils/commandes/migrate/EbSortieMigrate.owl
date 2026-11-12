@@ -1,0 +1,121 @@
+// Ce que « ebony migrate » dit à la fin : le texte lu par un humain et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/migrate/.
+// Format de --json (une seule ligne, rien d'autre sur la sortie) :
+//   { "ok": true, "command": "migrate", "base": "sqlite", "dir": "<dossier du projet>", "dryRun": false, "done": [ "M…_CreeClients" ],
+//     "migrations": [ { "name": "M…_CreeClients", "status": "applied", "appliedAt": "2026-11-07T09:30:00Z" } ], "notes": [ ... ] }
+// « command » : migrate, migrate status ou migrate rollback. « done » : les migrations appliquées ou défaites par la commande (avec --dry-run : celles qui le seraient ; pour « status » : vide).
+// « migrations » : toutes, dans l'ordre, telles qu'elles sont après la commande. « status » : applied, pending ou missing (appliquée mais fichier absent) ; « appliedAt » : « » si elle n'est pas appliquée.
+// En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec), la migration en cause est annulée.
+EbSortieMigrate est une CollectionDeProcédures
+
+	// Les notes : ce qui est supposé, ce qui n'est pas vérifié, ce que l'utilisateur doit regarder.
+	PROCEDURE EbNotesMigrate(oEtat est un cEbEtatMigrations) : tableau de chaînes
+		tabNotes est un tableau de chaînes
+		POUR i = 1 À oEtat.Noms()..Occurrence
+			SI oEtat.Statuts()[i] = "missing" ALORS
+				TableauAjoute(tabNotes, oEtat.Noms()[i] + " est appliquée mais son fichier n'est plus dans database/migrations : ebony ne peut pas la défaire.")
+			FIN
+		FIN
+		SI oEtat.Fournisseur() = "postgresql" ALORS
+			TableauAjoute(tabNotes, "PostgreSQL : vérifié sur la version 16 (transactions, DDL annulé, TLS) ; pas sur les autres versions.")
+		FIN
+		RENVOYER tabNotes
+	FIN
+
+	// Quand la cause parle de TLS, la conduite à tenir : OWL exige un TLS vérifié, un serveur local de développement sans TLS demande DB_TLS=desactive. « » sinon.
+	PROCEDURE EbIndiceTls(sCause est une chaîne) : chaîne
+		SI Position(Majuscule(sCause), "TLS") > 0 OU Position(Majuscule(sCause), "SSL") > 0 ALORS
+			RENVOYER " Le TLS est en cause : un serveur de développement local sans TLS demande DB_TLS=desactive dans .env ; un certificat d'autorité interne, DB_CERTIFICAT_CA et DB_TLS=ca."
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Le statut en français.
+	PROCEDURE EbLibelleStatutMigration(sStatut est une chaîne) : chaîne
+		SI sStatut = "applied" ALORS
+			RENVOYER "appliquée"
+		FIN
+		SI sStatut = "pending" ALORS
+			RENVOYER "en attente"
+		FIN
+		RENVOYER "fichier absent"
+	FIN
+
+	// Le texte complété à droite par des espaces jusqu'à nLargeur caractères.
+	PROCEDURE EbCadreMigration(sTexte est une chaîne, nLargeur est un entier) : chaîne
+		sRes est une chaîne = sTexte
+		TANTQUE Taille(sRes) < nLargeur
+			sRes += " "
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// L'objet JSON de « ebony migrate --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonMigrate(oEtat est un cEbEtatMigrations) : chaîne
+		sMigrations est une chaîne = ""
+		POUR i = 1 À oEtat.Noms()..Occurrence
+			sMigrations += EbSeparateurJson(sMigrations) + "{" + EbJsonChaine("name") + ":" + EbJsonChaine(oEtat.Noms()[i]) + "," + EbJsonChaine("status") + ":" + EbJsonChaine(oEtat.Statuts()[i]) + "," + EbJsonChaine("appliedAt") + ":" + EbJsonChaine(oEtat.Dates()[i]) + "}"
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("command") + ":" + EbJsonChaine(oEtat.NomCommande())
+		sJson += "," + EbJsonChaine("base") + ":" + EbJsonChaine(oEtat.Fournisseur())
+		sJson += "," + EbJsonChaine("dir") + ":" + EbJsonChaine(oEtat.Chemin())
+		sJson += "," + EbJsonChaine("dryRun") + ":" + EbJsonBooleen(oEtat.Simulation())
+		sJson += "," + EbJsonChaine("done") + ":" + EbJsonListe(oEtat.Faites())
+		sJson += "," + EbJsonChaine("migrations") + ":[" + sMigrations + "]"
+		sJson += "," + EbJsonChaine("notes") + ":" + EbJsonListe(EbNotesMigrate(oEtat)) + "}"
+		RENVOYER sJson
+	FIN
+
+	// Une virgule si la liste JSON en cours n'est pas vide.
+	PROCEDURE EbSeparateurJson(sListe est une chaîne) : chaîne
+		SI sListe = "" ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER ","
+	FIN
+
+	// Le texte de « ebony migrate » pour un humain.
+	PROCEDURE EbTexteMigrate(oEtat est un cEbEtatMigrations) : chaîne
+		sTexte  est une chaîne = ""
+		nFaites est un entier  = oEtat.Faites()..Occurrence
+		SI oEtat.NomCommande() = "migrate status" ALORS
+			SI oEtat.Noms()..Occurrence = 0 ALORS
+				sTexte = "Aucune migration dans database/migrations (« ebony make migration » en écrit une)."
+			SINON
+				sTexte = "Migrations de " + oEtat.Chemin() + " (" + oEtat.Fournisseur() + ") :" + Caract(10)
+				POUR i = 1 À oEtat.Noms()..Occurrence
+					sTexte += Caract(10) + "  " + EbCadreMigration(EbLibelleStatutMigration(oEtat.Statuts()[i]), 15) + EbCadreMigration(oEtat.Dates()[i], 22) + oEtat.Noms()[i]
+				FIN
+			FIN
+		SINON
+			sVerbe est une chaîne = "appliquée"
+			sRien  est une chaîne = "Rien à appliquer : aucune migration en attente."
+			SI oEtat.NomCommande() = "migrate rollback" ALORS
+				sVerbe = "défaite"
+				sRien  = "Rien à défaire : aucune migration n'est appliquée."
+			FIN
+			SI nFaites = 0 ALORS
+				sTexte = sRien
+				SI oEtat.NomCommande() = "migrate" ET oEtat.Noms()..Occurrence = 0 ALORS
+					sTexte = "Aucune migration dans database/migrations (« ebony make migration » en écrit une)."
+				FIN
+			SINON
+				SI oEtat.Simulation() ALORS
+					sTexte = "Aperçu (--dry-run), rien n'a été envoyé à la base. " + nFaites + " migration(s) seraient " + sVerbe + "(s) :"
+				SINON
+					sTexte = nFaites + " migration(s) " + sVerbe + "(s) :"
+				FIN
+				POUR TOUT sNom DE oEtat.Faites()
+					sTexte += Caract(10) + "  " + sNom
+				FIN
+			FIN
+		FIN
+		tabNotes est un tableau de chaînes = EbNotesMigrate(oEtat)
+		SI tabNotes..Occurrence > 0 ALORS
+			sTexte += Caract(10) + Caract(10) + "À savoir :"
+			POUR TOUT sNote DE tabNotes
+				sTexte += Caract(10) + "  - " + sNote
+			FIN
+		FIN
+		RENVOYER sTexte
+	FIN
+FIN

@@ -1,0 +1,223 @@
+// « ebony migrate » : applique, défait et liste les migrations d'un projet (database/migrations/M<horodatage>_<Intention>.owl) sur sa base, sans jamais en laisser une à moitié.
+// Le SQL est LU dans les fichiers (voir EbLectureMigration : ebony ne peut pas charger les classes d'un autre projet) puis envoyé par ce même exécuteur, une instruction par envoi
+// (mesuré sur SQLite, OWL 1.7.0 : deux instructions séparées par « ; » dans un seul envoi n'en exécutent qu'une, en annonçant un succès).
+// Suivi : la table « eb_migrations » (nom, applique_le), créée au premier « migrate » (jamais par --dry-run ni « status »). Les migrations sont prises dans l'ordre alphabétique de leur nom, qui est l'ordre chronologique.
+// Chaque migration est une TRANSACTION (BEGIN, ses instructions, l'inscription dans le suivi, COMMIT) : si une instruction est refusée, tout est annulé (ROLLBACK), les migrations précédentes restent appliquées, et la commande s'arrête.
+// Mesuré sur SQLite (BEGIN, ROLLBACK et COMMIT passent par le connecteur d'OWL ; un ROLLBACK défait CREATE TABLE et INSERT). Non mesuré sur PostgreSQL (pas de serveur de test) ; HFSQL est refusé.
+// Tout est lu et vérifié AVANT la première instruction envoyée : une migration illisible (code 44) ou un fichier manquant pour un rollback (code 47) arrête la commande sans toucher à la base.
+// Ne connaît que les ports iEbSystemeFichiers, iEbConnexionSql et iEbHorloge : se teste avec un faux disque et une base SQLite en mémoire. La connexion est ouverte et fermée par l'appelant.
+// Chaque erreur est une exception de code : 44 migration non reconnue, 46 instruction ou suivi refusés par la base, 47 rollback impossible (fichier de migration absent).
+cEbExecuteurMigrations est une Classe
+PRIVÉ
+	oSysteme   est un iEbSystemeFichiers
+	oConnexion est un iEbConnexionSql
+	oHorloge   est un iEbHorloge
+	sProjet    est une chaîne            = ""
+	sBase      est une chaîne            = ""
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, connexion est un iEbConnexionSql, horloge est un iEbHorloge, dossierProjet est une chaîne, fournisseur est une chaîne)
+		:oSysteme = systeme
+		:oConnexion = connexion
+		:oHorloge = horloge
+		:sProjet = dossierProjet
+		:sBase = fournisseur
+	FIN
+
+	// Le dossier des migrations du projet.
+	PROCEDURE PRIVÉE Dossier() : chaîne
+		RENVOYER EbJointChemin(:sProjet, "database\migrations")
+	FIN
+
+	// Les noms (sans « .owl ») des migrations du projet, dans l'ordre. Un fichier qui n'a pas le nom d'une migration (un .gitkeep, un fichier à vous) est ignoré.
+	PROCEDURE PRIVÉE NomsDesFichiers() : tableau de chaînes
+		tabNoms est un tableau de chaînes
+		POUR TOUT sFichier DE :oSysteme.ListeFichiers(:Dossier())
+			SI EbEstFichierMigration(sFichier) ALORS
+				TableauAjoute(tabNoms, Gauche(sFichier, Taille(sFichier) - 4))
+			FIN
+		FIN
+		TableauTrie(tabNoms)
+		RENVOYER tabNoms
+	FIN
+
+	// Envoie une instruction sans paramètre. Rend « » si elle a abouti, sinon la cause donnée par la base.
+	PROCEDURE PRIVÉE Envoie(sSql est une chaîne) : chaîne
+		tabAucun  est un tableau associatif
+		oResultat est un cEbResultatSql     = :oConnexion.Envoie(sSql, tabAucun)
+		SI oResultat.Succes() ALORS
+			RENVOYER ""
+		FIN
+		SI oResultat.Message() = "" ALORS
+			RENVOYER "refusée par la base"
+		FIN
+		RENVOYER oResultat.Message()
+	FIN
+
+	// Les migrations appliquées, avec leur date : deux tableaux de même rang. Si la table de suivi n'existe pas (encore), aucune n'est appliquée : le SELECT est refusé, ce qui est le cas normal avant le premier « migrate ».
+	// Rend les noms puis les dates, dans l'ordre des noms.
+	PROCEDURE PRIVÉE Appliquees() : tableau de chaînes
+		tabRes    est un tableau de chaînes
+		tabAucun  est un tableau associatif
+		oResultat est un cEbResultatSql     = :oConnexion.Envoie("SELECT " + Caract(34) + "nom" + Caract(34) + ", " + Caract(34) + "applique_le" + Caract(34) + " FROM " + Caract(34) + "eb_migrations" + Caract(34) + " ORDER BY " + Caract(34) + "nom" + Caract(34), tabAucun)
+		SI oResultat.Succes() ALORS
+			POUR TOUT ligne DE oResultat.Lignes()
+				TableauAjoute(tabRes, ligne["nom"])
+				TableauAjoute(tabRes, ligne["applique_le"])
+			FIN
+		FIN
+		RENVOYER tabRes
+	FIN
+
+	// Crée la table de suivi si elle manque. Lève (46) si la base la refuse.
+	PROCEDURE PRIVÉE PrepareSuivi()
+		sCause est une chaîne = :Envoie("CREATE TABLE IF NOT EXISTS " + Caract(34) + "eb_migrations" + Caract(34) + " (" + Caract(34) + "nom" + Caract(34) + " TEXT NOT NULL PRIMARY KEY, " + Caract(34) + "applique_le" + Caract(34) + " TEXT NOT NULL)")
+		SI sCause <> "" ALORS
+			ExceptionDéclenche(46, "La table de suivi eb_migrations n'a pas pu être créée : " + sCause)
+		FIN
+	FIN
+
+	// L'état de toutes les migrations : celles des fichiers, plus celles appliquées dont le fichier a disparu.
+	PROCEDURE PRIVÉE Bilan(sNomCommande est une chaîne, bSimulation est un booléen, tabFaites est un tableau de chaînes) : cEbEtatMigrations
+		tabFichiers   est un tableau de chaînes = :NomsDesFichiers()
+		tabAppliquee  est un tableau de chaînes = :Appliquees()
+		tabNoms       est un tableau de chaînes
+		tabStatuts    est un tableau de chaînes
+		tabDates      est un tableau de chaînes
+		nRang         est un entier             = 0
+		nNbAppliquees est un entier             = tabAppliquee..Occurrence / 2
+		// Les fichiers, appliqués ou en attente.
+		POUR TOUT sNom DE tabFichiers
+			TableauAjoute(tabNoms, sNom)
+			TableauAjoute(tabStatuts, "pending")
+			TableauAjoute(tabDates, "")
+		FIN
+		// Les migrations appliquées : leur statut et leur date, ou une ligne « missing » si le fichier n'existe plus.
+		POUR k = 1 À nNbAppliquees
+			nRang = TableauCherche(tabNoms, tabAppliquee[k * 2 - 1])
+			SI nRang > 0 ALORS
+				tabStatuts[nRang] = "applied"
+				tabDates[nRang] = tabAppliquee[k * 2]
+			SINON
+				TableauAjoute(tabNoms, tabAppliquee[k * 2 - 1])
+				TableauAjoute(tabStatuts, "missing")
+				TableauAjoute(tabDates, tabAppliquee[k * 2])
+			FIN
+		FIN
+		oEtat est un cEbEtatMigrations(sNomCommande, :sBase, :sProjet, bSimulation, tabNoms, tabStatuts, tabDates, tabFaites)
+		RENVOYER oEtat
+	FIN
+
+	// L'état des migrations, sans rien écrire.
+	PROCEDURE PUBLIQUE Statut() : cEbEtatMigrations
+		tabAucune est un tableau de chaînes
+		oEtat     est un cEbEtatMigrations  = :Bilan("migrate status", Faux, tabAucune)
+		RENVOYER oEtat
+	FIN
+
+	// Envoie une migration dans une transaction : BEGIN, les instructions, le suivi (sSuivi : l'instruction qui l'enregistre ou l'oublie), COMMIT. Lève (46) à la première instruction refusée, après ROLLBACK.
+	PROCEDURE PRIVÉE Applique(sNom est une chaîne, tabSql est un tableau de chaînes, sSuivi est une chaîne, sVerbe est une chaîne)
+		sCause est une chaîne = :Envoie("BEGIN")
+		SI sCause <> "" ALORS
+			ExceptionDéclenche(46, "La migration " + sNom + " n'a pas pu démarrer (BEGIN refusé). Cause : " + sCause)
+		FIN
+		nNb est un entier = tabSql..Occurrence
+		POUR i = 1 À nNb
+			sCause = :Envoie(tabSql[i])
+			SI sCause <> "" ALORS
+				:Envoie("ROLLBACK")
+				ExceptionDéclenche(46, "La migration " + sNom + " a échoué à l'instruction " + i + " sur " + nNb + " ; elle a été annulée (rien n'est " + sVerbe + " pour elle) et les migrations précédentes restent en place. Cause : " + sCause)
+			FIN
+		FIN
+		sCause = :Envoie(sSuivi)
+		SI sCause <> "" ALORS
+			:Envoie("ROLLBACK")
+			ExceptionDéclenche(46, "La migration " + sNom + " a été annulée : le suivi n'a pas pu être mis à jour. Cause : " + sCause)
+		FIN
+		sCause = :Envoie("COMMIT")
+		SI sCause <> "" ALORS
+			:Envoie("ROLLBACK")
+			ExceptionDéclenche(46, "La migration " + sNom + " a été annulée : COMMIT refusé. Cause : " + sCause)
+		FIN
+	FIN
+
+	// Le texte SQL d'une chaîne, entre apostrophes (les apostrophes doublées) : le nom d'une migration est écrit par ebony, pas par un utilisateur, mais il vient d'un nom de fichier.
+	PROCEDURE PRIVÉE Litteral(sTexte est une chaîne) : chaîne
+		RENVOYER "'" + Remplace(sTexte, "'", "''") + "'"
+	FIN
+
+	// Applique les migrations en attente, dans l'ordre. Avec bSimulation, dit lesquelles le seraient sans rien envoyer.
+	PROCEDURE PUBLIQUE Monte(bSimulation est un booléen) : cEbEtatMigrations
+		tabFichiers  est un tableau de chaînes         = :NomsDesFichiers()
+		tabAppliquee est un tableau de chaînes         = :Appliquees()
+		tabEnAttente est un tableau de chaînes
+		tabLues      est un tableau de cEbMigrationLue
+		tabFaites    est un tableau de chaînes
+		POUR TOUT sNom DE tabFichiers
+			bFaite est un booléen = Faux
+			SI TableauCherche(tabAppliquee, sNom) > 0 ALORS
+				bFaite = Vrai
+			FIN
+			SI PAS bFaite ALORS
+				TableauAjoute(tabEnAttente, sNom)
+			FIN
+		FIN
+		// Tout est lu avant la première instruction envoyée.
+		POUR TOUT sNom DE tabEnAttente
+			oLue est un cEbMigrationLue = EbExtraitMigration(sNom + ".owl", :oSysteme.LitTexte(EbJointChemin(:Dossier(), sNom + ".owl")))
+			TableauAjoute(tabLues, oLue)
+		FIN
+		SI bSimulation ALORS
+			tabFaites = tabEnAttente
+		SINON
+			SI tabLues..Occurrence > 0 ALORS
+				:PrepareSuivi()
+			FIN
+			POUR TOUT oMigration DE tabLues
+				sInscription est une chaîne = "INSERT INTO " + Caract(34) + "eb_migrations" + Caract(34) + " (" + Caract(34) + "nom" + Caract(34) + ", " + Caract(34) + "applique_le" + Caract(34) + ") VALUES (" + :Litteral(oMigration.Nom()) + ", " + :Litteral(:oHorloge.Maintenant()) + ")"
+				:Applique(oMigration.Nom(), oMigration.Monte(), sInscription, "appliqué")
+				TableauAjoute(tabFaites, oMigration.Nom())
+			FIN
+		FIN
+		oEtat est un cEbEtatMigrations = :Bilan("migrate", bSimulation, tabFaites)
+		RENVOYER oEtat
+	FIN
+
+	// Défait les nPas dernières migrations appliquées, de la plus récente à la plus ancienne. Lève (47) si le fichier de l'une d'elles n'est plus dans le projet : sans son Descend(), ebony ne devine pas le SQL.
+	PROCEDURE PUBLIQUE Descend(nPas est un entier, bSimulation est un booléen) : cEbEtatMigrations
+		tabFichiers   est un tableau de chaînes         = :NomsDesFichiers()
+		tabAppliquee  est un tableau de chaînes         = :Appliquees()
+		tabADefaire   est un tableau de chaînes
+		tabLues       est un tableau de cEbMigrationLue
+		tabFaites     est un tableau de chaînes
+		nNbAppliquees est un entier                     = tabAppliquee..Occurrence / 2
+		nRang         est un entier                     = nNbAppliquees
+		TANTQUE nRang >= 1 ET tabADefaire..Occurrence < nPas
+			TableauAjoute(tabADefaire, tabAppliquee[nRang * 2 - 1])
+			nRang -= 1
+		FIN
+		sManquantes est une chaîne = ""
+		POUR TOUT sNom DE tabADefaire
+			SI TableauCherche(tabFichiers, sNom) < 1 ALORS
+				sManquantes += EbSeparateur(sManquantes) + sNom
+			FIN
+		FIN
+		SI sManquantes <> "" ALORS
+			ExceptionDéclenche(47, "Impossible de défaire : le fichier de la migration est absent de database/migrations (" + sManquantes + "). Restaurez-le (ebony lit son Descend()), ou retirez la ligne de eb_migrations à la main.")
+		FIN
+		POUR TOUT sNom DE tabADefaire
+			oLue est un cEbMigrationLue = EbExtraitMigration(sNom + ".owl", :oSysteme.LitTexte(EbJointChemin(:Dossier(), sNom + ".owl")))
+			TableauAjoute(tabLues, oLue)
+		FIN
+		SI bSimulation ALORS
+			tabFaites = tabADefaire
+		SINON
+			POUR TOUT oMigration DE tabLues
+				sOubli est une chaîne = "DELETE FROM " + Caract(34) + "eb_migrations" + Caract(34) + " WHERE " + Caract(34) + "nom" + Caract(34) + " = " + :Litteral(oMigration.Nom())
+				:Applique(oMigration.Nom(), oMigration.Descend(), sOubli, "défait")
+				TableauAjoute(tabFaites, oMigration.Nom())
+			FIN
+		FIN
+		oEtat est un cEbEtatMigrations = :Bilan("migrate rollback", bSimulation, tabFaites)
+		RENVOYER oEtat
+	FIN
+FIN

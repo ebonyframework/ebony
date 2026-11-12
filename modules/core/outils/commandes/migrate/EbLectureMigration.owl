@@ -1,0 +1,196 @@
+// Lecture d'une migration écrite par « ebony make migration » : fonctions pures, testées dans tests/unitaires/commandes/migrate/.
+// POURQUOI LE TEXTE : une migration est une classe OWL du projet de l'utilisateur, et ebony (un autre projet OWL) ne peut ni la charger ni l'évaluer (OWL n'a pas d'évaluation dynamique).
+// On lit donc le SQL dans le fichier, sous la forme que « make migration » écrit, et rien d'autre :
+//   PROCEDURE PUBLIQUE Monte() : tableau de chaînes            (même chose pour Descend)
+//       tabSql est un tableau de chaînes
+//       TableauAjoute(tabSql, `texte SQL, sur une ou plusieurs lignes`)     ou      TableauAjoute(tabSql, "texte SQL")
+//       RENVOYER tabSql
+//   FIN
+// Une instruction par TableauAjoute, dans l'ordre d'envoi. Tout le reste (une condition, une concaténation, un appel…) est REFUSÉ, code 44 : une migration à moitié comprise ne doit jamais être appliquée.
+// Un texte entre accents graves est repris tel quel, retours à la ligne compris (OWL ne connaît pas d'échappement dans une chaîne).
+// Chaque erreur est une exception de code 44 (migration non reconnue).
+EbLectureMigration est une CollectionDeProcédures
+
+	// Vrai pour un espace, une tabulation ou un retour chariot.
+	PROCEDURE EbEstBlanc(sCar est une chaîne) : booléen
+		RENVOYER sCar = " " OU sCar = Caract(9) OU sCar = Caract(13)
+	FIN
+
+	// Le texte sans les blancs du début et de la fin.
+	PROCEDURE EbRogne(sTexte est une chaîne) : chaîne
+		nDebut est un entier = 1
+		nFin   est un entier = Taille(sTexte)
+		TANTQUE nDebut <= nFin
+			SI PAS EbEstBlanc(Milieu(sTexte, nDebut, 1)) ALORS
+				SORTIR
+			FIN
+			nDebut += 1
+		FIN
+		TANTQUE nFin >= nDebut
+			SI PAS EbEstBlanc(Milieu(sTexte, nFin, 1)) ALORS
+				SORTIR
+			FIN
+			nFin -= 1
+		FIN
+		SI nFin < nDebut ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER Milieu(sTexte, nDebut, nFin - nDebut + 1)
+	FIN
+
+	// Lit le texte SQL qui suit « TableauAjoute(<liste>, » : sReste est la suite de la ligne nLigne, sans blanc au début. Rend deux éléments : le SQL, puis le nombre de lignes lues (en chaîne).
+	// Rend « » et « 0 » si la forme n'est pas celle attendue (ni « texte », ni `texte`, ou quelque chose après la parenthèse fermante).
+	PROCEDURE EbLitTexteSql(tabLignes est un tableau de chaînes, nLigne est un entier, sReste est une chaîne) : tableau de chaînes
+		tabRes  est un tableau de chaînes
+		sSql    est une chaîne            = ""
+		nLues   est un entier             = 0
+		sGuil   est une chaîne            = Caract(34)
+		sAccent est une chaîne            = Caract(96)
+		// Variables déclarées avant les SI : une déclaration dans une branche non exécutée peut corrompre les variables locales d'OWL.
+		nFin      est un entier  = 0
+		sTexte    est une chaîne = ""
+		nCourante est un entier  = nLigne
+		bTrouve   est un booléen = Faux
+		nPos      est un entier  = 0
+		SI Gauche(sReste, 1) = sGuil ALORS
+			nFin = Position(sReste, sGuil, 2)
+			SI nFin > 0 ALORS
+				SI EbRogne(Droite(sReste, Taille(sReste) - nFin)) = ")" ALORS
+					sSql  = Milieu(sReste, 2, nFin - 2)
+					nLues = 1
+				FIN
+			FIN
+		FIN
+		SI Gauche(sReste, 1) = sAccent ALORS
+			sTexte = Droite(sReste, Taille(sReste) - 1)
+			TANTQUE PAS bTrouve
+				nPos = Position(sTexte, sAccent)
+				SI nPos > 0 ALORS
+					SI EbRogne(Droite(sTexte, Taille(sTexte) - nPos)) = ")" ALORS
+						sSql  = Gauche(sTexte, nPos - 1)
+						nLues = nCourante - nLigne + 1
+					FIN
+					bTrouve = Vrai
+				SINON
+					nCourante += 1
+					SI nCourante > tabLignes..Occurrence ALORS
+						bTrouve = Vrai
+					SINON
+						sTexte += Caract(10) + Remplace(tabLignes[nCourante], Caract(13), "")
+					FIN
+				FIN
+			FIN
+		FIN
+		SI EbRogne(sSql) = "" ALORS
+			sSql  = ""
+			nLues = 0
+		FIN
+		TableauAjoute(tabRes, sSql)
+		TableauAjoute(tabRes, "" + nLues)
+		RENVOYER tabRes
+	FIN
+
+	// Les instructions SQL de la méthode sMethode (« Monte » ou « Descend ») d'un texte de migration. Lève (code 44) si la méthode manque, si elle contient autre chose que la forme décrite en tête, ou si elle n'envoie rien.
+	PROCEDURE EbSqlDeMethode(tabLignes est un tableau de chaînes, sMethode est une chaîne, sFichier est une chaîne) : tableau de chaînes
+		tabSql    est un tableau de chaînes
+		nDebut    est un entier             = 0
+		sPrefixe  est une chaîne            = "La migration " + sFichier + " n'est pas reconnue par « ebony migrate » : "
+		sListe    est une chaîne            = ""
+		sRenvoyee est une chaîne            = ""
+		bFini     est un booléen            = Faux
+		nCourante est un entier             = 0
+		sLigne    est une chaîne            = ""
+		nLues     est un entier             = 1
+		sReste    est une chaîne            = ""
+		tabLu     est un tableau de chaînes
+		nTaille   est un entier             = 0
+		POUR i = 1 À tabLignes..Occurrence
+			sLigne = EbRogne(tabLignes[i])
+			SI Gauche(sLigne, 9) = "PROCEDURE" ET Position(sLigne, " " + sMethode + "()") > 0 ALORS
+				nDebut = i
+				SORTIR
+			FIN
+		FIN
+		SI nDebut = 0 ALORS
+			ExceptionDéclenche(44, sPrefixe + "la méthode " + sMethode + "() est introuvable.")
+		FIN
+		nCourante = nDebut + 1
+		TANTQUE PAS bFini
+			SI nCourante > tabLignes..Occurrence ALORS
+				ExceptionDéclenche(44, sPrefixe + "la fin de " + sMethode + "() est introuvable.")
+			FIN
+			sLigne = EbRogne(tabLignes[nCourante])
+			nLues  = 1
+			SI sLigne = "" OU Gauche(sLigne, 2) = "//" ALORS
+				nLues = 1
+			SINON
+				SI sLigne = "FIN" ALORS
+					bFini = Vrai
+				SINON
+					SI Position(sLigne, " est un tableau de chaînes") > 1 ET Position(sLigne, "=") = 0 ET sListe = "" ALORS
+						sListe = EbRogne(Gauche(sLigne, Position(sLigne, " est un tableau de chaînes") - 1))
+					SINON
+						nTaille = 14 + Taille(sListe)
+						SI sListe <> "" ET Gauche(sLigne, nTaille + 1) = "TableauAjoute(" + sListe + "," ALORS
+							sReste = EbRogne(Droite(sLigne, Taille(sLigne) - nTaille - 1))
+							tabLu  = EbLitTexteSql(tabLignes, nCourante, sReste)
+							SI tabLu[1] = "" ALORS
+								ExceptionDéclenche(44, sPrefixe + "ligne " + nCourante + " de " + sMethode + "() : une instruction doit être un texte SQL seul, entre guillemets ou entre accents graves (pas de calcul).")
+							FIN
+							TableauAjoute(tabSql, tabLu[1])
+							nLues = Val(tabLu[2])
+						SINON
+							SI sListe <> "" ET sLigne = "RENVOYER " + sListe ALORS
+								sRenvoyee = sListe
+							SINON
+								ExceptionDéclenche(44, sPrefixe + "ligne " + nCourante + " de " + sMethode + "() : « " + sLigne + " » n'est pas une forme que « ebony migrate » sait lire (déclarer la liste, TableauAjoute avec un texte SQL, RENVOYER la liste).")
+							FIN
+						FIN
+					FIN
+				FIN
+			FIN
+			nCourante += nLues
+		FIN
+		SI sRenvoyee = "" ALORS
+			ExceptionDéclenche(44, sPrefixe + sMethode + "() ne se termine pas par RENVOYER <la liste>.")
+		FIN
+		SI tabSql..Occurrence = 0 ALORS
+			ExceptionDéclenche(44, sPrefixe + sMethode + "() n'envoie aucune instruction SQL.")
+		FIN
+		RENVOYER tabSql
+	FIN
+
+	// La migration lue dans le texte du fichier sFichier (« M202611021015_CreeClients.owl »). Lève (code 44) si elle n'a pas la forme écrite par « ebony make migration ».
+	PROCEDURE EbExtraitMigration(sFichier est une chaîne, sTexte est une chaîne) : cEbMigrationLue
+		sNom est une chaîne = sFichier
+		SI Droite(sNom, 4) = ".owl" ALORS
+			sNom = Gauche(sNom, Taille(sNom) - 4)
+		FIN
+		sNormal    est une chaîne                                     = Remplace(sTexte, Caract(13) + Caract(10), Caract(10))
+		tabLignes  est un tableau de chaînes                          = ChaîneDécoupe(sNormal, Caract(10))
+		tabMonte   est un tableau de chaînes                          = EbSqlDeMethode(tabLignes, "Monte", sFichier)
+		tabDescend est un tableau de chaînes                          = EbSqlDeMethode(tabLignes, "Descend", sFichier)
+		oLue       est un cEbMigrationLue(sNom, tabMonte, tabDescend)
+		RENVOYER oLue
+	FIN
+
+	// Vrai si le nom d'un fichier est celui d'une migration écrite par « make migration » : M, douze chiffres (AAAAMMJJHHMM), « _ », un nom, « .owl ».
+	PROCEDURE EbEstFichierMigration(sFichier est une chaîne) : booléen
+		SI Droite(sFichier, 4) <> ".owl" ALORS
+			RENVOYER Faux
+		FIN
+		SI Taille(sFichier) < 19 ALORS
+			RENVOYER Faux
+		FIN
+		SI Gauche(sFichier, 1) <> "M" OU Milieu(sFichier, 14, 1) <> "_" ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 2 À 13
+			sCar est une chaîne = Milieu(sFichier, i, 1)
+			SI sCar < "0" OU sCar > "9" ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+FIN

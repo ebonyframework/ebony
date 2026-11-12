@@ -1,0 +1,60 @@
+// Ce que « ebony new » dit à la fin : les consignes (« next ») et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/nouveau/.
+// Format de --json : { "ok": true, "dir", "files", "next", "name", "folder", "identifier", "type" (toujours "api"), "kit", "base" (vide pour slim), "auth": { "enabled", "table", "mode" } } (table et mode seulement si enabled). « files » : voir EbFichiersProjet (config/Auth.owl avec --auth) ;
+// « ebony/ » (un dossier) y figure une fois, sans le détail de la bibliothèque copiée. En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec).
+EbSortieNew est une CollectionDeProcédures
+
+	// Les étapes à suivre après la création, une par ligne. « ebony serve » n'y figure pas : la commande n'existe pas encore.
+	PROCEDURE EbEtapesSuivantes(oCree est un cEbProjetCree) : tableau de chaînes
+		tabEtapes est un tableau de chaînes
+		TableauAjoute(tabEtapes, "cd " + oCree.Dossier())
+		SI oCree.Options().ABase() ALORS
+			TableauAjoute(tabEtapes, "Copiez .env.exemple en .env et .env.secrets.exemple en .env.secrets")
+		FIN
+		TableauAjoute(tabEtapes, "ebony doctor")
+		SI PAS oCree.Options().ABase() ALORS
+			TableauAjoute(tabEtapes, "owl serve --port 8080")
+		FIN
+		RENVOYER tabEtapes
+	FIN
+
+	// Un tableau de chaînes en JSON : ["a","b"].
+	PROCEDURE EbJsonListe(tabValeurs est un tableau de chaînes) : chaîne
+		sListe est une chaîne = ""
+		POUR i = 1 À tabValeurs..Occurrence
+			SI i > 1 ALORS
+				sListe += ","
+			FIN
+			sListe += EbJsonChaine(tabValeurs[i])
+		FIN
+		RENVOYER "[" + sListe + "]"
+	FIN
+
+	// L'objet « auth » du JSON de « new » et de « init » : { "enabled" } et, si l'authentification est demandée, "table" et "mode".
+	PROCEDURE EbJsonAuth(oOptions est un cEbOptionsProjet) : chaîne
+		sAuth est une chaîne = "{" + EbJsonChaine("enabled") + ":" + EbJsonBooleen(oOptions.Auth())
+		SI oOptions.Auth() ALORS
+			sAuth += "," + EbJsonChaine("table") + ":" + EbJsonChaine(oOptions.TableUtilisateurs())
+			sAuth += "," + EbJsonChaine("mode") + ":" + EbJsonChaine(EbModeJetonDefaut())
+		FIN
+		RENVOYER sAuth + "}"
+	FIN
+
+	// L'objet JSON de « ebony new --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonProjetCree(oCree est un cEbProjetCree) : chaîne
+		oOptions    est un cEbOptionsProjet   = oCree.Options()
+		tabFichiers est un tableau de chaînes = EbFichiersProjet(oOptions)
+		tabEtapes   est un tableau de chaînes = EbEtapesSuivantes(oCree)
+		sAuth       est une chaîne            = EbJsonAuth(oOptions)
+		sJson       est une chaîne            = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("dir") + ":" + EbJsonChaine(oCree.Chemin())
+		sJson += "," + EbJsonChaine("files") + ":" + EbJsonListe(tabFichiers)
+		sJson += "," + EbJsonChaine("next") + ":" + EbJsonListe(tabEtapes)
+		sJson += "," + EbJsonChaine("name") + ":" + EbJsonChaine(oCree.Nom())
+		sJson += "," + EbJsonChaine("folder") + ":" + EbJsonChaine(oCree.Dossier())
+		sJson += "," + EbJsonChaine("identifier") + ":" + EbJsonChaine(oCree.Identifiant())
+		sJson += "," + EbJsonChaine("type") + ":" + EbJsonChaine(EbTypeProjetDefaut())
+		sJson += "," + EbJsonChaine("kit") + ":" + EbJsonChaine(oOptions.Kit())
+		sJson += "," + EbJsonChaine("base") + ":" + EbJsonChaine(oOptions.BaseDonnees())
+		sJson += "," + EbJsonChaine("auth") + ":" + sAuth + "}"
+		RENVOYER sJson
+	FIN
+FIN

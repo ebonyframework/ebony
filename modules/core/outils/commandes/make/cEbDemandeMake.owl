@@ -1,0 +1,88 @@
+// Ce que l'utilisateur a demandé à « ebony make » : la sous-commande (resource ou migration), le nom, la table, les champs et le mode aperçu. Objet valeur immuable, rempli par le constructeur.
+// Tout ce qui sert à fabriquer un identifiant OWL ou un nom de fichier est déjà calculé (EbOptionsMake) : Pascal() et Dossier() ne contiennent que des lettres ASCII et des chiffres (le dossier, aussi des tirets).
+cEbDemandeMake est une Classe
+PRIVÉ
+	sSousCommande      est une chaîne                  = ""
+	sNom               est une chaîne                  = ""
+	sPascal            est une chaîne                  = ""
+	sDossier           est une chaîne                  = ""
+	sTable             est une chaîne                  = ""
+	tabChamps          est un tableau de cEbChampTable
+	bSimulation        est un booléen                  = Faux
+	tabGardeProprietes est un tableau de chaînes
+	tabGardeProcedures est un tableau de chaînes
+
+	// garde : les lignes de code que les modules du projet fournissent pour les routes (manifestes ebony/modules/*.json, lus par cEbGenerationMake). SANS garde (vide), le contrôleur est généré OUVERT et la commande le dit.
+	PROCEDURE Constructeur(SousCommande est une chaîne, Nom est une chaîne, Pascal est une chaîne, Dossier est une chaîne, NomTable est une chaîne, lesChamps est un tableau de cEbChampTable, Simulation est un booléen, garde est un cEbGardeRoutes)
+		:sSousCommande = SousCommande
+		:sNom = Nom
+		:sPascal = Pascal
+		:sDossier = Dossier
+		:sTable = NomTable
+		POUR TOUT oChamp DE lesChamps
+			TableauAjoute(:tabChamps, oChamp)
+		FIN
+		:bSimulation = Simulation
+		POUR TOUT sLigne DE garde.LignesProprietes()
+			TableauAjoute(:tabGardeProprietes, sLigne)
+		FIN
+		POUR TOUT sLigne DE garde.LignesProcedures()
+			TableauAjoute(:tabGardeProcedures, sLigne)
+		FIN
+	FIN
+
+	// « resource » ou « migration ».
+	PROCEDURE PUBLIQUE SousCommande() : chaîne
+		RENVOYER :sSousCommande
+	FIN
+
+	// Le nom tel que l'utilisateur l'a écrit (Client, Bon de commande, CreeClients).
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Le nom en majuscules initiales, sans accent (BonDeCommande) : la base des identifiants cBonDeCommande, iRepoBonDeCommande…
+	PROCEDURE PUBLIQUE Pascal() : chaîne
+		RENVOYER :sPascal
+	FIN
+
+	// Le dossier du module (bon-de-commande).
+	PROCEDURE PUBLIQUE Dossier() : chaîne
+		RENVOYER :sDossier
+	FIN
+
+	// La table, avec un éventuel schéma (« public.clients »), telle qu'elle sera écrite entre guillemets dans le SQL.
+	PROCEDURE PUBLIQUE NomTable() : chaîne
+		RENVOYER :sTable
+	FIN
+
+	PROCEDURE PUBLIQUE Champs() : tableau de cEbChampTable
+		RENVOYER :tabChamps
+	FIN
+
+	// Vrai pour --dry-run : dire ce qui serait créé, sans toucher au disque.
+	PROCEDURE PUBLIQUE Simulation() : booléen
+		RENVOYER :bSimulation
+	FIN
+
+	// Les lignes à ajouter au bloc PROPRIETES du service (celles du garde fourni par les modules).
+	PROCEDURE PUBLIQUE GardeProprietes() : tableau de chaînes
+		RENVOYER :tabGardeProprietes
+	FIN
+
+	// Les lignes à écrire dans le corps du service (les procédures du garde).
+	PROCEDURE PUBLIQUE GardeProcedures() : tableau de chaînes
+		RENVOYER :tabGardeProcedures
+	FIN
+
+	// Vrai si un module fournit un garde : le contrôleur généré est alors protégé. Faux : il est généré OUVERT, et la commande le dit.
+	PROCEDURE PUBLIQUE GardePresente() : booléen
+		RENVOYER :tabGardeProprietes..Occurrence > 0 OU :tabGardeProcedures..Occurrence > 0
+	FIN
+
+	// La même demande, avec le garde lu dans les manifestes du projet (l'objet est immuable : on en rend une copie).
+	PROCEDURE PUBLIQUE AvecGarde(oGarde est un cEbGardeRoutes) : cEbDemandeMake
+		oCopie est un cEbDemandeMake(:sSousCommande, :sNom, :sPascal, :sDossier, :sTable, :tabChamps, :bSimulation, oGarde)
+		RENVOYER oCopie
+	FIN
+FIN

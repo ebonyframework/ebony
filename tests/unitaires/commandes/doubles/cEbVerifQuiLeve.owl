@@ -1,0 +1,13 @@
+// Double de test : une vérification qui plante (exception), pour vérifier que « doctor » ne s'arrête pas pour autant.
+cEbVerifQuiLeve est une Classe implemente iEbVerification
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "qui-leve"
+	FIN
+
+	PROCEDURE Execute() : cEbResultatVerification
+		ExceptionDéclenche(5, "boum")
+		oJamais est un cEbResultatVerification("", eEbStatut.reussi, "", "")
+		RENVOYER oJamais
+	FIN
+FIN

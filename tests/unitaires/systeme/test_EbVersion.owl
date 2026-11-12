@@ -1,0 +1,64 @@
+// Tests de EbVersionValide et EbCompareVersions : numéros « majeur.mineur.correctif ».
+
+// Une version bien formée est valide.
+PROCEDURE scenario_versions_valides()
+	dbgVérifieVrai(EbVersionValide("1.5.0"), "1.5.0")
+	dbgVérifieVrai(EbVersionValide("0.0.0"), "0.0.0")
+	dbgVérifieVrai(EbVersionValide("12.345.6789"), "plusieurs chiffres")
+FIN
+
+// Tout ce qui n'est pas « nombre.nombre.nombre » est refusé (Val("abc") vaudrait 0 : il faut un contrôle à part).
+PROCEDURE scenario_versions_invalides()
+	dbgVérifieFaux(EbVersionValide(""), "vide")
+	dbgVérifieFaux(EbVersionValide("1.5"), "deux segments")
+	dbgVérifieFaux(EbVersionValide("1.5.0.1"), "quatre segments")
+	dbgVérifieFaux(EbVersionValide("1.5.0-beta"), "suffixe")
+	dbgVérifieFaux(EbVersionValide("a.b.c"), "lettres")
+	dbgVérifieFaux(EbVersionValide("1..0"), "segment vide")
+	dbgVérifieFaux(EbVersionValide("1.5."), "point final")
+	dbgVérifieFaux(EbVersionValide("1.5.-1"), "négatif")
+	dbgVérifieFaux(EbVersionValide("1 .5.0"), "espace")
+	dbgVérifieFaux(EbVersionValide("(inconnue)"), "valeur par défaut du lanceur")
+FIN
+
+// Deux numéros égaux se comparent à 0.
+PROCEDURE scenario_versions_egales()
+	dbgVérifieEgalité(EbCompareVersions("1.5.0", "1.5.0"), 0, "égales")
+FIN
+
+// Un numéro plus ancien donne -1, un plus récent donne 1, sur chacun des trois segments.
+PROCEDURE scenario_ordre_sur_chaque_segment()
+	dbgVérifieEgalité(EbCompareVersions("1.4.9", "1.5.0"),-1, "mineur plus ancien")
+	dbgVérifieEgalité(EbCompareVersions("1.5.1", "1.5.0"), 1, "correctif plus récent")
+	dbgVérifieEgalité(EbCompareVersions("2.0.0", "1.5.0"), 1, "majeur plus récent")
+	dbgVérifieEgalité(EbCompareVersions("0.9.9", "1.0.0"),-1, "majeur plus ancien")
+	dbgVérifieEgalité(EbCompareVersions("1.5.0", "1.5.1"),-1, "correctif plus ancien")
+FIN
+
+// Une version installée satisfait un minimum si elle est au moins aussi récente et de la même génération (majeur ; en 0.x, majeur et mineur).
+PROCEDURE scenario_satisfait_le_minimum()
+	dbgVérifieVrai(EbVersionSatisfait("0.1.0", "0.1.0"), "égale")
+	dbgVérifieVrai(EbVersionSatisfait("0.1.3", "0.1.0"), "0.x : correctif plus récent")
+	dbgVérifieVrai(EbVersionSatisfait("1.4.0", "1.2.0"), "1.x : mineur plus récent")
+	dbgVérifieVrai(EbVersionSatisfait("1.2.5", "1.2.0"), "1.x : correctif plus récent")
+	dbgVérifieVrai(EbVersionSatisfait("12.3.0", "12.0.0"), "plusieurs chiffres")
+FIN
+
+// Trop ancienne, ou d'une autre génération : ne satisfait pas.
+PROCEDURE scenario_ne_satisfait_pas_le_minimum()
+	dbgVérifieFaux(EbVersionSatisfait("0.1.0", "0.1.2"), "0.x : correctif plus ancien")
+	dbgVérifieFaux(EbVersionSatisfait("0.2.0", "0.1.0"), "0.x : mineur différent (plus récent)")
+	dbgVérifieFaux(EbVersionSatisfait("0.0.9", "0.1.0"), "0.x : mineur plus ancien")
+	dbgVérifieFaux(EbVersionSatisfait("1.1.0", "1.2.0"), "1.x : mineur plus ancien")
+	dbgVérifieFaux(EbVersionSatisfait("2.0.0", "1.2.0"), "majeur plus récent")
+	dbgVérifieFaux(EbVersionSatisfait("0.9.0", "1.0.0"), "majeur plus ancien")
+	dbgVérifieFaux(EbVersionSatisfait("0.10.0", "0.1.0"), "0.10 n'est pas 0.1 (nombres, pas textes)")
+	dbgVérifieFaux(EbVersionSatisfait("1.0.0", "0.9.0"), "1.0.0 ne satisfait pas 0.9.0")
+FIN
+
+// On compare des nombres, pas des textes : 1.10.0 est plus récent que 1.9.0.
+PROCEDURE scenario_nombres_pas_textes()
+	dbgVérifieEgalité(EbCompareVersions("1.10.0", "1.9.0"), 1, "10 > 9")
+	dbgVérifieEgalité(EbCompareVersions("1.9.0", "1.10.0"),-1, "9 < 10")
+	dbgVérifieEgalité(EbCompareVersions("1.5.10", "1.5.9"), 1, "correctif 10 > 9")
+FIN

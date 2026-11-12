@@ -1,0 +1,44 @@
+// Une requête HTTP à envoyer (« ebony request ») : méthode, URL complète, en-têtes et corps. Objet valeur immuable, rempli par le constructeur.
+// Les en-têtes sont deux listes parallèles (noms, valeurs), dans l'ordre où l'utilisateur les a donnés.
+cEbDemandeHttp est une Classe
+PRIVÉ
+	sMethode   est une chaîne            = ""
+	sUrl       est une chaîne            = ""
+	tabNoms    est un tableau de chaînes
+	tabValeurs est un tableau de chaînes
+	sCorps     est une chaîne            = ""
+
+	PROCEDURE Constructeur(Methode est une chaîne, Url est une chaîne, noms est un tableau de chaînes, valeurs est un tableau de chaînes, Corps est une chaîne)
+		:sMethode = Methode
+		:sUrl = Url
+		POUR i = 1 À noms..Occurrence
+			TableauAjoute(:tabNoms, noms[i])
+			TableauAjoute(:tabValeurs, valeurs[i])
+		FIN
+		:sCorps = Corps
+	FIN
+
+	// GET, POST, PUT, DELETE, PATCH ou HEAD, en majuscules.
+	PROCEDURE PUBLIQUE Methode() : chaîne
+		RENVOYER :sMethode
+	FIN
+
+	// L'URL complète, base et chemin compris (http://127.0.0.1:8080/clients/42).
+	PROCEDURE PUBLIQUE Url() : chaîne
+		RENVOYER :sUrl
+	FIN
+
+	// Les noms des en-têtes, dans l'ordre ; ValeursEntetes() donne les valeurs dans le même ordre.
+	PROCEDURE PUBLIQUE NomsEntetes() : tableau de chaînes
+		RENVOYER :tabNoms
+	FIN
+
+	PROCEDURE PUBLIQUE ValeursEntetes() : tableau de chaînes
+		RENVOYER :tabValeurs
+	FIN
+
+	// Le corps de la requête, vide s'il n'y en a pas.
+	PROCEDURE PUBLIQUE Corps() : chaîne
+		RENVOYER :sCorps
+	FIN
+FIN

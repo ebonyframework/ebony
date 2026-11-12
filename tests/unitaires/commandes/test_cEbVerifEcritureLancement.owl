@@ -1,0 +1,63 @@
+// Tests de cEbVerifEcritureLancement : ebony peut-il écrire dans le dossier de lancement ? Utilise un faux disque.
+
+// Cas normal : le fichier de test est écrit dans le dossier de lancement, puis supprimé (le même).
+PROCEDURE scenario_ecriture_possible()
+	oDisque est un cEbSystemeFichiersFictif("C:\Users\Jose\Projets")
+	oVerif  est un cEbVerifEcritureLancement(oDisque)
+	oRes    est un cEbResultatVerification                           = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+	dbgVérifieVrai(Position(oDisque.DernierEcrit(), "C:\Users\Jose\Projets\") = 1, "écrit dans le dossier de lancement")
+	dbgVérifieEgalité(oDisque.DernierSupprime(), oDisque.DernierEcrit(), "supprime le fichier qu'il a écrit")
+	dbgVérifieEgalité(oDisque.NbSuppressions(), 1, "range derrière lui")
+FIN
+
+// Écriture refusée (accès, disque plein…) : erreur bloquante qui cite le dossier et la cause, et il n'y a rien à supprimer.
+PROCEDURE scenario_ecriture_refusee()
+	oDisque est un cEbSystemeFichiersFictif("C:\Windows\System32")
+	oDisque.DefinitEcritureImpossible("Accès refusé")
+	oVerif est un cEbVerifEcritureLancement(oDisque)
+	oRes   est un cEbResultatVerification            = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(oRes.EstBloquant(), "bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "C:\Windows\System32") > 0, "cite le dossier")
+	dbgVérifieVrai(Position(oRes.Message(), "Accès refusé") > 0, "cite la cause")
+	dbgVérifieVrai(Position(oRes.Correction(), "droit d'écrire") > 0, "la correction dit quoi faire")
+	dbgVérifieEgalité(oDisque.DernierEcrit(), "", "rien n'a été écrit")
+	dbgVérifieEgalité(oDisque.NbSuppressions(), 0, "rien à supprimer")
+FIN
+
+// Le fichier de test reste en place : l'écriture marche, on prévient sans bloquer, et on dit où est le fichier.
+PROCEDURE scenario_fichier_non_supprime()
+	oDisque est un cEbSystemeFichiersFictif("C:\Users\Jose")
+	oDisque.DefinitSuppressionImpossible()
+	oVerif est un cEbVerifEcritureLancement(oDisque)
+	oRes   est un cEbResultatVerification            = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), oDisque.DernierEcrit()) > 0, "le message donne le chemin du fichier resté")
+	dbgVérifieVrai(Position(oRes.Correction(), "à la main") > 0, "la correction dit quoi faire")
+FIN
+
+// OWL n'est pas dans le dossier de lancement (chemin accentué) : on n'écrit rien, avertissement renvoyant à « Accès au dossier ».
+PROCEDURE scenario_owl_mal_place()
+	sLancement est une chaîne                              = "C:\Users\Jos" + Caract(233) + "\Projets"
+	oDisque    est un cEbSystemeFichiersFictif(sLancement)
+	oDisque.DefinitActif("D:\Projets\ElmiraLabs\ebonycore")
+	oVerif est un cEbVerifEcritureLancement(oDisque)
+	oRes   est un cEbResultatVerification            = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "n'ajoute pas une seconde erreur bloquante")
+	dbgVérifieVrai(Position(oRes.Correction(), "Accès au dossier") > 0, "renvoie à l'autre vérification")
+	dbgVérifieEgalité(oDisque.DernierEcrit(), "", "rien n'a été écrit dans le dépôt d'ebony")
+FIN
+
+// À la racine d'un disque, le fichier est « D:\… » et non « D:\\… ».
+PROCEDURE scenario_racine_de_disque()
+	oDisque est un cEbSystemeFichiersFictif("D:/")
+	oDisque.DefinitActif("D:\")
+	oVerif est un cEbVerifEcritureLancement(oDisque)
+	dbgVérifieEgalité(oVerif.Execute().Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieEgalité(oDisque.DernierEcrit(), "D:\.ebony-doctor-ecriture.tmp", "chemin sans double barre")
+FIN

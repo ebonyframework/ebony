@@ -1,0 +1,101 @@
+// Lecture des arguments de « ebony migrate [status | rollback] [--pas N] [--dry-run] [--json] » : fonctions pures, testées dans tests/unitaires/commandes/migrate/.
+//   ebony migrate                       applique les migrations en attente, dans l'ordre
+//   ebony migrate --dry-run             dit lesquelles le seraient, sans rien envoyer à la base
+//   ebony migrate status                liste les migrations et leur état (n'écrit rien)
+//   ebony migrate rollback              défait la dernière migration appliquée
+//   ebony migrate rollback --pas 3      défait les trois dernières (de la plus récente à la plus ancienne)
+// Chaque option avec valeur s'écrit « --pas 3 » ou « --pas=3 ». Les arguments à un tiret ou à barre oblique sont des options du lanceur : ignorés, comme pour les autres commandes.
+// Toute erreur est une exception de code 25 (usage incorrect, code de sortie 2) : sous-commande inconnue, argument en trop, option inconnue ou mal placée, nombre de pas incorrect.
+EbOptionsMigrate est une CollectionDeProcédures
+
+	// Les sous-commandes de « migrate », séparées par « | » (sans sous-commande : appliquer).
+	PROCEDURE EbSousCommandesMigrate() : chaîne
+		RENVOYER "status|rollback"
+	FIN
+
+	// Le nombre de pas écrit (« 3 ») s'il est un entier de 1 à 9999 en chiffres, 0 sinon.
+	PROCEDURE EbPasValide(sTexte est une chaîne) : entier
+		nTaille est un entier = Taille(sTexte)
+		SI nTaille < 1 OU nTaille > 4 ALORS
+			RENVOYER 0
+		FIN
+		POUR i = 1 À nTaille
+			sCar est une chaîne = Milieu(sTexte, i, 1)
+			SI sCar < "0" OU sCar > "9" ALORS
+				RENVOYER 0
+			FIN
+		FIN
+		RENVOYER Val(sTexte)
+	FIN
+
+	// Lit les arguments qui suivent « migrate » et rend la demande.
+	PROCEDURE EbAnalyseArgumentsMigrate(tabArgs est un tableau de chaînes) : cEbDemandeMigrate
+		sSousCommande est une chaîne = ""
+		nPas          est un entier  = 1
+		bPas          est un booléen = Faux
+		bSimulation   est un booléen = Faux
+		nNb           est un entier  = tabArgs..Occurrence
+		i             est un entier  = 1
+		TANTQUE i <= nNb
+			sArg est une chaîne = tabArgs[i]
+			i++
+			SI Gauche(sArg, 2) <> "--" ALORS
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					SI sSousCommande <> "" ALORS
+						ExceptionDéclenche(25, "Argument en trop : « " + sArg + " ». Usage : ebony migrate [status | rollback] [--pas N] [--dry-run] [--json].")
+					FIN
+					sSousCommande = sArg
+				FIN
+				CONTINUER
+			FIN
+			sOption       est une chaîne = sArg
+			sValeur       est une chaîne = ""
+			bValeurDonnee est un booléen = Faux
+			nEgal         est un entier  = Position(sArg, "=")
+			SI nEgal > 0 ALORS
+				sOption       = Gauche(sArg, nEgal - 1)
+				sValeur       = Milieu(sArg, nEgal + 1)
+				bValeurDonnee = Vrai
+			FIN
+			SELON sOption
+				CAS "--json"
+				// Le format de sortie (--json) est lu par la commande (EbOptionPresente) : rien à retenir ici.
+				CAS "--dry-run"
+				SI bValeurDonnee ALORS
+					ExceptionDéclenche(25, "L'option --dry-run ne prend pas de valeur.")
+				FIN
+				bSimulation = Vrai
+				CAS "--pas"
+				SI PAS bValeurDonnee ET i <= nNb ALORS
+					SI Gauche(tabArgs[i], 1) <> "-" ALORS
+						sValeur       = tabArgs[i]
+						bValeurDonnee = Vrai
+						i++
+					FIN
+				FIN
+				SI PAS bValeurDonnee ALORS
+					ExceptionDéclenche(25, "Il manque la valeur de --pas. Exemple : ebony migrate rollback --pas 2")
+				FIN
+				nPas = EbPasValide(sValeur)
+				SI nPas = 0 ALORS
+					ExceptionDéclenche(25, "Le nombre de pas « " + sValeur + " » n'est pas valide : un entier de 1 à 9999. Exemple : --pas 2")
+				FIN
+				bPas = Vrai
+				AUTRE CAS
+				ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Options de « migrate » : --pas, --dry-run, --json.")
+			FIN
+		FIN
+
+		SI sSousCommande <> "" ET PAS EbValeurDansListe(sSousCommande, EbSousCommandesMigrate()) ALORS
+			ExceptionDéclenche(25, "Sous-commande inconnue : « " + sSousCommande + " ». Sans sous-commande, « ebony migrate » applique les migrations en attente ; sous-commandes : " + Remplace(EbSousCommandesMigrate(), "|", ", ") + ".")
+		FIN
+		SI bPas ET sSousCommande <> "rollback" ALORS
+			ExceptionDéclenche(25, "--pas ne va qu'avec « rollback ». Exemple : ebony migrate rollback --pas 2")
+		FIN
+		SI bSimulation ET sSousCommande = "status" ALORS
+			ExceptionDéclenche(25, "« ebony migrate status » n'écrit rien : --dry-run n'a pas de sens ici.")
+		FIN
+		oDemande est un cEbDemandeMigrate(sSousCommande, nPas, bSimulation)
+		RENVOYER oDemande
+	FIN
+FIN

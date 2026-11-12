@@ -1,0 +1,19 @@
+EbCommandeEnv est une CollectionDeProcédures
+
+	// Racine de composition de « env » : examine la configuration du projet du dossier courant (voir cEbExamenEnv), sans rien écrire.
+	// Une configuration invalide est le résultat de l'examen, pas une exception : le rapport est écrit, puis code de sortie 1 (comme « doctor »). Pas un projet ebony : code 31 (sortie 1).
+	PROCEDURE EbExecuteEnv()
+		bJson    est un booléen                = EbOptionPresente("--json")
+		oSysteme est un cEbSystemeFichiersReel
+		oExamen  est un cEbExamenEnv(oSysteme)
+		oEnv     est un cEbEnv                 = oExamen.Execute()
+		SI bJson ALORS
+			Trace(EbJsonEnv(oSysteme.DossierDeLancement(), oEnv))
+		SINON
+			Trace(EbTexteEnv(oSysteme.DossierDeLancement(), oEnv))
+		FIN
+		SI PAS oEnv.Valide() ALORS
+			EbSortieEnEchec(1, "env : " + oEnv.Erreurs()..Occurrence + " erreur(s) de configuration.")
+		FIN
+	FIN
+FIN

@@ -1,0 +1,43 @@
+// Vérifie que la version d'OWL qui exécute ebony est celle avec laquelle ebony est vérifié.
+// Un écart n'empêche pas de travailler : c'est un avertissement, pas une erreur. Plus ancienne, des fonctions peuvent manquer ;
+// plus récente, un comportement a pu changer (c'est déjà arrivé entre vérification et exécution).
+// La version de référence est donnée par l'appelant (EbCommandeDoctor), pas écrite ici : la vérification se teste avec n'importe quelle valeur.
+// Ne connaît que le port iEbEnvironnement : se teste avec un faux environnement.
+cEbVerifVersionOwl est une Classe implemente iEbVerification
+PRIVÉ
+	oEnvironnement est un iEbEnvironnement
+	sVerifiee      est une chaîne          = ""
+
+	PROCEDURE Constructeur(environnement est un iEbEnvironnement, versionVerifiee est une chaîne)
+		:oEnvironnement = environnement
+		:sVerifiee = versionVerifiee
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "version-owl"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		sVersion est une chaîne = :oEnvironnement.VersionOwl()
+		SI sVersion = "" ALORS
+			oInconnue est un cEbResultatVerification("Version d'OWL", eEbStatut.avertissement, "ebony ne connaît pas la version d'OWL", "Lancez ebony avec son lanceur (bin\ebony.cmd), pas directement avec owl.")
+			RENVOYER oInconnue
+		FIN
+		SI PAS EbVersionValide(sVersion) ALORS
+			oIllisible est un cEbResultatVerification("Version d'OWL", eEbStatut.avertissement, "version d'OWL illisible : « " + sVersion + " » (attendu : 1.5.0)", "Vérifiez la sortie de « owl --version », puis signalez le problème.")
+			RENVOYER oIllisible
+		FIN
+		nComparaison est un entier = EbCompareVersions(sVersion, :sVerifiee)
+		SI nComparaison = 0 ALORS
+			oReussi est un cEbResultatVerification("Version d'OWL", eEbStatut.reussi, "OWL " + sVersion + " (version avec laquelle ebony est vérifié)", "")
+			RENVOYER oReussi
+		FIN
+		SI nComparaison < 0 ALORS
+			oAncienne est un cEbResultatVerification("Version d'OWL", eEbStatut.avertissement, "OWL " + sVersion + " est plus ancien que " + :sVerifiee + ", la version avec laquelle ebony est vérifié : des fonctions peuvent manquer", "Mettez OWL à jour vers " + :sVerifiee + " ou plus.")
+			RENVOYER oAncienne
+		FIN
+		oRecente est un cEbResultatVerification("Version d'OWL", eEbStatut.avertissement, "OWL " + sVersion + " est plus récent que " + :sVerifiee + ", la version avec laquelle ebony est vérifié : un comportement a pu changer", "Si une commande se comporte de façon inattendue, signalez-le en indiquant la version d'OWL.")
+		RENVOYER oRecente
+	FIN
+FIN

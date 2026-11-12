@@ -1,0 +1,19 @@
+EbCommandeMake est une CollectionDeProcédures
+
+	// Racine de composition de « make » : écrit dans le projet du dossier courant les fichiers d'une ressource ou d'une migration (voir cEbGenerationMake), sans rien écraser.
+	// Une erreur est une exception (codes 24, 28, 29, 30, 31, 38, 39), donc code de sortie 1 (70 sans le lanceur) ; une option ou des champs incorrects sont un code 25 (sortie 2).
+	PROCEDURE EbExecuteMake()
+		bJson       est un booléen                                         = EbOptionPresente("--json")
+		tabArgs     est un tableau de chaînes                              = EbListeArgumentsApres("make")
+		oDemande    est un cEbDemandeMake                                  = EbAnalyseArgumentsMake(tabArgs)
+		oSysteme    est un cEbSystemeFichiersReel
+		oHorloge    est un cEbHorlogeSysteme
+		oGeneration est un cEbGenerationMake(oSysteme, oSysteme, oHorloge)
+		oGenere     est un cEbMakeGenere                                   = oGeneration.Execute(oDemande)
+		SI bJson ALORS
+			Trace(EbJsonMakeGenere(oGenere))
+		SINON
+			Trace(EbTexteMakeGenere(oGenere))
+		FIN
+	FIN
+FIN

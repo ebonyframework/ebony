@@ -1,0 +1,14 @@
+// Adaptateur réel du port iEbLectureEnv : le disque. Les chemins sont relatifs au dossier de travail du service (OWL ne donne pas le dossier du script).
+cEbLectureEnvReelle est une Classe implemente iEbLectureEnv
+
+	PROCEDURE PUBLIQUE Existe(chemin est une chaîne) : booléen
+		RENVOYER fFichierExiste(chemin)
+	FIN
+
+	PROCEDURE PUBLIQUE Lit(chemin est une chaîne) : chaîne
+		SI PAS fFichierExiste(chemin) ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER fChargeTexte(chemin)
+	FIN
+FIN

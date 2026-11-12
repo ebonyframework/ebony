@@ -1,0 +1,37 @@
+// Les kits d'ebony : un kit est la liste des modules (hors cœur, toujours présent) qu'un projet reçoit à sa création. Fonctions pures, testées dans tests/unitaires/commandes/nouveau/.
+// « api » (le kit par défaut) : la base de données et l'authentification par jetons. « slim » : le cœur seul, sans base ni authentification. Le choix est noté dans ebony.conf (« modules »).
+EbKits est une CollectionDeProcédures
+
+	// Le kit par défaut de « ebony new » et « ebony init ».
+	PROCEDURE EbKitDefaut() : chaîne
+		RENVOYER "api"
+	FIN
+
+	// Les kits connus, séparés par « | » (pour EbValeurDansListe).
+	PROCEDURE EbKitsConnus() : chaîne
+		RENVOYER "api|slim"
+	FIN
+
+	// Les modules d'un kit, hors cœur, dans l'ordre où ils sont copiés (la base avant l'authentification, qui en dépend). Un kit inconnu donne ceux du kit par défaut : l'appelant a validé le nom.
+	PROCEDURE EbModulesDuKit(sKit est une chaîne) : tableau de chaînes
+		tabModules est un tableau de chaînes
+		SI Minuscule(sKit) = "slim" ALORS
+			RENVOYER tabModules
+		FIN
+		TableauAjoute(tabModules, "db")
+		TableauAjoute(tabModules, "auth")
+		RENVOYER tabModules
+	FIN
+
+	// Les modules d'un kit sous forme de tableau JSON (["db","auth"], [] pour le cœur seul), pour ebony.conf : OWL rend « null » quand on affecte un tableau OWL à un membre JSON, d'où ce texte.
+	PROCEDURE EbModulesEnJson(sKit est une chaîne) : chaîne
+		sTexte est une chaîne = ""
+		POUR TOUT sModule DE EbModulesDuKit(sKit)
+			SI sTexte <> "" ALORS
+				sTexte += ","
+			FIN
+			sTexte += Caract(34) + sModule + Caract(34)
+		FIN
+		RENVOYER "[" + sTexte + "]"
+	FIN
+FIN

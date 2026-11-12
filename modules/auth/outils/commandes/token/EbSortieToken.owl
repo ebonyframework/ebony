@@ -1,0 +1,117 @@
+// Ce que « ebony token » dit à la fin : le texte lu par un humain et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/token/.
+// Formats de --json (une seule ligne, rien d'autre sur la sortie) :
+//   create : { "ok": true, "command": "token create", "id": "ba7816bf8f01", "name": "ci", "token": "eb_…", "expiresAt": "" , "notes": [ ... ] }   « token » n'est donné QU'ICI, une seule fois.
+//   list   : { "ok": true, "command": "token list", "tokens": [ { "id", "name", "createdAt", "expiresAt", "revokedAt", "status" } ], "notes": [ ... ] }   « status » : active, expired ou revoked.
+//   revoke : { "ok": true, "command": "token revoke", "id": "ba7816bf8f01", "revoked": true }
+// « expiresAt » et « revokedAt » valent « » quand le jeton n'expire pas ou n'est pas révoqué. En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec).
+EbSortieToken est une CollectionDeProcédures
+
+	// L'état d'un jeton à l'instant sMaintenant : « revoked », « expired » ou « active ».
+	PROCEDURE EbStatutJeton(sExpireLe est une chaîne, sRevoqueLe est une chaîne, sMaintenant est une chaîne) : chaîne
+		SI sRevoqueLe <> "" ALORS
+			RENVOYER "revoked"
+		FIN
+		SI PAS EbJetonActif(sExpireLe, sRevoqueLe, sMaintenant) ALORS
+			RENVOYER "expired"
+		FIN
+		RENVOYER "active"
+	FIN
+
+	// L'état en français.
+	PROCEDURE EbLibelleStatutJeton(sStatut est une chaîne) : chaîne
+		SI sStatut = "active" ALORS
+			RENVOYER "actif"
+		FIN
+		SI sStatut = "expired" ALORS
+			RENVOYER "expiré"
+		FIN
+		RENVOYER "révoqué"
+	FIN
+
+	// Le texte complété à droite par des espaces jusqu'à nLargeur caractères.
+	PROCEDURE EbCadreJeton(sTexte est une chaîne, nLargeur est un entier) : chaîne
+		sRes est une chaîne = sTexte
+		TANTQUE Taille(sRes) < nLargeur
+			sRes += " "
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Ce qu'il faut savoir après « create », et qui n'est pas évident.
+	PROCEDURE EbNotesTokenCree() : tableau de chaînes
+		tabNotes est un tableau de chaînes
+		TableauAjoute(tabNotes, "Le secret n'est affiché qu'une fois : la base ne garde que son empreinte SHA-256, ebony ne peut pas le retrouver. S'il est perdu, révoquez ce jeton et créez-en un autre.")
+		RENVOYER tabNotes
+	FIN
+
+	// L'objet JSON de « ebony token create --json ».
+	PROCEDURE EbJsonTokenCree(sIdentifiant est une chaîne, sNom est une chaîne, sSecret est une chaîne, sExpireLe est une chaîne) : chaîne
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("command") + ":" + EbJsonChaine("token create")
+		sJson += "," + EbJsonChaine("id") + ":" + EbJsonChaine(sIdentifiant)
+		sJson += "," + EbJsonChaine("name") + ":" + EbJsonChaine(sNom)
+		sJson += "," + EbJsonChaine("token") + ":" + EbJsonChaine(sSecret)
+		sJson += "," + EbJsonChaine("expiresAt") + ":" + EbJsonChaine(sExpireLe)
+		sJson += "," + EbJsonChaine("notes") + ":" + EbJsonListe(EbNotesTokenCree()) + "}"
+		RENVOYER sJson
+	FIN
+
+	// Le texte de « ebony token create ».
+	PROCEDURE EbTexteTokenCree(sIdentifiant est une chaîne, sNom est une chaîne, sSecret est une chaîne, sExpireLe est une chaîne) : chaîne
+		sTexte est une chaîne = "Jeton « " + sNom + " » créé (identifiant " + sIdentifiant + ")."
+		SI sExpireLe = "" ALORS
+			sTexte += " Il n'expire pas."
+		SINON
+			sTexte += " Il expire le " + sExpireLe + "."
+		FIN
+		sTexte += Caract(10) + Caract(10) + "  " + sSecret + Caract(10) + Caract(10) + "Utilisation : en-tête « Authorization: Bearer " + sSecret + " »."
+		sTexte += Caract(10) + Caract(10) + "À savoir :"
+		POUR TOUT sNote DE EbNotesTokenCree()
+			sTexte += Caract(10) + "  - " + sNote
+		FIN
+		RENVOYER sTexte
+	FIN
+
+	// L'objet JSON de « ebony token list --json » : tabLignes vient de cEbJetons.Enumere().
+	PROCEDURE EbJsonTokenListe(tabLignes est un tableau, sMaintenant est une chaîne) : chaîne
+		sJetons est une chaîne = ""
+		POUR TOUT ligne DE tabLignes
+			SI sJetons <> "" ALORS
+				sJetons += ","
+			FIN
+			sJetons += "{" + EbJsonChaine("id") + ":" + EbJsonChaine(ligne["identifiant"]) + "," + EbJsonChaine("name") + ":" + EbJsonChaine(ligne["nom"])
+			sJetons += "," + EbJsonChaine("createdAt") + ":" + EbJsonChaine(ligne["cree_le"]) + "," + EbJsonChaine("expiresAt") + ":" + EbJsonChaine(ligne["expire_le"])
+			sJetons += "," + EbJsonChaine("revokedAt") + ":" + EbJsonChaine(ligne["revoque_le"]) + "," + EbJsonChaine("status") + ":" + EbJsonChaine(EbStatutJeton(ligne["expire_le"], ligne["revoque_le"], sMaintenant)) + "}"
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("command") + ":" + EbJsonChaine("token list")
+		sJson += "," + EbJsonChaine("tokens") + ":[" + sJetons + "]}"
+		RENVOYER sJson
+	FIN
+
+	// Le texte de « ebony token list ».
+	PROCEDURE EbTexteTokenListe(tabLignes est un tableau, sMaintenant est une chaîne) : chaîne
+		SI tabLignes..Occurrence = 0 ALORS
+			RENVOYER "Aucun jeton (« ebony token create <nom> » en crée un)."
+		FIN
+		sTexte est une chaîne = tabLignes..Occurrence + " jeton(s) :" + Caract(10)
+		sTexte += Caract(10) + "  " + EbCadreJeton("identifiant", 14) + EbCadreJeton("état", 9) + EbCadreJeton("créé le", 22) + EbCadreJeton("expire le", 22) + "nom"
+		POUR TOUT ligne DE tabLignes
+			sStatut est une chaîne = EbStatutJeton(ligne["expire_le"], ligne["revoque_le"], sMaintenant)
+			sExpire est une chaîne = ligne["expire_le"]
+			SI sExpire = "" ALORS
+				sExpire = "jamais"
+			FIN
+			sTexte += Caract(10) + "  " + EbCadreJeton(ligne["identifiant"], 14) + EbCadreJeton(EbLibelleStatutJeton(sStatut), 9) + EbCadreJeton(ligne["cree_le"], 22) + EbCadreJeton(sExpire, 22) + ligne["nom"]
+		FIN
+		RENVOYER sTexte
+	FIN
+
+	// L'objet JSON de « ebony token revoke --json ».
+	PROCEDURE EbJsonTokenRevoque(sIdentifiant est une chaîne) : chaîne
+		RENVOYER "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("command") + ":" + EbJsonChaine("token revoke") + "," + EbJsonChaine("id") + ":" + EbJsonChaine(sIdentifiant) + "," + EbJsonChaine("revoked") + ":true}"
+	FIN
+
+	// Le texte de « ebony token revoke ».
+	PROCEDURE EbTexteTokenRevoque(sIdentifiant est une chaîne) : chaîne
+		RENVOYER "Jeton " + sIdentifiant + " révoqué : il est refusé dès maintenant."
+	FIN
+FIN

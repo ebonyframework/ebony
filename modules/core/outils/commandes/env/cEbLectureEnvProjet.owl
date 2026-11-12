@@ -1,0 +1,25 @@
+// Adaptateur du port iEbLectureEnv (bibliothèque d'exécution) pour ebony : lit les fichiers de configuration d'un projet, dont le dossier n'est PAS le dossier de travail d'ebony.
+// Les chemins reçus sont ceux du projet (« .env », « config/env.json ») ; ils sont placés sous le dossier du projet, ce qui garde des noms lisibles dans les messages et dans « source ».
+// Passe par le port iEbSystemeFichiers : se teste avec le faux disque.
+cEbLectureEnvProjet est une Classe implemente iEbLectureEnv
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+	sDossier est une chaîne            = ""
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, dossier est une chaîne)
+		:oSysteme = systeme
+		:sDossier = dossier
+	FIN
+
+	PROCEDURE PUBLIQUE Existe(chemin est une chaîne) : booléen
+		RENVOYER :oSysteme.FichierExiste(EbNormaliseChemin(EbJointChemin(:sDossier, chemin)))
+	FIN
+
+	PROCEDURE PUBLIQUE Lit(chemin est une chaîne) : chaîne
+		sComplet est une chaîne = EbNormaliseChemin(EbJointChemin(:sDossier, chemin))
+		SI PAS :oSysteme.FichierExiste(sComplet) ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER :oSysteme.LitTexte(sComplet)
+	FIN
+FIN

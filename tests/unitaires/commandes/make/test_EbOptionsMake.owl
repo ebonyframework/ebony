@@ -1,0 +1,123 @@
+// Tests de EbOptionsMake : la lecture des arguments de « ebony make » (sous-commande, nom, --champs, --table, --dry-run, --json) et chaque refus avec son code 25.
+
+// Les arguments après « make », depuis une liste écrite avec des « ; ».
+PROCEDURE EbTestArgsMake(sListe est une chaîne) : tableau de chaînes
+	tabArgs est un tableau de chaînes
+	SI sListe <> "" ALORS
+		nDebut est un entier = 1
+		nFin   est un entier = Position(sListe, ";")
+		TANTQUE nFin > 0
+			TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+			nDebut = nFin + 1
+			nFin   = Position(sListe, ";", nDebut)
+		FIN
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	FIN
+	RENVOYER tabArgs
+FIN
+
+// Rend « code|message » si l'analyse lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusMake(sListe est une chaîne) : chaîne
+	sRes    est une chaîne            = ""
+	tabArgs est un tableau de chaînes = EbTestArgsMake(sListe)
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(tabArgs)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Une ressource simple : nom, identifiants dérivés, table au pluriel et champs lus.
+PROCEDURE scenario_ressource_simple()
+	oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oDemande.SousCommande(), "resource", "sous-commande")
+	dbgVérifieEgalité(oDemande.Nom(), "Client", "nom")
+	dbgVérifieEgalité(oDemande.Pascal(), "Client", "identifiant")
+	dbgVérifieEgalité(oDemande.Dossier(), "client", "dossier")
+	dbgVérifieEgalité(oDemande.NomTable(), "clients", "table par défaut : pluriel naïf")
+	dbgVérifieEgalité(oDemande.Champs()..Occurrence, 2, "deux champs")
+	dbgVérifieFaux(oDemande.Simulation(), "pas d'aperçu par défaut")
+FIN
+
+// Les mots du nom peuvent être séparés par des espaces ou collés ; l'identifiant est le même.
+PROCEDURE scenario_nom_en_plusieurs_mots_ou_colle()
+	oEspaces est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Bon;de;commande;--champs;id:entier*,nom:texte"))
+	oColle   est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;BonDeCommande;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oEspaces.Nom(), "Bon de commande", "nom reconstitué")
+	dbgVérifieEgalité(oEspaces.Pascal(), "BonDeCommande", "identifiant")
+	dbgVérifieEgalité(oColle.Pascal(), "BonDeCommande", "identifiant du nom collé")
+	dbgVérifieEgalité(oColle.Dossier(), "bon-de-commande", "dossier")
+	dbgVérifieEgalité(oColle.NomTable(), "bon_de_commandes", "table : pluriel naïf du dernier mot")
+FIN
+
+// --champs prend tous les arguments jusqu'à la prochaine option : PowerShell découpe « a,b » en deux arguments avant de les passer.
+PROCEDURE scenario_champs_decoupes_en_plusieurs_arguments()
+	oUn        est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs;id:entier*,nom:texte"))
+	oPlusieurs est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs;id:entier*;nom:texte;--json"))
+	oEgal      est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs=id:entier*,nom:texte"))
+	oVirgule   est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs;id:entier*,;nom:texte"))
+	dbgVérifieEgalité(oUn.Champs()..Occurrence, 2, "un seul argument")
+	dbgVérifieEgalité(oPlusieurs.Champs()..Occurrence, 2, "deux arguments")
+	dbgVérifieEgalité(oEgal.Champs()..Occurrence, 2, "forme --champs=")
+	dbgVérifieEgalité(oVirgule.Champs()..Occurrence, 2, "virgule en fin d'argument")
+FIN
+
+// --table, avec une valeur séparée ou après « = », remplace la table par défaut ; un schéma est accepté.
+PROCEDURE scenario_table_choisie()
+	oSepare est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--table;clients_v2;--champs;id:entier*,nom:texte"))
+	oEgal   est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--champs;id:entier*,nom:texte;--table=crm.Clients"))
+	dbgVérifieEgalité(oSepare.NomTable(), "clients_v2", "valeur séparée")
+	dbgVérifieEgalité(oEgal.NomTable(), "crm.Clients", "valeur après =, schéma et majuscule gardés")
+FIN
+
+// --dry-run et --json se placent n'importe où ; une option à un tiret du lanceur est ignorée.
+PROCEDURE scenario_options_a_n_importe_quelle_place()
+	oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("--json;-racine=C:\x;resource;--dry-run;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieVrai(oDemande.Simulation(), "--dry-run lu")
+	dbgVérifieEgalité(oDemande.Nom(), "Client", "nom malgré les options")
+FIN
+
+// Une migration Cree<Table> en déduit la table (sans pluriel) ; --table l'emporte ; un autre nom exige --table.
+PROCEDURE scenario_migration_et_table()
+	oCree      est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("migration;CreeClients;--champs;id:entier*,nom:texte"))
+	oPlusieurs est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("migration;CreeBonsCommande;--champs;id:entier*,nom:texte"))
+	oChoisie   est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("migration;Initiale;--table;clients;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oCree.SousCommande(), "migration", "sous-commande")
+	dbgVérifieEgalité(oCree.Pascal(), "CreeClients", "intention")
+	dbgVérifieEgalité(oCree.NomTable(), "clients", "table de CreeClients")
+	dbgVérifieEgalité(oPlusieurs.NomTable(), "bons_commande", "table de CreeBonsCommande")
+	dbgVérifieEgalité(oChoisie.NomTable(), "clients", "--table sur un autre nom")
+	dbgVérifieVrai(Position(EbTestRefusMake("migration;Initiale;--champs;id:entier*,nom:texte"), "--table") > 0, "sans Cree ni --table : refusé")
+	dbgVérifieVrai(Position(EbTestRefusMake("migration;Cree;--champs;id:entier*,nom:texte"), "--table") > 0, "Cree seul : refusé")
+FIN
+
+// Chaque erreur d'usage est un code 25, avec un message qui donne un exemple.
+PROCEDURE scenario_erreurs_d_usage()
+	dbgVérifieEgalité(Gauche(EbTestRefusMake(""), 3), "25|", "rien du tout")
+	dbgVérifieVrai(Position(EbTestRefusMake(""), "resource, migration") > 0, "dit les sous-commandes")
+	dbgVérifieVrai(Position(EbTestRefusMake("entity;Client;--champs;id:entier*,nom:texte"), "Sous-commande inconnue") > 0, "sous-commande inconnue")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;--champs;id:entier*,nom:texte"), "Il manque le nom") > 0, "nom absent")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client"), "Il manque --champs") > 0, "--champs absent")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--champs"), "Il manque les champs") > 0, "--champs sans valeur")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--champs;id:entier*,nom:texte;--force"), "Option inconnue : --force") > 0, "option inconnue")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--table;--champs;id:entier*,nom:texte"), "valeur de --table") > 0, "--table sans valeur")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--dry-run=oui;--champs;id:entier*,nom:texte"), "ne prend pas de valeur") > 0, "--dry-run avec valeur")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--table;a" + Caract(34) + "b;--champs;id:entier*,nom:texte"), "caractère refusé") > 0, "table avec guillemet")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;Client;--table;a.b.c;--champs;id:entier*,nom:texte"), "trop de points") > 0, "table à trois points")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;@@@;--champs;id:entier*,nom:texte"), "aucune lettre") > 0, "nom sans lettre latine")
+	dbgVérifieVrai(Position(EbTestRefusMake("resource;UnNomBeaucoupTropLongPourFaireUnDossierRaisonnable;--champs;id:entier*,nom:texte"), "trop long") > 0, "dossier trop long")
+FIN
+
+// Une erreur dans les champs remonte avec son code 25.
+PROCEDURE scenario_erreur_de_champs_remonte()
+	sRefus est une chaîne = EbTestRefusMake("resource;Client;--champs;id:entier*,nom:varchar")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRefus, "type inconnu") > 0, "type inconnu")
+FIN
+
+// Les espaces autour des parties de --table sont retirés (crm. Clients ne donne pas une table « " Clients" »).
+PROCEDURE scenario_table_sans_espaces_autour_des_parties()
+	oDemande est un cEbDemandeMake = EbAnalyseArgumentsMake(EbTestArgsMake("resource;Client;--table;crm. Clients ;--champs;id:entier*,nom:texte"))
+	dbgVérifieEgalité(oDemande.NomTable(), "crm.Clients", "parties rognées")
+FIN

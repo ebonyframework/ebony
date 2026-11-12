@@ -1,0 +1,42 @@
+// Résultat de « ebony new » : le projet qui vient d'être créé. Objet valeur immuable, rempli par le constructeur.
+cEbProjetCree est une Classe
+PRIVÉ
+	sNom         est une chaîne          = ""
+	sDossier     est une chaîne          = ""
+	sIdentifiant est une chaîne          = ""
+	sChemin      est une chaîne          = ""
+	oOptions     est un cEbOptionsProjet
+
+	PROCEDURE Constructeur(Nom est une chaîne, Dossier est une chaîne, Identifiant est une chaîne, Chemin est une chaîne, Options est un cEbOptionsProjet)
+		:sNom = Nom
+		:sDossier = Dossier
+		:sIdentifiant = Identifiant
+		:sChemin = Chemin
+		:oOptions = Options
+	FIN
+
+	// Le nom libre donné par l'utilisateur (« Café de la Gare »).
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Le nom du dossier déduit (« cafe-de-la-gare »).
+	PROCEDURE PUBLIQUE Dossier() : chaîne
+		RENVOYER :sDossier
+	FIN
+
+	// L'identifiant OWL du projet (« AppCafeDeLaGare »).
+	PROCEDURE PUBLIQUE Identifiant() : chaîne
+		RENVOYER :sIdentifiant
+	FIN
+
+	// Le chemin complet du dossier créé.
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Les choix appliqués (type, base, authentification).
+	PROCEDURE PUBLIQUE Options() : cEbOptionsProjet
+		RENVOYER :oOptions
+	FIN
+FIN

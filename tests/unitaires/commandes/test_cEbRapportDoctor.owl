@@ -1,0 +1,121 @@
+// Tests de cEbRapportDoctor : compte les résultats, dit s'ils bloquent, et les met en forme.
+
+// Un rapport vide ne bloque pas et le dit dans son bilan.
+PROCEDURE scenario_rapport_vide()
+	oRapport est un cEbRapportDoctor
+	dbgVérifieEgalité(oRapport.Nombre(), 0, "aucun résultat")
+	dbgVérifieFaux(oRapport.ABloquant(), "ne bloque pas")
+	dbgVérifieVrai(Position(oRapport.Texte(), "Bilan : 0 vérification(s), 0 erreur(s), 0 avertissement(s).") > 0, "bilan à zéro")
+FIN
+
+// Les résultats sont comptés par statut ; une seule erreur suffit à bloquer.
+PROCEDURE scenario_comptage_par_statut()
+	oRapport est un cEbRapportDoctor
+	oA       est un cEbResultatVerification("A", eEbStatut.reussi, "ok", "")
+	oB       est un cEbResultatVerification("B", eEbStatut.avertissement, "attention", "")
+	oC       est un cEbResultatVerification("C", eEbStatut.erreur, "ko", "corriger")
+	oRapport.Ajoute(oA)
+	oRapport.Ajoute(oB)
+	oRapport.Ajoute(oC)
+	dbgVérifieEgalité(oRapport.Nombre(), 3, "trois résultats")
+	dbgVérifieEgalité(oRapport.NbErreurs(), 1, "une erreur")
+	dbgVérifieEgalité(oRapport.NbAvertissements(), 1, "un avertissement")
+	dbgVérifieVrai(oRapport.ABloquant(), "bloque")
+FIN
+
+// Le bilan donne les bons chiffres à la bonne place (deux erreurs, un avertissement : aucun chiffre ne se confond).
+PROCEDURE scenario_bilan_chiffre()
+	oRapport est un cEbRapportDoctor
+	oA       est un cEbResultatVerification("A", eEbStatut.reussi, "ok", "")
+	oB       est un cEbResultatVerification("B", eEbStatut.avertissement, "attention", "")
+	oC       est un cEbResultatVerification("C", eEbStatut.erreur, "ko", "x")
+	oD       est un cEbResultatVerification("D", eEbStatut.erreur, "ko", "y")
+	oRapport.Ajoute(oA)
+	oRapport.Ajoute(oB)
+	oRapport.Ajoute(oC)
+	oRapport.Ajoute(oD)
+	dbgVérifieVrai(Position(oRapport.Texte(), "Bilan : 4 vérification(s), 2 erreur(s), 1 avertissement(s).") > 0, "bilan chiffré")
+FIN
+
+// Un avertissement seul n'est pas bloquant.
+PROCEDURE scenario_avertissement_non_bloquant()
+	oRapport est un cEbRapportDoctor
+	oB       est un cEbResultatVerification("B", eEbStatut.avertissement, "attention", "")
+	oRapport.Ajoute(oB)
+	dbgVérifieFaux(oRapport.ABloquant(), "ne bloque pas")
+	dbgVérifieEgalité(oRapport.NbAvertissements(), 1, "un avertissement")
+FIN
+
+// Chaque résultat a une ligne à son étiquette, et seul un échec porte une ligne « À faire ».
+PROCEDURE scenario_texte_etiquettes_et_correction()
+	oRapport est un cEbRapportDoctor
+	oA       est un cEbResultatVerification("A", eEbStatut.reussi, "ok", "")
+	oB       est un cEbResultatVerification("B", eEbStatut.avertissement, "attention", "")
+	oC       est un cEbResultatVerification("C", eEbStatut.erreur, "ko", "corriger ceci")
+	oRapport.Ajoute(oA)
+	oRapport.Ajoute(oB)
+	oRapport.Ajoute(oC)
+	sTexte est une chaîne = oRapport.Texte()
+	dbgVérifieVrai(Position(sTexte, "[OK]        A : ok") > 0, "ligne réussie")
+	dbgVérifieVrai(Position(sTexte, "[ATTENTION] B : attention") > 0, "ligne d'avertissement")
+	dbgVérifieVrai(Position(sTexte, "[ERREUR]    C : ko") > 0, "ligne d'erreur")
+	dbgVérifieVrai(Position(sTexte, "À faire : corriger ceci") > 0, "correction de l'échec")
+	dbgVérifieEgalité(Position(sTexte, "À faire : ", Position(sTexte, "À faire : ") + 1), 0, "une seule ligne « À faire »")
+FIN
+
+// Les lignes suivent l'ordre dans lequel les résultats ont été ajoutés.
+PROCEDURE scenario_ordre_conserve()
+	oRapport est un cEbRapportDoctor
+	oA       est un cEbResultatVerification("Premier", eEbStatut.reussi, "x", "")
+	oB       est un cEbResultatVerification("Second", eEbStatut.reussi, "x", "")
+	oRapport.Ajoute(oA)
+	oRapport.Ajoute(oB)
+	sTexte est une chaîne = oRapport.Texte()
+	dbgVérifieVrai(Position(sTexte, "Premier") < Position(sTexte, "Second"), "Premier avant Second")
+FIN
+
+// Le JSON est valide et rassemble versions, comptes, identifiants, statuts (ok, warning, error), libellés, messages et corrections.
+PROCEDURE scenario_json_complet()
+	oRapport est un cEbRapportDoctor
+	oA       est un cEbResultatVerification("Accès au dossier", eEbStatut.reussi, "ok", "")
+	oB       est un cEbResultatVerification("Version d'OWL", eEbStatut.avertissement, "plus récent", "vérifier")
+	oC       est un cEbResultatVerification("Écriture", eEbStatut.erreur, "ko", "corriger ceci")
+	oRapport.AjouteAvecId(oA, "acces-dossier")
+	oRapport.AjouteAvecId(oB, "version-owl")
+	oRapport.AjouteAvecId(oC, "ecriture")
+	q     est une chaîne = Caract(34)
+	sJson est une chaîne = oRapport.EnJson("0.1.0", "1.6.0")
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide")
+	dbgVérifieVrai(Position(sJson, q + "ok" + q + ":false") > 0, "ok est faux dès qu'il y a une erreur")
+	dbgVérifieVrai(Position(sJson, q + "ebony" + q + ":" + q + "0.1.0" + q) > 0, "version d'ebony")
+	dbgVérifieVrai(Position(sJson, q + "owl" + q + ":" + q + "1.6.0" + q) > 0, "version d'OWL")
+	dbgVérifieVrai(Position(sJson, q + "id" + q + ":" + q + "acces-dossier" + q + "," + q + "status" + q + ":" + q + "ok" + q) > 0, "premier contrôle : id et statut ok")
+	dbgVérifieVrai(Position(sJson, q + "id" + q + ":" + q + "version-owl" + q + "," + q + "status" + q + ":" + q + "warning" + q) > 0, "avertissement")
+	dbgVérifieVrai(Position(sJson, q + "id" + q + ":" + q + "ecriture" + q + "," + q + "status" + q + ":" + q + "error" + q) > 0, "erreur")
+	dbgVérifieVrai(Position(sJson, q + "label" + q + ":" + q + "Version d'OWL" + q) > 0, "libellé")
+	dbgVérifieVrai(Position(sJson, q + "correction" + q + ":" + q + "corriger ceci" + q) > 0, "correction")
+	dbgVérifieVrai(Position(sJson, q + "errors" + q + ":1," + q + "warnings" + q + ":1}") > 0, "comptes en fin d'objet")
+	dbgVérifieVrai(Position(sJson, "acces-dossier") < Position(sJson, "version-owl") ET Position(sJson, "version-owl") < Position(sJson, "ecriture"), "ordre d'ajout")
+FIN
+
+// Un avertissement seul laisse « ok » à vrai ; sans identifiant, le champ est vide ; un message avec guillemets reste un JSON valide.
+PROCEDURE scenario_json_avertissement_et_echappement()
+	oRapport est un cEbRapportDoctor
+	q        est une chaîne                                                                                                            = Caract(34)
+	oB       est un cEbResultatVerification("B", eEbStatut.avertissement, "chemin D:" + Caract(92) + "x et " + q + "citation" + q, "")
+	oRapport.Ajoute(oB)
+	sJson est une chaîne = oRapport.EnJson("0.1.0", "1.6.0")
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide malgré guillemets et barres")
+	dbgVérifieVrai(Position(sJson, q + "ok" + q + ":true") > 0, "un avertissement ne met pas ok à faux")
+	dbgVérifieVrai(Position(sJson, q + "id" + q + ":" + q + q) > 0, "identifiant vide")
+FIN
+
+// Un rapport vide est un JSON valide, à zéro erreur.
+PROCEDURE scenario_json_rapport_vide()
+	oRapport est un cEbRapportDoctor
+	q        est une chaîne          = Caract(34)
+	sJson    est une chaîne          = oRapport.EnJson("0.1.0", "")
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide")
+	dbgVérifieVrai(Position(sJson, q + "checks" + q + ":[]") > 0, "aucun contrôle")
+	dbgVérifieVrai(Position(sJson, q + "ok" + q + ":true") > 0, "ok")
+FIN

@@ -1,0 +1,20 @@
+// Petits outils de mise en forme de listes pour les messages de « ebony init » : fonctions pures, testées dans tests/unitaires/commandes/init/.
+EbListes est une CollectionDeProcédures
+
+	// « , » entre deux éléments d'une liste en cours de construction, rien devant le premier.
+	PROCEDURE EbSeparateur(sListe est une chaîne) : chaîne
+		SI sListe = "" ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER ", "
+	FIN
+
+	// Les éléments séparés par des virgules.
+	PROCEDURE EbListeVirgules(tabElements est un tableau de chaînes) : chaîne
+		sListe est une chaîne = ""
+		POUR TOUT sElement DE tabElements
+			sListe += EbSeparateur(sListe) + sElement
+		FIN
+		RENVOYER sListe
+	FIN
+FIN

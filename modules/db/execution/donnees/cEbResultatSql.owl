@@ -1,0 +1,61 @@
+// Résultat d'une requête SQL envoyée par la bibliothèque. Objet valeur immuable, rempli par le constructeur.
+// Trois issues, à ne pas confondre :
+//   - Succes() vrai : la requête a abouti (Lignes(), NbLignes(), LignesAffectees()) ;
+//   - Succes() faux et Indisponible() faux : la requête elle-même est refusée (SQL faux, contrainte violée…) : Message() dit pourquoi, rien à rétablir ;
+//   - Indisponible() vrai : la base est injoignable et la reconnexion a échoué : répondre 503 (httpServiceIndisponible). La reprise se fait à la requête suivante.
+cEbResultatSql est une Classe
+PRIVÉ
+	bSucces       est un booléen = Faux
+	sMessage      est une chaîne = ""
+	tabLignes     est un tableau
+	nNbLignes     est un entier  = 0
+	nAffectees    est un entier  = 0
+	bIndisponible est un booléen = Faux
+	bReconnecte   est un booléen = Faux
+
+	PROCEDURE Constructeur(Succes est un booléen, Message est une chaîne, Lignes est un tableau, NbLignes est un entier, affectees est un entier, Indisponible est un booléen, Reconnecte est un booléen)
+		:bSucces = Succes
+		:sMessage = Message
+		POUR TOUT ligne DE Lignes
+			TableauAjoute(:tabLignes, ligne)
+		FIN
+		:nNbLignes = NbLignes
+		:nAffectees = affectees
+		:bIndisponible = Indisponible
+		:bReconnecte = Reconnecte
+	FIN
+
+	PROCEDURE PUBLIQUE Succes() : booléen
+		RENVOYER :bSucces
+	FIN
+
+	// La cause de l'échec (« » si la requête a abouti).
+	PROCEDURE PUBLIQUE Message() : chaîne
+		RENVOYER :sMessage
+	FIN
+
+	// Les lignes rendues, chacune un tableau associatif indexé par le nom de colonne.
+	PROCEDURE PUBLIQUE Lignes() : tableau
+		RENVOYER :tabLignes
+	FIN
+
+	// Le nombre de lignes rendues.
+	PROCEDURE PUBLIQUE NbLignes() : entier
+		RENVOYER :nNbLignes
+	FIN
+
+	// Le nombre de lignes écrites. Sur PostgreSQL, un INSERT … RETURNING le rapporte à 0 (constaté avec OWL 1.6.0 : compter les lignes rendues).
+	PROCEDURE PUBLIQUE LignesAffectees() : entier
+		RENVOYER :nAffectees
+	FIN
+
+	// Vrai si la base était injoignable et n'a pas pu être rejointe : le service doit répondre 503.
+	PROCEDURE PUBLIQUE Indisponible() : booléen
+		RENVOYER :bIndisponible
+	FIN
+
+	// Vrai si la connexion avait été perdue et a été rétablie pour cette requête (utile au journal).
+	PROCEDURE PUBLIQUE Reconnecte() : booléen
+		RENVOYER :bReconnecte
+	FIN
+FIN

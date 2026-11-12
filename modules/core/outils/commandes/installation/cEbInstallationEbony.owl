@@ -1,0 +1,99 @@
+// « ebony install » : installe ebony lui-même dans le dossier des programmes de l'utilisateur (sous Windows %LOCALAPPDATA%\Programs\ebony\<version>\), à partir de la copie d'ebony
+// qui s'exécute (un clone du dépôt, ou une version déjà installée). L'ajout du dossier bin au PATH est fait ensuite par le lanceur (bin\ebony.cmd) : OWL ne peut ni lire ni écrire
+// l'environnement ni le registre (aucune fonction native pour lancer un programme ou lire une variable d'environnement, mesuré avec owl list natives).
+// Décisions du 2026-10-25 : un dossier par version (aucun fichier écrasé ni supprimé : ebony ne supprime jamais rien, OWL n'a pas de suppression récursive) ; copie du strict nécessaire
+// (EbManifeste) ; le fichier INSTALLE est écrit en dernier et sert de preuve que la copie est complète.
+//   - cette version est déjà installée (INSTALLE présent, même version) : « déjà installé », rien n'est écrit ;
+//   - le dossier de cette version existe mais sans INSTALLE complet : erreur, à supprimer à la main (comme pour ebony/ dans un projet).
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 22 installation d'ebony illisible, 40 copie d'ebony incomplète (il manque un dossier ou un fichier à copier), 41 dossier des programmes inconnu ou illisible,
+// 42 dossier de cette version occupé, 43 installation interrompue.
+cEbInstallationEbony est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	// Les noms (dossiers et fichiers du manifeste) qui manquent dans la copie d'ebony qui s'exécute, séparés par des virgules ; vide si tout est là.
+	PROCEDURE PRIVÉE Manquants(source est une chaîne) : chaîne
+		sManquants est une chaîne = ""
+		POUR TOUT sDossier DE EbDossiersAInstaller()
+			SI PAS :oSysteme.DossierExiste(EbJointChemin(source, sDossier)) ALORS
+				SI sManquants <> "" ALORS sManquants += ", "
+				sManquants += sDossier + "\"
+			FIN
+		FIN
+		POUR TOUT sFichier DE EbFichiersAInstaller()
+			SI PAS :oSysteme.FichierExiste(EbJointChemin(source, sFichier)) ALORS
+				SI sManquants <> "" ALORS sManquants += ", "
+				sManquants += sFichier
+			FIN
+		FIN
+		RENVOYER sManquants
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbEbonyInstalle
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		sVersion   est une chaîne                             = oInstallee.Version()
+		sSource    est une chaîne                             = :oSysteme.DossierInstallation()
+
+		sManquants est une chaîne = :Manquants(sSource)
+		SI sManquants <> "" ALORS
+			ExceptionDéclenche(40, "La copie d'ebony qui s'exécute (" + sSource + ") est incomplète : il manque " + sManquants + ". Récupérez ebony en entier (git clone), puis relancez « ebony install ».")
+		FIN
+
+		sProgrammes est une chaîne = :oSysteme.DossierProgrammes()
+		SI sProgrammes = "" ALORS
+			ExceptionDéclenche(41, "ebony ne connaît pas le dossier des programmes de l'utilisateur. Lancez ebony avec son lanceur (bin\ebony.cmd), pas directement avec owl.")
+		FIN
+		SI PAS :oSysteme.DossierExiste(sProgrammes) ALORS
+			SI EbContientNonAscii(sProgrammes) ALORS
+				ExceptionDéclenche(41, "owl ne peut pas ouvrir le dossier des programmes : son chemin contient un caractère non ASCII (accent…) : " + sProgrammes + ". Votre dossier utilisateur a-t-il un nom court (8.3) ? Sinon, installez ebony à la main dans un dossier dont le chemin n'a ni accent ni caractère spécial.")
+			FIN
+			ExceptionDéclenche(41, "Le dossier des programmes de l'utilisateur est introuvable : " + sProgrammes + ".")
+		FIN
+
+		sBase     est une chaîne = EbJointChemin(sProgrammes, "ebony")
+		sCible    est une chaîne = EbJointChemin(sBase, sVersion)
+		sMarqueur est une chaîne = EbJointChemin(sCible, EbMarqueurInstallation())
+		SI :oSysteme.FichierExiste(sBase) OU :oSysteme.FichierExiste(sCible) ALORS
+			ExceptionDéclenche(42, "Un fichier occupe la place d'un dossier d'installation dans " + sProgrammes + " (" + sBase + " ou " + sCible + ") : supprimez-le, puis relancez « ebony install ».")
+		FIN
+		SI :oSysteme.DossierExiste(sCible) ET PAS :oSysteme.DossierEstVide(sCible) ALORS
+			sPresente est une chaîne = ""
+			SI :oSysteme.FichierExiste(sMarqueur) ALORS
+				sPresente = SansEspace(Remplace(Remplace(:oSysteme.LitTexte(sMarqueur), Caract(13), ""), Caract(10), ""))
+			FIN
+			SI sPresente = sVersion ALORS
+				oDeja est un cEbEbonyInstalle(sVersion, sCible, Vrai)
+				RENVOYER oDeja
+			FIN
+			ExceptionDéclenche(42, "Le dossier " + sCible + " existe déjà mais n'est pas une installation complète d'ebony " + sVersion + ". ebony ne supprime rien : supprimez ce dossier, puis relancez « ebony install ».")
+		FIN
+
+		QUAND EXCEPTION DANS
+			:oEcriture.CreeDossier(sCible)
+			POUR TOUT sDossier DE EbDossiersAInstaller()
+				:oEcriture.CopieDossier(EbJointChemin(sSource, sDossier), EbJointChemin(sCible, sDossier))
+			FIN
+			POUR TOUT sDossierFacultatif DE EbDossiersFacultatifs()
+				SI :oSysteme.DossierExiste(EbJointChemin(sSource, sDossierFacultatif)) ALORS
+					:oEcriture.CopieDossier(EbJointChemin(sSource, sDossierFacultatif), EbJointChemin(sCible, sDossierFacultatif))
+				FIN
+			FIN
+			POUR TOUT sFichier DE EbFichiersAInstaller()
+				:oEcriture.CopieFichier(EbJointChemin(sSource, sFichier), EbJointChemin(sCible, sFichier))
+			FIN
+			:oEcriture.EcritTexte(sMarqueur, sVersion + Caract(10))
+		FAIRE
+			ExceptionDéclenche(43, "Installation interrompue : " + ExceptionInfo(errMessage) + ". Le dossier " + sCible + " a pu être laissé incomplet : supprimez-le, puis relancez « ebony install ».")
+		FIN
+
+		oInstalle est un cEbEbonyInstalle(sVersion, sCible, Faux)
+		RENVOYER oInstalle
+	FIN
+FIN

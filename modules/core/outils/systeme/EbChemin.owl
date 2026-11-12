@@ -1,0 +1,137 @@
+// Outils sur les chemins : fonctions pures (sans accès au disque), testées dans tests/unitaires/systeme/.
+EbChemin est une CollectionDeProcédures
+
+	// Vrai si le texte contient au moins un caractère dont le code dépasse 127.
+	// Sous Windows, owl n'ouvre pas un chemin qui en contient un (rapport 2026-10-chemins-non-ascii).
+	PROCEDURE EbContientNonAscii(sTexte est une chaîne) : booléen
+		POUR i = 1 À Taille(sTexte)
+			SI Asc(Milieu(sTexte, i, 1)) > 127 ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Le séparateur d'un chemin : « / » s'il part de la racine de Linux (« /root/essai »), « \ » sinon (chemins Windows, relatifs ou « C:\ »). Un chemin garde donc le style dans lequel il est arrivé :
+	// sous Linux, les messages et les appels au système voient « /root/essai », jamais « \root\essai ».
+	PROCEDURE EbSeparateurChemin(sChemin est une chaîne) : chaîne
+		SI Gauche(sChemin, 1) = "/" ALORS
+			RENVOYER "/"
+		FIN
+		RENVOYER "\"
+	FIN
+
+	// Forme comparable d'un chemin : barres ramenées au séparateur du chemin (« \ » pour Windows, « / » pour Linux), barre finale retirée (sauf pour une racine « C:\ » ou « / »).
+	PROCEDURE EbNormaliseChemin(sChemin est une chaîne) : chaîne
+		sSep    est une chaîne = EbSeparateurChemin(sChemin)
+		sNormal est une chaîne = Remplace(sChemin, "/", "\")
+		nMin    est un entier  = 3
+		SI sSep = "/" ALORS
+			sNormal = Remplace(sChemin, "\", "/")
+			nMin    = 1
+		FIN
+		SI Taille(sNormal) > nMin ET Droite(sNormal, 1) = sSep ALORS
+			sNormal = Gauche(sNormal, Taille(sNormal) - 1)
+		FIN
+		RENVOYER sNormal
+	FIN
+
+	// Chemin d'un fichier dans un dossier : une seule barre entre les deux, que le dossier se termine par une barre ou non (racine « D:\ » ou « D:/ » comprise). Sous Linux, les « \ » du nom deviennent « / ».
+	PROCEDURE EbJointChemin(sDossier est une chaîne, sNom est une chaîne) : chaîne
+		sBase est une chaîne = EbNormaliseChemin(sDossier)
+		sSep  est une chaîne = EbSeparateurChemin(sBase)
+		SI sSep = "/" ALORS
+			sNom = Remplace(sNom, "\", "/")
+		FIN
+		SI Droite(sBase, 1) = sSep ALORS
+			RENVOYER sBase + sNom
+		FIN
+		RENVOYER sBase + sSep + sNom
+	FIN
+
+	// Dossier qui contient le chemin : C:\a\b → C:\a ; C:\a → C:\ (la racine garde sa barre) ; C:\ → C:\ ; /a/b → /a ; /a → / ; un nom sans barre → « ». Barres « / » acceptées pour Windows, barre finale ignorée.
+	PROCEDURE EbParentChemin(sChemin est une chaîne) : chaîne
+		sNormal   est une chaîne = EbNormaliseChemin(sChemin)
+		sSep      est une chaîne = EbSeparateurChemin(sNormal)
+		nDerniere est un entier  = 0
+		POUR i = 1 À Taille(sNormal)
+			SI Milieu(sNormal, i, 1) = sSep ALORS
+				nDerniere = i
+			FIN
+		FIN
+		SI nDerniere = 0 ALORS
+			RENVOYER ""
+		FIN
+		SI sSep = "\" ET nDerniere <= 3 ET Milieu(sNormal, 2, 1) = ":" ALORS
+			RENVOYER Gauche(sNormal, 3)
+		FIN
+		// Un chemin qui part de la racine (« /root », ou « \root » en forme interne) : son parent est la racine.
+		SI nDerniere = 1 ALORS
+			RENVOYER sSep
+		FIN
+		RENVOYER Gauche(sNormal, nDerniere - 1)
+	FIN
+
+	// Nom du dernier élément du chemin : C:\a\mon-app → mon-app (barre finale ignorée, « / » acceptée pour Windows). Vide pour une racine de disque (C:\), la racine de Linux ou un chemin vide.
+	PROCEDURE EbNomDernierElement(sChemin est une chaîne) : chaîne
+		sNormal est une chaîne = EbNormaliseChemin(sChemin)
+		SI EbEstRacineDisque(sNormal) ALORS
+			RENVOYER ""
+		FIN
+		sSep      est une chaîne = EbSeparateurChemin(sNormal)
+		nDerniere est un entier  = 0
+		POUR i = 1 À Taille(sNormal)
+			SI Milieu(sNormal, i, 1) = sSep ALORS
+				nDerniere = i
+			FIN
+		FIN
+		RENVOYER Droite(sNormal, Taille(sNormal) - nDerniere)
+	FIN
+
+	// Vrai si les deux chemins désignent le même dossier à l'écriture près : barres « / » ou « \ », barre finale, et majuscules pour un chemin Windows (un chemin Linux distingue la casse).
+	// Les accents comptent (« é » et « e » sont deux dossiers différents).
+	PROCEDURE EbMemeChemin(sPremier est une chaîne, sSecond est une chaîne) : booléen
+		sA est une chaîne = EbNormaliseChemin(sPremier)
+		sB est une chaîne = EbNormaliseChemin(sSecond)
+		SI EbSeparateurChemin(sA) = "/" ALORS
+			RENVOYER sA = sB
+		FIN
+		RENVOYER sA ~= sB
+	FIN
+
+	// Vrai si le chemin est exactement la racine d'un disque Windows (« C: », « C:\ » ou « C:/ ») ou celle du système de fichiers de Linux (« / », écrite « \ » en interne).
+	PROCEDURE EbEstRacineDisque(sChemin est une chaîne) : booléen
+		SI sChemin = "\" OU sChemin = "/" ALORS
+			RENVOYER Vrai
+		FIN
+		nTaille est un entier = Taille(sChemin)
+		SI nTaille < 2 OU nTaille > 3 ALORS
+			RENVOYER Faux
+		FIN
+		nLettre est un entier = Asc(Majuscule(Gauche(sChemin, 1)))
+		SI nLettre < 65 OU nLettre > 90 ALORS
+			RENVOYER Faux
+		FIN
+		SI Milieu(sChemin, 2, 1) <> ":" ALORS
+			RENVOYER Faux
+		FIN
+		SI nTaille = 3 ET Droite(sChemin, 1) <> "\" ET Droite(sChemin, 1) <> "/" ALORS
+			RENVOYER Faux
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Le chemin tel que le système le veut : ebony écrit ses chemins avec « \ » (forme interne, celle de Windows) ; sous Linux, où fSep() rend « / », on remplace.
+	// Le séparateur est un paramètre pour que la fonction reste pure (testée sous Windows avec « / »).
+	PROCEDURE EbVersNatif(sChemin est une chaîne, sSeparateur est une chaîne) : chaîne
+		SI sSeparateur = "/" ALORS
+			RENVOYER Remplace(sChemin, "\", "/")
+		FIN
+		RENVOYER sChemin
+	FIN
+
+	// EbVersNatif avec le séparateur du système où tourne owl (fSep()). Seul cet appel n'est pas pur : le test se fait sous Linux (tests/integration/linux.sh).
+	PROCEDURE EbCheminDuSysteme(sChemin est une chaîne) : chaîne
+		RENVOYER EbVersNatif(sChemin, fSep())
+	FIN
+FIN

@@ -1,0 +1,40 @@
+EbCommandeNew est une CollectionDeProcédures
+
+	// Racine de composition de « new » : le vrai disque joue les deux rôles (lecture et écriture). Une erreur est une exception (codes 20 à 25), donc code de sortie 1 (70 sans le lanceur).
+	// Les options (--kit, --base, --auth, --table) sont lues avant de toucher au disque ; --json remplace le texte par un seul objet JSON (voir EbSortieNew).
+	PROCEDURE EbExecuteNew()
+		bJson    est un booléen            = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes = EbListeArgumentsApres("new")
+		oDemande est un cEbDemandeNew      = EbAnalyseArgumentsNew(tabArgs)
+		SI oDemande.Nom() = "" ALORS
+			ExceptionDéclenche(25, "Il manque le nom du projet. Exemple : ebony new mon-app")
+		FIN
+		oSysteme  est un cEbSystemeFichiersReel
+		oCreation est un cEbCreationProjet(oSysteme, oSysteme)
+		oCree     est un cEbProjetCree                         = oCreation.ExecuteAvecOptions(oDemande.Nom(), oDemande.Options())
+		SI bJson ALORS
+			Trace(EbJsonProjetCree(oCree))
+			RENVOYER
+		FIN
+		oOptions est un cEbOptionsProjet = oCree.Options()
+		Trace("Projet créé : " + oCree.Chemin())
+		Trace("  Nom         : " + oCree.Nom())
+		Trace("  Dossier     : " + oCree.Dossier())
+		Trace("  Identifiant : " + oCree.Identifiant())
+		Trace("  Kit         : " + oOptions.Kit())
+		SI oOptions.ABase() ALORS
+			Trace("  Base        : " + oOptions.BaseDonnees())
+		SINON
+			Trace("  Base        : aucune (kit slim)")
+		FIN
+		SI oOptions.Auth() ALORS
+			Trace("  Jetons      : oui (opaques), table « " + oOptions.TableUtilisateurs() + " » (config/Auth.owl)")
+		FIN
+		Trace("")
+		Trace("Pour commencer :")
+		tabEtapes est un tableau de chaînes = EbEtapesSuivantes(oCree)
+		POUR TOUT sEtape DE tabEtapes
+			Trace("  " + sEtape)
+		FIN
+	FIN
+FIN

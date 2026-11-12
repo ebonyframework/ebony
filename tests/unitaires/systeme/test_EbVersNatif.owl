@@ -1,0 +1,16 @@
+// Tests de EbVersNatif : le chemin interne (« \ ») devient celui du système. Sous Linux le séparateur est « / » ; sous Windows rien ne change.
+
+// Sous Linux : toutes les barres obliques inverses deviennent « / », la racine comprise.
+PROCEDURE scenario_vers_linux()
+	dbgVérifieEgalité(EbVersNatif("\root\essai\boutique", "/"), "/root/essai/boutique", "chemin absolu")
+	dbgVérifieEgalité(EbVersNatif("\", "/"), "/", "la racine")
+	dbgVérifieEgalité(EbVersNatif("modules\core\execution", "/"), "modules/core/execution", "chemin relatif")
+	dbgVérifieEgalité(EbVersNatif("/deja/natif", "/"), "/deja/natif", "déjà natif : inchangé")
+	dbgVérifieEgalité(EbVersNatif("", "/"), "", "vide")
+FIN
+
+// Sous Windows : le chemin est rendu tel quel, y compris avec des « / » (owl les accepte).
+PROCEDURE scenario_vers_windows()
+	dbgVérifieEgalité(EbVersNatif("C:\a\b", "\"), "C:\a\b", "inchangé")
+	dbgVérifieEgalité(EbVersNatif("C:/a/b", "\"), "C:/a/b", "les « / » ne sont pas touchées")
+FIN

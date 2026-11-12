@@ -1,0 +1,37 @@
+// Ce que « ebony request » affiche : le texte lisible et l'objet JSON de --json (lu par les outils, un IDE par exemple, pour rejouer une requête). Fonctions pures, testées dans tests/unitaires/commandes/requete/.
+// Format de --json : { "ok": true, "status": 200, "reason": "OK", "headers": { "Nom": "valeur" }, "body": "...", "ms": 12 }. Un 404 ou un 500 donne aussi ok=true : la requête a abouti.
+// En cas d'absence de réponse : { "ok": false, "error": ... } et le code de sortie 1 (voir EbSignaleEchec).
+EbSortieRequete est une CollectionDeProcédures
+
+	// Le texte : une ligne d'état, les en-têtes « Nom: valeur », une ligne vide, puis le corps tel que reçu.
+	PROCEDURE EbTexteReponse(oReponse est un cEbReponseHttp) : chaîne
+		sLigne     est une chaîne            = Caract(10)
+		sTexte     est une chaîne            = "HTTP " + oReponse.Statut() + " " + oReponse.Raison() + " (" + oReponse.Millisecondes() + " ms)" + sLigne
+		tabNoms    est un tableau de chaînes = oReponse.NomsEntetes()
+		tabValeurs est un tableau de chaînes = oReponse.ValeursEntetes()
+		POUR i = 1 À tabNoms..Occurrence
+			sTexte += tabNoms[i] + ": " + tabValeurs[i] + sLigne
+		FIN
+		sTexte += sLigne + oReponse.Corps()
+		RENVOYER sTexte
+	FIN
+
+	// L'objet JSON : une seule ligne, rien d'autre sur la sortie. Le corps est une chaîne (échappée), même quand il est lui-même du JSON.
+	PROCEDURE EbJsonReponse(oReponse est un cEbReponseHttp) : chaîne
+		tabNoms    est un tableau de chaînes = oReponse.NomsEntetes()
+		tabValeurs est un tableau de chaînes = oReponse.ValeursEntetes()
+		sEntetes   est une chaîne            = ""
+		POUR i = 1 À tabNoms..Occurrence
+			SI i > 1 ALORS
+				sEntetes += ","
+			FIN
+			sEntetes += EbJsonChaine(tabNoms[i]) + ":" + EbJsonChaine(tabValeurs[i])
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("status") + ":" + oReponse.Statut()
+		sJson += "," + EbJsonChaine("reason") + ":" + EbJsonChaine(oReponse.Raison())
+		sJson += "," + EbJsonChaine("headers") + ":{" + sEntetes + "}"
+		sJson += "," + EbJsonChaine("body") + ":" + EbJsonChaine(oReponse.Corps())
+		sJson += "," + EbJsonChaine("ms") + ":" + oReponse.Millisecondes() + "}"
+		RENVOYER sJson
+	FIN
+FIN

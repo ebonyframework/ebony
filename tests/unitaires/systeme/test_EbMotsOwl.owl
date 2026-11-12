@@ -1,0 +1,22 @@
+// Tests de EbMotsOwl : la liste des mots réservés d'OWL (mesurée avec owl 1.7.0) et le test d'appartenance.
+
+// 58 mots, sans doublon, en minuscules.
+PROCEDURE scenario_liste_des_mots()
+	tabMots est un tableau de chaînes = ChaîneDécoupe(EbMotsReservesOwl(), "|")
+	dbgVérifieEgalité(tabMots..Occurrence, 58, "58 mots")
+	POUR TOUT sMot DE tabMots
+		dbgVérifieEgalité(Minuscule(sMot), sMot, "en minuscules : " + sMot)
+	FIN
+FIN
+
+// L'appartenance ne tient pas compte de la casse et ne confond pas un mot avec un nom qui le contient.
+PROCEDURE scenario_appartenance()
+	dbgVérifieVrai(EbEstMotReserveOwl("a"), "a")
+	dbgVérifieVrai(EbEstMotReserveOwl("liste"), "liste")
+	dbgVérifieVrai(EbEstMotReserveOwl("Liste"), "Liste : la casse ne compte pas")
+	dbgVérifieVrai(EbEstMotReserveOwl("TANTQUE"), "TANTQUE")
+	dbgVérifieFaux(EbEstMotReserveOwl("liste_prix"), "un nom qui contient un mot réservé")
+	dbgVérifieFaux(EbEstMotReserveOwl("nom"), "nom")
+	dbgVérifieFaux(EbEstMotReserveOwl("id"), "id")
+	dbgVérifieFaux(EbEstMotReserveOwl(""), "vide")
+FIN

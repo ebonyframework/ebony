@@ -1,0 +1,60 @@
+// Tests de cEbEnvoiRequete (« ebony request ») avec le client fictif, sans réseau : la requête arrive telle quelle, une réponse 404 ou 500 est rendue comme une réponse
+// (pas une erreur), et seule l'absence de réponse lève le code 50.
+
+PROCEDURE EbTestDemande() : cEbDemandeHttp
+	tabNoms    est un tableau de chaînes
+	tabValeurs est un tableau de chaînes
+	TableauAjoute(tabNoms, "Accept")
+	TableauAjoute(tabValeurs, "application/json")
+	oDemande est un cEbDemandeHttp("POST", "http://127.0.0.1:8080/clients", tabNoms, tabValeurs, "{}")
+	RENVOYER oDemande
+FIN
+
+// La demande est transmise au client sans changement, et la réponse revient avec statut, raison, en-têtes, corps et durée.
+PROCEDURE scenario_requete_transmise_reponse_rendue()
+	oClient est un cEbClientHttpFictif
+	oClient.DefinitReponse(201, "Created", "{" + Caract(34) + "id" + Caract(34) + ":1}")
+	oClient.AjouteEnteteReponse("Content-Type", "application/json")
+	oEnvoi   est un cEbEnvoiRequete(oClient)
+	oReponse est un cEbReponseHttp           = oEnvoi.Execute(EbTestDemande())
+	dbgVérifieEgalité(oClient.NbEnvois(), 1, "une requête envoyée")
+	dbgVérifieEgalité(oClient.DerniereDemande().Methode(), "POST", "méthode transmise")
+	dbgVérifieEgalité(oClient.DerniereDemande().Url(), "http://127.0.0.1:8080/clients", "URL transmise")
+	dbgVérifieEgalité(oClient.DerniereDemande().Corps(), "{}", "corps transmis")
+	dbgVérifieEgalité(oClient.DerniereDemande().NomsEntetes()[1], "Accept", "en-tête transmis")
+	dbgVérifieEgalité(oReponse.Statut(), 201, "statut")
+	dbgVérifieEgalité(oReponse.Raison(), "Created", "raison")
+	dbgVérifieEgalité(oReponse.Corps(), "{" + Caract(34) + "id" + Caract(34) + ":1}", "corps")
+	dbgVérifieEgalité(oReponse.NomsEntetes()[1], "Content-Type", "nom d'en-tête")
+	dbgVérifieEgalité(oReponse.ValeursEntetes()[1], "application/json", "valeur d'en-tête")
+	dbgVérifieEgalité(oReponse.Millisecondes(), 12, "durée")
+FIN
+
+// Un 404 et un 500 sont des réponses du service : rendues telles quelles, sans exception.
+PROCEDURE scenario_erreurs_http_sont_des_reponses()
+	oClient est un cEbClientHttpFictif
+	oEnvoi  est un cEbEnvoiRequete(oClient)
+	oClient.DefinitReponse(404, "Not Found", "")
+	dbgVérifieEgalité(oEnvoi.Execute(EbTestDemande()).Statut(), 404, "404 rendu")
+	oClient.DefinitReponse(500, "Internal Server Error", "boum")
+	oReponse est un cEbReponseHttp = oEnvoi.Execute(EbTestDemande())
+	dbgVérifieEgalité(oReponse.Statut(), 500, "500 rendu")
+	dbgVérifieEgalité(oReponse.Corps(), "boum", "corps du 500")
+FIN
+
+// Aucune réponse : code 50, avec l'adresse tentée, la cause rapportée par OWL, et une piste (service lancé ? bon port ?).
+PROCEDURE scenario_aucune_reponse()
+	oClient est un cEbClientHttpFictif
+	oClient.DefinitPanne("HTTPEnvoie: échec réseau (code status 0).")
+	oEnvoi est un cEbEnvoiRequete(oClient)
+	sRes   est une chaîne                  = ""
+	QUAND EXCEPTION DANS
+		oReponse est un cEbReponseHttp = oEnvoi.Execute(EbTestDemande())
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "50|", "code 50")
+	dbgVérifieVrai(Position(sRes, "http://127.0.0.1:8080/clients") > 0, "cite l'adresse : " + sRes)
+	dbgVérifieVrai(Position(sRes, "échec réseau") > 0, "donne la cause d'OWL : " + sRes)
+	dbgVérifieVrai(Position(sRes, "owl serve") > 0 ET Position(sRes, "--port") > 0, "donne une piste : " + sRes)
+FIN

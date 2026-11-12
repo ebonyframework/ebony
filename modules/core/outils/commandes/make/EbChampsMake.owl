@@ -1,0 +1,331 @@
+// Les champs de « ebony make » : la grammaire de --champs, les types acceptés et les noms qu'on en tire. Fonctions pures, testées dans tests/unitaires/commandes/make/.
+//
+// GRAMMAIRE de --champs : une liste de champs séparés par des virgules (les espaces autour sont ignorés).  nom:type[marqueurs]
+//   - nom     le nom de la colonne dans la base, tel quel (accents, espaces, majuscules). Seuls sont refusés : " ` [ ] % { } , et les caractères de commande.
+//   - type    entier | texte | reel | booleen | date | dateheure (accents et majuscules tolérés : réel, Booléen). Un autre type est REFUSÉ (jamais remplacé par texte).
+//   - *       clé primaire (une seule ; de type entier ou texte). Une clé entière est supposée GÉNÉRÉE par la base (auto-incrément) : le repository ne l'écrit pas à l'ajout ; une clé texte est fournie par l'appelant.
+//   - ?       la colonne accepte NULL (sans ce marqueur, elle est NOT NULL dans la migration). En OWL, un NULL est lu comme la valeur par défaut du type (0, texte vide, Faux) : ebony n'écrit jamais NULL.
+//   - @table  clé étrangère vers table.id ; @table.colonne ou @schema.table.colonne pour une autre colonne. Utilisée par la migration.
+//   Exemples :  id:entier*,nom:texte,email:texte?,client_id:entier@clients.id,actif:booleen
+// Les marqueurs s'écrivent à la suite du type, dans n'importe quel ordre, sauf @ qui vient en dernier. Aucun de ces caractères n'est un caractère spécial de cmd ni de PowerShell (pas de > ni de &).
+// date et dateheure sont lues et écrites comme du texte ISO 8601 (AAAA-MM-JJ, AAAA-MM-JJTHH:MM:SS) : OWL n'a pas été mesuré sur les dates de PostgreSQL.
+// Toute erreur de syntaxe est une exception de code 25 (usage incorrect, code de sortie 2).
+EbChampsMake est une CollectionDeProcédures
+
+	// Les types acceptés, séparés par « | ».
+	PROCEDURE EbTypesChamp() : chaîne
+		RENVOYER "entier|texte|reel|booleen|date|dateheure"
+	FIN
+
+	// Forme canonique d'un type écrit par l'utilisateur : minuscules, accents retirés (réel → reel, Booléen → booleen).
+	PROCEDURE EbNormaliseType(sType est une chaîne) : chaîne
+		sBrut est une chaîne = Minuscule(SansEspace(sType))
+		sRes  est une chaîne = ""
+		POUR i = 1 À Taille(sBrut)
+			sRes += EbSansAccent(Milieu(sBrut, i, 1))
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Le type OWL d'un type d'ebony. Les dates sont du texte ISO.
+	PROCEDURE EbTypeOwl(sType est une chaîne) : chaîne
+		SELON sType
+			CAS "entier"
+			RENVOYER "entier"
+			CAS "reel"
+			RENVOYER "réel"
+			CAS "booleen"
+			RENVOYER "booléen"
+			AUTRE CAS
+			RENVOYER "chaîne"
+		FIN
+	FIN
+
+	// Le préfixe de type des champs privés (n entier, s chaîne, r réel, b booléen), comme dans tout le dépôt.
+	PROCEDURE EbPrefixeType(sType est une chaîne) : chaîne
+		SELON sType
+			CAS "entier"
+			RENVOYER "n"
+			CAS "reel"
+			RENVOYER "r"
+			CAS "booleen"
+			RENVOYER "b"
+			AUTRE CAS
+			RENVOYER "s"
+		FIN
+	FIN
+
+	// La valeur d'un champ jamais renseigné, écrite en OWL.
+	PROCEDURE EbDefautOwl(sType est une chaîne) : chaîne
+		SELON sType
+			CAS "entier", "reel"
+			RENVOYER "0"
+			CAS "booleen"
+			RENVOYER "Faux"
+			AUTRE CAS
+			RENVOYER Caract(34) + Caract(34)
+		FIN
+	FIN
+
+	// Une clé primaire est de type entier (générée par la base) ou texte (fournie par l'appelant).
+	PROCEDURE EbEstTypeCle(sType est une chaîne) : booléen
+		RENVOYER sType = "entier" OU sType = "texte"
+	FIN
+
+	// Vrai si le caractère est une lettre minuscule (a-z, ou Latin-1 de U+00DF à U+00FF) : sert à repérer la frontière d'un mot collé (bonCommande).
+	PROCEDURE EbEstMinuscule(sCar est une chaîne) : booléen
+		SI sCar = "" ALORS
+			RENVOYER Faux
+		FIN
+		nCode est un entier = Asc(sCar)
+		RENVOYER (nCode >= 97 ET nCode <= 122) OU (nCode >= 223 ET nCode <= 255 ET nCode <> 247)
+	FIN
+
+	// Les lettres ASCII minuscules ou chiffres que donne un caractère (é → e, ß → ss), ou « » si c'est un séparateur (espace, tiret, ponctuation, autre alphabet).
+	PROCEDURE EbLettresMot(sCar est une chaîne) : chaîne
+		nCode est un entier = Asc(sCar)
+		SI (nCode >= 97 ET nCode <= 122) OU (nCode >= 48 ET nCode <= 57) ALORS
+			RENVOYER sCar
+		FIN
+		SI nCode >= 65 ET nCode <= 90 ALORS
+			RENVOYER Minuscule(sCar)
+		FIN
+		sPlat est une chaîne = EbSansAccent(sCar)
+		SI sPlat <> sCar ALORS
+			RENVOYER sPlat
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Les mots d'un texte libre, en minuscules sans accent. Séparateurs : tout ce qui n'est pas une lettre ou un chiffre latin, et la frontière minuscule puis majuscule
+	// (BonCommande → bon, commande ; date_naissance → date, naissance ; Café de la Gare → cafe, de, la, gare). Vide si le texte n'a aucune lettre ni chiffre latin.
+	PROCEDURE EbMotsDe(sTexte est une chaîne) : tableau de chaînes
+		tabMots    est un tableau de chaînes
+		sMot       est une chaîne            = ""
+		sPrecedent est une chaîne            = ""
+		POUR i = 1 À Taille(sTexte)
+			sCar       est une chaîne = Milieu(sTexte, i, 1)
+			nCode      est un entier  = Asc(sCar)
+			sLettres   est une chaîne = EbLettresMot(sCar)
+			bFrontiere est un booléen = (nCode >= 65 ET nCode <= 90) ET EbEstMinuscule(sPrecedent)
+			SI sLettres = "" OU bFrontiere ALORS
+				SI sMot <> "" ALORS
+					TableauAjoute(tabMots, sMot)
+					sMot = ""
+				FIN
+			FIN
+			sMot += sLettres
+			sPrecedent = sCar
+		FIN
+		SI sMot <> "" ALORS
+			TableauAjoute(tabMots, sMot)
+		FIN
+		RENVOYER tabMots
+	FIN
+
+	// Les mots avec une majuscule initiale, collés : [bon, commande] → BonCommande.
+	PROCEDURE EbPascalDe(tabMots est un tableau de chaînes) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT sMot DE tabMots
+			sRes += Majuscule(Gauche(sMot, 1)) + Droite(sMot, Taille(sMot) - 1)
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Les mots reliés par un séparateur : [bon, commande] et « _ » → bon_commande.
+	PROCEDURE EbJointMots(tabMots est un tableau de chaînes, sSeparateur est une chaîne) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT sMot DE tabMots
+			SI sRes <> "" ALORS
+				sRes += sSeparateur
+			FIN
+			sRes += sMot
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Le dossier d'un module : les mots reliés par des tirets (bon-commande). Un nom de périphérique réservé par Windows (con, nul, com1…) reçoit « -app », comme pour un projet.
+	PROCEDURE EbDossierModule(tabMots est un tableau de chaînes) : chaîne
+		sDossier est une chaîne = EbJointMots(tabMots, "-")
+		SI EbEstNomReserveWindows(sDossier) ALORS
+			sDossier += "-app"
+		FIN
+		RENVOYER sDossier
+	FIN
+
+	// Le pluriel naïf d'un nom de table : un « s » final, sauf après s, x ou z. Ni cheval → chevaux ni œil → yeux : pour une autre table, --table.
+	PROCEDURE EbPluriel(sSlug est une chaîne) : chaîne
+		sFin est une chaîne = Droite(sSlug, 1)
+		SI sFin = "s" OU sFin = "x" OU sFin = "z" ALORS
+			RENVOYER sSlug
+		FIN
+		RENVOYER sSlug + "s"
+	FIN
+
+	// Chaîne vide si le nom (de colonne, de table) peut être écrit entre guillemets dans du SQL et dans une chaîne OWL ; sinon la phrase qui dit pourquoi.
+	// Refusés : les caractères de commande, le guillemet, l'accent grave, [ ] % (interpolation d'OWL dans une chaîne entre accents graves) et { } (paramètre SQL).
+	PROCEDURE EbVerifieNomSql(sNom est une chaîne, sRole est une chaîne) : chaîne
+		SI sNom = "" ALORS
+			RENVOYER "Il manque le nom de " + sRole + "."
+		FIN
+		POUR i = 1 À Taille(sNom)
+			sCar  est une chaîne = Milieu(sNom, i, 1)
+			nCode est un entier  = Asc(sCar)
+			SI nCode < 32 OU sCar = Caract(34) OU sCar = Caract(96) OU sCar = "[" OU sCar = "]" OU sCar = "%" OU sCar = "{" OU sCar = "}" ALORS
+				RENVOYER "Le nom de " + sRole + " « " + sNom + " » contient un caractère refusé. Refusés : " + Caract(34) + " " + Caract(96) + " [ ] % { } et les caractères de commande."
+			FIN
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Lève (code 25) si le nom ne convient pas.
+	PROCEDURE EbExigeNomSql(sNom est une chaîne, sRole est une chaîne)
+		sRefus est une chaîne = EbVerifieNomSql(sNom, sRole)
+		SI sRefus <> "" ALORS
+			ExceptionDéclenche(25, sRefus)
+		FIN
+	FIN
+
+	// Un champ lu dans « nom:type[marqueurs] » (voir la grammaire en tête). Lève (code 25) si le texte est incorrect.
+	PROCEDURE EbAnalyseChamp(sItem est une chaîne) : cEbChampTable
+		nDeuxPoints est un entier = Position(sItem, ":")
+		SI nDeuxPoints = 0 ALORS
+			ExceptionDéclenche(25, "--champs : « " + sItem + " » n'a pas de type. Forme attendue : nom:type (types : " + Remplace(EbTypesChamp(), "|", ", ") + "). Exemple : nom:texte")
+		FIN
+		sColonne est une chaîne = SansEspace(Gauche(sItem, nDeuxPoints - 1))
+		sReste   est une chaîne = SansEspace(Milieu(sItem, nDeuxPoints + 1))
+		EbExigeNomSql(sColonne, "colonne")
+
+		// Le type va jusqu'au premier marqueur.
+		sType est une chaîne = ""
+		nLong est un entier  = Taille(sReste)
+		POUR nPos = 1 À nLong
+			sCar est une chaîne = Milieu(sReste, nPos, 1)
+			SI sCar = "*" OU sCar = "?" OU sCar = "@" ALORS
+				SORTIR
+			FIN
+			sType += sCar
+		FIN
+		sType = EbNormaliseType(sType)
+		SI sType = "" ALORS
+			ExceptionDéclenche(25, "--champs : la colonne « " + sColonne + " » n'a pas de type. Types : " + Remplace(EbTypesChamp(), "|", ", ") + ".")
+		FIN
+		SI PAS EbValeurDansListe(sType, EbTypesChamp()) ALORS
+			ExceptionDéclenche(25, "--champs : type inconnu « " + sType + " » pour la colonne « " + sColonne + " ». Types acceptés : " + Remplace(EbTypesChamp(), "|", ", ") + ".")
+		FIN
+
+		// Les marqueurs : * (clé), ? (nullable), @ (clé étrangère, jusqu'à la fin).
+		bCle      est un booléen = Faux
+		bNullable est un booléen = Faux
+		sRef      est une chaîne = ""
+		POUR nPos = Taille(sType) + 1 À nLong
+			sCar est une chaîne = Milieu(sReste, nPos, 1)
+			SI sCar = "@" ALORS
+				sRef = SansEspace(Milieu(sReste, nPos + 1))
+				SORTIR
+			FIN
+			SI sCar = "*" ALORS
+				bCle = Vrai
+			FIN
+			SI sCar = "?" ALORS
+				bNullable = Vrai
+			FIN
+		FIN
+		SI bCle ET bNullable ALORS
+			ExceptionDéclenche(25, "--champs : la clé primaire « " + sColonne + " » ne peut pas accepter NULL (* et ? ensemble).")
+		FIN
+
+		sRefTable   est une chaîne = ""
+		sRefColonne est une chaîne = ""
+		// Déclarés avant le SI : une déclaration dans une branche non exécutée a corrompu des variables locales en OWL 1.6.0 (le cas du SELON est le même).
+		tabParties est un tableau de chaînes = ChaîneDécoupe(sRef, ".")
+		nParties   est un entier             = tabParties..Occurrence
+		SI Position(sReste, "@") > 0 ALORS
+			SI sRef = "" ALORS
+				ExceptionDéclenche(25, "--champs : « @ » sans table pour la colonne « " + sColonne + " ». Exemple : " + sColonne + ":entier@clients ou @clients.id")
+			FIN
+			// Les marqueurs * et ? se placent AVANT @ : après lui, ils seraient avalés dans le nom de la table.
+			SI Position(sRef, "*") > 0 OU Position(sRef, "?") > 0 OU Position(sRef, "@") > 0 OU Position(sRef, ":") > 0 ALORS
+				ExceptionDéclenche(25, "--champs : « @" + sRef + " » pour la colonne « " + sColonne + " » contient *, ?, @ ou : . Placez * et ? avant @ (" + sColonne + ":entier?@clients).")
+			FIN
+			SI nParties > 3 ALORS
+				ExceptionDéclenche(25, "--champs : « @" + sRef + " » a trop de points. Formes : @table, @table.colonne, @schema.table.colonne.")
+			FIN
+			sRefColonne = "id"
+			sRefTable   = tabParties[1]
+			SI nParties = 2 ALORS
+				sRefColonne = tabParties[2]
+			FIN
+			SI nParties = 3 ALORS
+				sRefTable   = tabParties[1] + "." + tabParties[2]
+				sRefColonne = tabParties[3]
+			FIN
+			POUR TOUT sPartie DE tabParties
+				EbExigeNomSql(sPartie, "table ou colonne référencée")
+			FIN
+		FIN
+
+		tabMots est un tableau de chaînes = EbMotsDe(sColonne)
+		SI tabMots..Occurrence = 0 ALORS
+			ExceptionDéclenche(25, "--champs : la colonne « " + sColonne + " » n'a ni lettre ni chiffre latin : ebony n'en tire aucun identifiant. Renommez-la.")
+		FIN
+		oChamp est un cEbChampTable(sColonne, sType, bNullable, bCle, sRefTable, sRefColonne, EbPascalDe(tabMots), EbJointMots(tabMots, "_"))
+		RENVOYER oChamp
+	FIN
+
+	// Les champs de la liste « nom:type,… » (voir la grammaire en tête), dans l'ordre. Lève (code 25) si un champ est incorrect, si deux colonnes donneraient le même identifiant
+	// (Prénom et prenom), si la liste est vide, ou s'il n'y a pas exactement une clé primaire utilisable, accompagnée d'au moins un autre champ.
+	PROCEDURE EbAnalyseChamps(sChamps est une chaîne) : tableau de cEbChampTable
+		tabChamps est un tableau de cEbChampTable
+		POUR TOUT sBrut DE ChaîneDécoupe(sChamps, ",")
+			sItem est une chaîne = SansEspace(sBrut)
+			SI sItem <> "" ALORS
+				oChamp est un cEbChampTable = EbAnalyseChamp(sItem)
+				TableauAjoute(tabChamps, oChamp)
+			FIN
+		FIN
+		SI tabChamps..Occurrence = 0 ALORS
+			ExceptionDéclenche(25, "Il manque les champs. Exemple : --champs id:entier*,nom:texte,email:texte?")
+		FIN
+
+		nCles   est un entier  = 0
+		sCle    est une chaîne = ""
+		nAutres est un entier  = 0
+		POUR i = 1 À tabChamps..Occurrence
+			SI tabChamps[i].Cle() ALORS
+				nCles++
+				SI nCles > 1 ALORS
+					ExceptionDéclenche(25, "--champs : une seule clé primaire (*) est gérée ; « " + sCle + " » et « " + tabChamps[i].NomColonne() + " » en portent une. Les clés composées ne sont pas prises en charge.")
+				FIN
+				sCle = tabChamps[i].NomColonne()
+				SI PAS EbEstTypeCle(tabChamps[i].TypeChamp()) ALORS
+					ExceptionDéclenche(25, "--champs : la clé primaire « " + sCle + " » doit être de type entier ou texte, pas " + tabChamps[i].TypeChamp() + ".")
+				FIN
+			SINON
+				nAutres++
+			FIN
+			POUR j = 1 À i - 1
+				SI Minuscule(tabChamps[j].Mot()) = Minuscule(tabChamps[i].Mot()) ALORS
+					ExceptionDéclenche(25, "--champs : les colonnes « " + tabChamps[j].NomColonne() + " » et « " + tabChamps[i].NomColonne() + " » donneraient le même identifiant (" + tabChamps[i].Mot() + "). Renommez l'une des deux.")
+				FIN
+			FIN
+		FIN
+		SI nCles = 0 ALORS
+			ExceptionDéclenche(25, "--champs : il faut une clé primaire. Ajoutez * au champ qui l'est, par exemple id:entier*")
+		FIN
+		SI nAutres = 0 ALORS
+			ExceptionDéclenche(25, "--champs : il faut au moins un champ en plus de la clé « " + sCle + " ».")
+		FIN
+		RENVOYER tabChamps
+	FIN
+
+	// Le champ qui porte la clé primaire. À appeler sur une liste issue de EbAnalyseChamps.
+	PROCEDURE EbChampCle(tabChamps est un tableau de cEbChampTable) : cEbChampTable
+		POUR i = 1 À tabChamps..Occurrence
+			SI tabChamps[i].Cle() ALORS
+				RENVOYER tabChamps[i]
+			FIN
+		FIN
+		RENVOYER tabChamps[1]
+	FIN
+FIN

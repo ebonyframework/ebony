@@ -1,0 +1,33 @@
+// Une fabrique fictive pour les tests : elle rend toujours le composant qu'on lui a donné, compte ses créations et garde la configuration et le journal que l'application lui a passés. Aucun accès au système.
+cEbFabriqueComposantFictive est une Classe implemente iEbFabriqueComposant
+PRIVÉ
+	oComposant   est un iEbComposant
+	oEnvRecu     est un cEbEnv
+	oJournalRecu est un cEbJournal
+	nCreations   est un entier       = 0
+
+	PROCEDURE Constructeur(composant est un iEbComposant)
+		:oComposant = composant
+	FIN
+
+	PROCEDURE PUBLIQUE Cree(oEnv est un cEbEnv, oJournal est un cEbJournal) : iEbComposant
+		:oEnvRecu = oEnv
+		:oJournalRecu = oJournal
+		:nCreations = :nCreations + 1
+		RENVOYER :oComposant
+	FIN
+
+	PROCEDURE PUBLIQUE NbCreations() : entier
+		RENVOYER :nCreations
+	FIN
+
+	// La configuration que l'application a passée à Cree().
+	PROCEDURE PUBLIQUE EnvRecu() : cEbEnv
+		RENVOYER :oEnvRecu
+	FIN
+
+	// Le journal que l'application a passé à Cree().
+	PROCEDURE PUBLIQUE JournalRecu() : cEbJournal
+		RENVOYER :oJournalRecu
+	FIN
+FIN

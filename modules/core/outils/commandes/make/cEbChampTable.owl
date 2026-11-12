@@ -1,0 +1,93 @@
+// Un champ d'une ressource ou d'une table, lu dans --champs de « ebony make » (grammaire : voir EbChampsMake). Objet valeur immuable, rempli par le constructeur.
+// Le NOM DE COLONNE est celui de la base, tel que l'utilisateur l'a écrit : il ne sert que dans des chaînes (SQL entre guillemets, clés de ligne). Tout identifiant OWL fabriqué
+// à partir de lui porte un préfixe de nature (n/s/r/b pour le champ, v pour le paramètre, Lit pour l'accesseur) : un mot de l'utilisateur ne devient jamais tel quel un identifiant OWL.
+cEbChampTable est une Classe
+PRIVÉ
+	sColonne    est une chaîne = ""
+	sTypeChamp  est une chaîne = ""
+	bNullable   est un booléen = Faux
+	bCle        est un booléen = Faux
+	sRefTable   est une chaîne = ""
+	sRefColonne est une chaîne = ""
+	sMot        est une chaîne = ""
+	sSlug       est une chaîne = ""
+
+	// colonne : nom dans la base ; typeChamp : un des types d'EbTypesChamp ; mot : les mots de la colonne en majuscules initiales (date_naissance → DateNaissance) ;
+	// slug : les mêmes mots en minuscules reliés par « _ » (date_naissance). refTable et refColonne sont vides s'il n'y a pas de clé étrangère.
+	PROCEDURE Constructeur(Colonne est une chaîne, TypeChamp est une chaîne, Nullable est un booléen, Cle est un booléen, RefTable est une chaîne, RefColonne est une chaîne, Mot est une chaîne, Slug est une chaîne)
+		:sColonne = Colonne
+		:sTypeChamp = TypeChamp
+		:bNullable = Nullable
+		:bCle = Cle
+		:sRefTable = RefTable
+		:sRefColonne = RefColonne
+		:sMot = Mot
+		:sSlug = Slug
+	FIN
+
+	// Le nom de la colonne dans la base.
+	PROCEDURE PUBLIQUE NomColonne() : chaîne
+		RENVOYER :sColonne
+	FIN
+
+	// Le type d'ebony : entier, texte, reel, booleen, date ou dateheure.
+	PROCEDURE PUBLIQUE TypeChamp() : chaîne
+		RENVOYER :sTypeChamp
+	FIN
+
+	PROCEDURE PUBLIQUE Nullable() : booléen
+		RENVOYER :bNullable
+	FIN
+
+	PROCEDURE PUBLIQUE Cle() : booléen
+		RENVOYER :bCle
+	FIN
+
+	// Vrai si la colonne référence une autre table (clé étrangère).
+	PROCEDURE PUBLIQUE ARef() : booléen
+		RENVOYER :sRefTable <> ""
+	FIN
+
+	PROCEDURE PUBLIQUE RefTable() : chaîne
+		RENVOYER :sRefTable
+	FIN
+
+	PROCEDURE PUBLIQUE RefColonne() : chaîne
+		RENVOYER :sRefColonne
+	FIN
+
+	// Les mots de la colonne en majuscules initiales (DateNaissance).
+	PROCEDURE PUBLIQUE Mot() : chaîne
+		RENVOYER :sMot
+	FIN
+
+	// Le type OWL du champ (entier, chaîne, réel, booléen) : voir EbTypeOwl.
+	PROCEDURE PUBLIQUE TypeOwl() : chaîne
+		RENVOYER EbTypeOwl(:sTypeChamp)
+	FIN
+
+	// Le champ privé de l'entité : préfixe de type + mots (nId, sNom, bActif).
+	PROCEDURE PUBLIQUE NomChamp() : chaîne
+		RENVOYER EbPrefixeType(:sTypeChamp) + :sMot
+	FIN
+
+	// Le paramètre du constructeur de l'entité : « v » + mots (vNom).
+	PROCEDURE PUBLIQUE NomParametre() : chaîne
+		RENVOYER "v" + :sMot
+	FIN
+
+	// L'accesseur de l'entité : « Lit » + mots (LitNom). Le préfixe évite les mots que OWL refuse comme nom de méthode (Date, Etat, Libelle, Table…), qu'on ne peut pas tous connaître.
+	PROCEDURE PUBLIQUE NomAccesseur() : chaîne
+		RENVOYER "Lit" + :sMot
+	FIN
+
+	// Les mots de la colonne en minuscules reliés par « _ » (date_naissance) : la clé JSON de l'entité et le nom du membre de la structure des routes.
+	PROCEDURE PUBLIQUE Slug() : chaîne
+		RENVOYER :sSlug
+	FIN
+
+	// Le paramètre SQL {p_…} de la colonne (p_date_naissance).
+	PROCEDURE PUBLIQUE NomSql() : chaîne
+		RENVOYER "p_" + :sSlug
+	FIN
+FIN

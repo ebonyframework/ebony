@@ -1,0 +1,140 @@
+// Tests de ce que « ebony env » dit : l'objet JSON de --json (relu par ChaîneVersJSON) et le texte, avec la garantie centrale : jamais la valeur d'un secret.
+
+PROCEDURE EbTestSchemaSortie() : chaîne
+	sSchema est une chaîne = `{"variables":[`
+	sSchema += `{"cle":"DB_HOTE","type":"texte","obligatoire":true,"description":"Hôte de la \"base\""},`
+	sSchema += `{"cle":"DB_PORT","type":"port","defaut":"5432"},`
+	sSchema += `{"cle":"DB_MOT_DE_PASSE","type":"texte","secret":true,"obligatoire":true},`
+	sSchema += `{"cle":"JETON","type":"entier","secret":true,"defaut":"1234"},`
+	sSchema += `{"cle":"APP_ENV","type":"liste","valeurs":["development","production"],"defaut":"development"}`
+	sSchema += `]}`
+	RENVOYER sSchema
+FIN
+
+PROCEDURE EbTestEnvSortie(sEnv est une chaîne, sSecrets est une chaîne, bSchema est un booléen) : cEbEnv
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oDisque.AjouteFichier("C:\Projets\mon-app\ebony.conf", "{}")
+	SI bSchema ALORS
+		oDisque.AjouteFichier("C:\Projets\mon-app\config\env.json", EbTestSchemaSortie())
+	FIN
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env", sEnv)
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env.secrets", sSecrets)
+	oExamen est un cEbExamenEnv(oDisque)
+	oEnv    est un cEbEnv                = oExamen.Execute()
+	RENVOYER oEnv
+FIN
+
+PROCEDURE EbTestEnvValide() : cEbEnv
+	oEnv est un cEbEnv = EbTestEnvSortie("DB_HOTE=db.exemple.fr" + Caract(10) + "APP_ENV=production" + Caract(10), "DB_MOT_DE_PASSE=SuperSecret123" + Caract(10), Vrai)
+	RENVOYER oEnv
+FIN
+
+// Le JSON d'une configuration valide : une ligne, les membres attendus, les types et les sources.
+PROCEDURE scenario_json_configuration_valide()
+	oEnv  est un cEbEnv  = EbTestEnvValide()
+	sJson est une chaîne = EbJsonEnv("C:\Projets\mon-app", oEnv)
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	dbgVérifieVrai(JSONValide(sJson), "du JSON valide")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieEgalité(j.dir, "C:\Projets\mon-app", "dir")
+	dbgVérifieVrai(j.schema, "schema")
+	dbgVérifieEgalité(j.variables..Occurrence, 5, "cinq variables")
+	dbgVérifieEgalité(j.errors..Occurrence, 0, "aucune erreur")
+	nVues est un entier = 0
+	POUR TOUT v DE j.variables
+		nVues++
+		SI v.cle = "DB_HOTE" ALORS
+			dbgVérifieEgalité(v["type"], "texte", "DB_HOTE : type")
+			dbgVérifieVrai(v.obligatoire, "DB_HOTE : obligatoire")
+			dbgVérifieFaux(v.secret, "DB_HOTE : pas secret")
+			dbgVérifieEgalité(v.source, ".env", "DB_HOTE : source")
+			dbgVérifieVrai(v.Valide, "DB_HOTE : valide")
+			dbgVérifieEgalité(v.Valeur, "db.exemple.fr", "DB_HOTE : la valeur d'une variable non secrète est donnée")
+			dbgVérifieEgalité(v.description, "Hôte de la " + Caract(34) + "base" + Caract(34), "DB_HOTE : description avec guillemets échappés")
+		FIN
+		SI v.cle = "DB_PORT" ALORS
+			dbgVérifieEgalité(v["type"], "port", "DB_PORT : type")
+			dbgVérifieEgalité(v.source, "defaut", "DB_PORT : source")
+			dbgVérifieEgalité(v.defaut, "5432", "DB_PORT : défaut")
+			dbgVérifieEgalité(v.Valeur, "5432", "DB_PORT : valeur effective")
+		FIN
+		SI v.cle = "APP_ENV" ALORS
+			dbgVérifieEgalité(v["type"], "liste", "APP_ENV : type")
+			dbgVérifieEgalité(v.Valeur, "production", "APP_ENV : valeur")
+		FIN
+	FIN
+	dbgVérifieEgalité(nVues, 5, "toutes les variables parcourues")
+FIN
+
+// LA garantie : la valeur d'un secret (lue, par défaut, ou invalide) n'est JAMAIS dans la sortie, ni JSON ni texte.
+PROCEDURE scenario_jamais_la_valeur_d_un_secret()
+	oEnv   est un cEbEnv  = EbTestEnvValide()
+	sJson  est une chaîne = EbJsonEnv("C:\Projets\mon-app", oEnv)
+	sTexte est une chaîne = EbTexteEnv("C:\Projets\mon-app", oEnv)
+	dbgVérifieEgalité(Position(sJson, "SuperSecret123"), 0, "JSON : pas le mot de passe lu")
+	dbgVérifieEgalité(Position(sTexte, "SuperSecret123"), 0, "texte : pas le mot de passe lu")
+	dbgVérifieEgalité(Position(sJson, "1234"), 0, "JSON : pas le défaut d'un secret")
+	dbgVérifieEgalité(Position(sTexte, "1234"), 0, "texte : pas le défaut d'un secret")
+	j est un JSON = ChaîneVersJSON(sJson)
+	POUR TOUT v DE j.variables
+		SI v.cle = "DB_MOT_DE_PASSE" ALORS
+			dbgVérifieVrai(v.secret, "marqué secret")
+			dbgVérifieEgalité(v.source, ".env.secrets", "la source est donnée")
+			dbgVérifieVrai(v.Valide, "la validité est donnée")
+			dbgVérifieEgalité(TypeVar(v.Valeur), TypeVar(Null), "valeur : null")
+			dbgVérifieEgalité(TypeVar(v.defaut), TypeVar(Null), "défaut : null")
+		FIN
+	FIN
+	// Un secret invalide : ni la valeur ni le message ne la contiennent.
+	oMauvais est un cEbEnv = EbTestEnvSortie("DB_HOTE=h" + Caract(10), "DB_MOT_DE_PASSE=ok" + Caract(10) + "JETON=ValeurFausseSecrete" + Caract(10), Vrai)
+	dbgVérifieFaux(oMauvais.Valide(), "JETON invalide")
+	dbgVérifieEgalité(Position(EbJsonEnv("C:\p", oMauvais), "ValeurFausseSecrete"), 0, "JSON : pas la valeur d'un secret invalide")
+	dbgVérifieEgalité(Position(EbTexteEnv("C:\p", oMauvais), "ValeurFausseSecrete"), 0, "texte : pas la valeur d'un secret invalide")
+FIN
+
+PROCEDURE scenario_json_configuration_invalide()
+	oEnv  est un cEbEnv  = EbTestEnvSortie("DB_PORT=abc" + Caract(10), "", Vrai)
+	sJson est une chaîne = EbJsonEnv("C:\Projets\mon-app", oEnv)
+	dbgVérifieVrai(JSONValide(sJson), "du JSON valide")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieFaux(j.ok, "ok faux")
+	dbgVérifieEgalité(j.errors..Occurrence, 3, "trois erreurs : DB_HOTE, DB_PORT, mot de passe")
+	POUR TOUT v DE j.variables
+		SI v.cle = "DB_PORT" ALORS
+			dbgVérifieFaux(v.Valide, "DB_PORT invalide")
+			dbgVérifieVrai(Position(v.Erreur, "un port") > 0, "l'erreur dit le type attendu : " + v.Erreur)
+			dbgVérifieEgalité(TypeVar(v.Valeur), TypeVar(Null), "valeur invalide : null")
+		FIN
+		SI v.cle = "APP_ENV" ALORS
+			dbgVérifieVrai(v.Valide, "APP_ENV valide (défaut)")
+			dbgVérifieEgalité(TypeVar(v.Erreur), TypeVar(Null), "pas d'erreur : null")
+		FIN
+	FIN
+FIN
+
+// Sans schéma : schema faux, aucune variable, ok vrai.
+PROCEDURE scenario_json_sans_schema()
+	oEnv est un cEbEnv = EbTestEnvSortie("A=1" + Caract(10), "", Faux)
+	j    est un JSON   = ChaîneVersJSON(EbJsonEnv("C:\Projets\mon-app", oEnv))
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieFaux(j.schema, "pas de schéma")
+	dbgVérifieEgalité(j.variables..Occurrence, 0, "aucune variable")
+FIN
+
+PROCEDURE scenario_texte()
+	oEnv   est un cEbEnv  = EbTestEnvValide()
+	sTexte est une chaîne = EbTexteEnv("C:\Projets\mon-app", oEnv)
+	dbgVérifieVrai(Position(sTexte, "Configuration de C:\Projets\mon-app") > 0, "titre")
+	dbgVérifieVrai(Position(sTexte, "DB_HOTE (texte) : .env = db.exemple.fr") > 0, "variable non secrète avec sa valeur : " + sTexte)
+	dbgVérifieVrai(Position(sTexte, "DB_PORT (port) : defaut = 5432") > 0, "défaut : " + sTexte)
+	dbgVérifieVrai(Position(sTexte, "DB_MOT_DE_PASSE (texte) : .env.secrets [secret]") > 0, "secret sans valeur : " + sTexte)
+	dbgVérifieEgalité(Position(sTexte, "Erreurs"), 0, "pas de section d'erreurs")
+	oMauvais est un cEbEnv  = EbTestEnvSortie("DB_PORT=abc" + Caract(10), "", Vrai)
+	sMauvais est une chaîne = EbTexteEnv("C:\Projets\mon-app", oMauvais)
+	dbgVérifieVrai(Position(sMauvais, "ERREUR DB_PORT") > 0, "ligne en erreur : " + sMauvais)
+	dbgVérifieVrai(Position(sMauvais, "Erreurs (3) :") > 0, "section d'erreurs : " + sMauvais)
+	oSans est un cEbEnv = EbTestEnvSortie("", "", Faux)
+	dbgVérifieVrai(Position(EbTexteEnv("C:\p", oSans), "Pas de schéma") > 0, "sans schéma, le texte le dit")
+FIN

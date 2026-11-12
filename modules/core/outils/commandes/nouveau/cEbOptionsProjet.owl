@@ -1,0 +1,81 @@
+// Les choix faits pour « ebony new » : kit, base de données, authentification par jetons et table des utilisateurs. Objet valeur immuable, rempli par le constructeur.
+// Les valeurs sont déjà vérifiées par EbAnalyseArgumentsNew ; sans option, EbOptionsParDefaut() donne le projet d'aujourd'hui (kit api, SQLite, sans authentification). Un kit sans base (slim) a une base vide et pas d'authentification.
+cEbOptionsProjet est une Classe
+PRIVÉ
+	sType  est une chaîne = ""
+	sBase  est une chaîne = ""
+	bAuth  est un booléen = Faux
+	sTable est une chaîne = ""
+
+	// Ce que les modules installés déclarent dans leur manifeste : variables d'environnement (cEbVariableEnv), migrations (cEbMigrationModule) et fichiers (cEbFichierModule). Vides tant qu'on ne les a pas lues (AvecModules).
+	tabVariablesModules  est un tableau
+	tabMigrationsModules est un tableau
+	tabFichiersModules   est un tableau
+
+	PROCEDURE Constructeur(TypeProjet est une chaîne, BaseDonnees est une chaîne, avecAuth est un booléen, TableUtilisateurs est une chaîne)
+		:sType = TypeProjet
+		:sBase = BaseDonnees
+		:bAuth = avecAuth
+		:sTable = TableUtilisateurs
+	FIN
+
+	// Les mêmes choix, avec en plus ce que déclarent les manifestes des modules : leurs variables d'environnement (cEbVariableEnv), leurs migrations (cEbMigrationModule) et leurs fichiers (cEbFichierModule). Objet valeur : l'original n'est pas modifié.
+	PROCEDURE PUBLIQUE AvecModules(variables est un tableau, migrations est un tableau, fichiers est un tableau) : cEbOptionsProjet
+		oCopie est un cEbOptionsProjet(:sType, :sBase, :bAuth, :sTable)
+		oCopie.AjouteModules(variables, migrations, fichiers)
+		RENVOYER oCopie
+	FIN
+
+	// Réservé à AvecModules : remplit la copie qui vient d'être construite.
+	PROCEDURE PUBLIQUE AjouteModules(variables est un tableau, migrations est un tableau, fichiers est un tableau)
+		POUR TOUT oVariable DE variables
+			TableauAjoute(:tabVariablesModules, oVariable)
+		FIN
+		POUR TOUT oMigration DE migrations
+			TableauAjoute(:tabMigrationsModules, oMigration)
+		FIN
+		POUR TOUT oFichier DE fichiers
+			TableauAjoute(:tabFichiersModules, oFichier)
+		FIN
+	FIN
+
+	// Les variables des modules (cEbVariableEnv), dans l'ordre des modules.
+	PROCEDURE PUBLIQUE VariablesModules() : tableau
+		RENVOYER :tabVariablesModules
+	FIN
+
+	// Les migrations des modules (cEbMigrationModule), dans l'ordre des modules puis de leur manifeste ; vides si on ne les a pas lues (AvecModules).
+	PROCEDURE PUBLIQUE MigrationsModules() : tableau
+		RENVOYER :tabMigrationsModules
+	FIN
+
+	// Les fichiers des modules (cEbFichierModule), dans l'ordre des modules puis de leur manifeste ; vides si on ne les a pas lus (AvecModules).
+	PROCEDURE PUBLIQUE FichiersModules() : tableau
+		RENVOYER :tabFichiersModules
+	FIN
+
+	// Le kit choisi : « api » (le défaut : base et authentification) ou « slim » (le cœur seul). Voir EbKits.
+	PROCEDURE PUBLIQUE Kit() : chaîne
+		RENVOYER :sType
+	FIN
+
+	// « sqlite », « postgresql » ou « hfsql » ; vide quand le kit n'a pas de base de données (slim).
+	PROCEDURE PUBLIQUE BaseDonnees() : chaîne
+		RENVOYER :sBase
+	FIN
+
+	// Vrai si le projet a une base de données : c'est ce qui décide des variables DB_*, des lignes de la base dans le service et des textes qui en parlent.
+	PROCEDURE PUBLIQUE ABase() : booléen
+		RENVOYER :sBase <> ""
+	FIN
+
+	// Vrai si l'authentification par jetons d'accès est demandée.
+	PROCEDURE PUBLIQUE Auth() : booléen
+		RENVOYER :bAuth
+	FIN
+
+	// « utilisateurs » ou « users » quand l'authentification est demandée, vide sinon.
+	PROCEDURE PUBLIQUE TableUtilisateurs() : chaîne
+		RENVOYER :sTable
+	FIN
+FIN

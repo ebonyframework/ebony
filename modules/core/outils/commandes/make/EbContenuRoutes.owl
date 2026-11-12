@@ -1,0 +1,262 @@
+// Le contrôleur d'une ressource (app/http/<dossier>/Controleur<Nom>.owl) : un ServiceREST à part, qui expose le service en cinq routes (liste, lecture, création, modification, suppression). Fonctions pures, testées dans tests/unitaires/commandes/make/.
+// POURQUOI UN CONTRÔLEUR À PART : « owl serve » monte tous les ServiceREST du projet (mesuré, owl 1.7.0) ; ajouter une ressource n'oblige donc pas à modifier le ServiceREST de l'application.
+// Le contrôleur n'est pas écrit quand un nom de colonne ne peut pas être un membre de la structure du corps (voir EbChampsSansRoutes) : OWL ignore en silence 58 mots réservés comme noms de membre.
+EbContenuRoutes est une CollectionDeProcédures
+
+	// Vrai si le slug d'une colonne ne peut pas servir de membre à la structure du corps : vide, ne commençant pas par une lettre minuscule sans accent, ou mot réservé d'OWL (voir EbMotsOwl).
+	PROCEDURE EbMembreCorpsRefuse(sSlug est une chaîne) : booléen
+		SI sSlug = "" ALORS
+			RENVOYER Vrai
+		FIN
+		sPremier est une chaîne = Gauche(sSlug, 1)
+		SI sPremier < "a" OU sPremier > "z" ALORS
+			RENVOYER Vrai
+		FIN
+		RENVOYER EbEstMotReserveOwl(sSlug)
+	FIN
+
+	// Le nom du membre de la structure du corps pour une colonne : le slug avec une majuscule initiale (date_naissance → Date_naissance). OWL lie le JSON sans tenir compte de la casse (mesuré, owl 1.7.0 : « nom » remplit « Nom »),
+	// et « owl fmt » renomme en silence certains membres écrits en minuscules (stCorps.nom devient stCorps.Nom, stCorps.actif non) : avec la majuscule, le texte écrit par ebony est déjà celui que le formateur rend.
+	// Exception (constatée sur 1 068 mots essayés avec owl fmt 1.7.0) : « owl fmt » écrit en minuscules les noms de types, écrits ici en tête de membre : date, dateheure, heure, uuid. Ces quatre-là, acceptés comme membres, restent en minuscules.
+	PROCEDURE EbMembreCorps(oChamp est un cEbChampTable) : chaîne
+		sSlug est une chaîne = oChamp.Slug()
+		SI Position("|date|dateheure|heure|uuid|", "|" + sSlug + "|") > 0 ALORS
+			RENVOYER sSlug
+		FIN
+		RENVOYER Majuscule(Gauche(sSlug, 1)) + Milieu(sSlug, 2)
+	FIN
+
+	// Les champs que porte le corps d'une création ou d'une modification : tous, sauf la clé quand la base la génère (elle vient alors de l'adresse).
+	PROCEDURE EbChampsCorps(oDemande est un cEbDemandeMake) : tableau de cEbChampTable
+		tabChamps est un tableau de cEbChampTable
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI PAS EbCleGeneree(oChamp) ALORS
+				TableauAjoute(tabChamps, oChamp)
+			FIN
+		FIN
+		RENVOYER tabChamps
+	FIN
+
+	// Les colonnes (leur nom) dont le slug ne peut pas être un membre du corps. Une liste vide : les routes sont écrites.
+	PROCEDURE EbChampsSansRoutes(oDemande est un cEbDemandeMake) : tableau de chaînes
+		tabRefus est un tableau de chaînes
+		POUR TOUT oChamp DE EbChampsCorps(oDemande)
+			SI EbMembreCorpsRefuse(oChamp.Slug()) ALORS
+				TableauAjoute(tabRefus, oChamp.NomColonne())
+			FIN
+		FIN
+		RENVOYER tabRefus
+	FIN
+
+	// Le segment d'adresse de la ressource : la dernière partie du nom de la table, en minuscules (« crm.Clients » donne « clients »).
+	PROCEDURE EbSegmentRoutes(oDemande est un cEbDemandeMake) : chaîne
+		tabParties est un tableau de chaînes = ChaîneDécoupe(oDemande.NomTable(), ".")
+		RENVOYER Minuscule(tabParties[tabParties..Occurrence])
+	FIN
+
+	// Le chemin du fichier de routes, relatif au projet.
+	PROCEDURE EbCheminRoutes(oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER "app/http/" + oDemande.Dossier() + "/Controleur" + oDemande.Pascal() + ".owl"
+	FIN
+
+	// Les arguments du constructeur de l'entité pour une création (sCle vide : la clé générée vaut 0) ou une modification (sCle = « cle »). Les autres valeurs viennent du corps.
+	PROCEDURE EbArgumentsCorps(oDemande est un cEbDemandeMake, sCle est une chaîne) : chaîne
+		sRes est une chaîne = ""
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI sRes <> "" ALORS
+				sRes += ", "
+			FIN
+			SI oChamp.Cle() ET sCle <> "" ALORS
+				sRes += sCle
+			SINON
+				SI EbCleGeneree(oChamp) ALORS
+					sRes += "0"
+				SINON
+					sRes += "stCorps." + EbMembreCorps(oChamp)
+				FIN
+			FIN
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Vrai si le texte du corps doit être contrôlé : un texte obligatoire (qui n'accepte pas NULL). La clé texte l'est à la création (elle vient du corps), pas à la modification (elle vient de l'adresse).
+	PROCEDURE EbTexteControle(oChamp est un cEbChampTable, bCreation est un booléen) : booléen
+		SI oChamp.TypeChamp() <> "texte" OU oChamp.Nullable() ALORS
+			RENVOYER Faux
+		FIN
+		RENVOYER bCreation OU PAS oChamp.Cle()
+	FIN
+
+	// Les lignes du contrôle du corps, à placer avant l'appel du repository : chaque texte obligatoire doit contenir autre chose que des espaces, sinon 400. Les lignes portent leur propre indentation (tabulations).
+	PROCEDURE EbLignesControlesCorps(oDemande est un cEbDemandeMake, bCreation est un booléen) : tableau de chaînes
+		tabLignes est un tableau de chaînes
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI EbTexteControle(oChamp, bCreation) ALORS
+				TableauAjoute(tabLignes, "SI SansEspace(stCorps." + EbMembreCorps(oChamp) + ") = " + EbGuillemets("") + " ALORS")
+				TableauAjoute(tabLignes, Caract(9) + "ExceptionDéclenche(400, " + EbGuillemets("Le champ « " + oChamp.Slug() + " » est obligatoire.") + ")")
+				TableauAjoute(tabLignes, "FIN")
+			FIN
+		FIN
+		RENVOYER tabLignes
+	FIN
+
+	// Vrai si un texte du corps est contrôlé (donc que la route peut répondre 400).
+	PROCEDURE EbCorpsControle(oDemande est un cEbDemandeMake, bCreation est un booléen) : booléen
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI EbTexteControle(oChamp, bCreation) ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Une opération : l'en-tête, puis la procédure avec son QUAND EXCEPTION. tabCorps : les lignes du bloc protégé (indentées d'un cran de plus que « QUAND EXCEPTION »).
+	PROCEDURE EbOperationRoutes(oTexte est un cEbTexteCode, sNom est une chaîne, sMethode est une chaîne, sChemin est une chaîne, sReponses est une chaîne, sCodeEtat est une chaîne, sParametres est une chaîne, tabCorps est un tableau de chaînes, sDepot est une chaîne, sService est une chaîne)
+		oTexte.LigneVide()
+		oTexte.Ligne(1, sNom + " est une OpérationHTTP")
+		oTexte.Ligne(2, "PROPRIETES")
+		oTexte.Ligne(3, "Méthode  = " + sMethode)
+		oTexte.Ligne(3, "Chemin   = " + sChemin)
+		oTexte.Ligne(3, "Réponses = [" + sReponses + "]")
+		oTexte.Ligne(3, "CodeÉtat = " + sCodeEtat)
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(2, "PROCEDURE surRequête(" + sParametres + ") : chaîne")
+		oTexte.Ligne(3, "oRepository est un " + sDepot + "(cEbServiceBase.Base())")
+		oTexte.Ligne(3, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(3, "sCode  est une chaîne = " + EbGuillemets(""))
+		oTexte.Ligne(3, "QUAND EXCEPTION DANS")
+		POUR TOUT sLigne DE tabCorps
+			oTexte.Ligne(4, sLigne)
+		FIN
+		oTexte.Ligne(3, "FAIRE")
+		oTexte.Ligne(4, "sCode = ExceptionInfo(errCode)")
+		oTexte.Ligne(4, "EbJournaliseErreurHttp(sCode, ExceptionInfo(errMessage))")
+		oTexte.Ligne(4, "MoiMême..Réponse..CodeÉtat    = EbStatutHttpDeCode(sCode)")
+		oTexte.Ligne(4, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		oTexte.Ligne(4, "MoiMême..Réponse..Corps       = EbCorpsErreurHttp(sCode, ExceptionInfo(errMessage))")
+		oTexte.Ligne(3, "FIN")
+		oTexte.Ligne(3, "RENVOYER " + EbGuillemets(""))
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(1, "FIN")
+	FIN
+
+	// Le contrôleur. À n'appeler que si EbChampsSansRoutes est vide.
+	PROCEDURE EbContenuRoutes(oDemande est un cEbDemandeMake) : chaîne
+		sPascal     est une chaîne       = oDemande.Pascal()
+		sDepot      est une chaîne       = "cRepo" + sPascal + "Sql"
+		sService    est une chaîne       = "cService" + sPascal
+		sSegment    est une chaîne       = EbGuillemets(EbSegmentRoutes(oDemande))
+		sTypeCle    est une chaîne       = EbArticleTypeOwl(EbTypeCleOwl(oDemande))
+		oCle        est un cEbChampTable = EbChampCle(oDemande.Champs())
+		bCleDonnee  est un booléen       = PAS EbCleGeneree(oCle)
+		sBadCree    est une chaîne       = ""
+		sBadModifie est une chaîne       = ""
+		SI EbCorpsControle(oDemande, Vrai) ALORS
+			sBadCree = "httpRequêteIncorrecte, "
+		FIN
+		SI EbCorpsControle(oDemande, Faux) ALORS
+			sBadModifie = "httpRequêteIncorrecte, "
+		FIN
+		sBase  est une chaîne      = "httpServiceIndisponible, httpErreurServeur"
+		oTexte est un cEbTexteCode
+		oTexte.Ligne(0, "// Contrôleur de la ressource « " + EbNomAffiche(oDemande) + " », généré par « ebony make resource » ; ses routes : GET /api/" + EbSegmentRoutes(oDemande) + ", GET /api/" + EbSegmentRoutes(oDemande) + "/{cle}, POST, PUT /api/" + EbSegmentRoutes(oDemande) + "/{cle}, DELETE /api/" + EbSegmentRoutes(oDemande) + "/{cle}.")
+		oTexte.Ligne(0, "// Le fichier est à vous. C'est un ServiceREST à part : « owl serve » monte tous les ServiceREST du projet, celui de l'application n'a pas à changer. Il lit l'application unique posée par FinInitialisation (cEbServiceApplication).")
+		oTexte.Ligne(0, "// Il n'appelle que le service (cService" + sPascal + "), jamais le repository : le repository SQL n'est construit ici que pour être donné au service. Les règles métier vont dans le service, la validation de ce que le client envoie reste ici.")
+		oTexte.Ligne(0, "// Une erreur du repository devient une réponse JSON { code, message } (voir EbErreurHttp) : 404 introuvable, 409 clé déjà prise, 503 base injoignable, 500 le reste. Un champ texte obligatoire vide donne 400.")
+		oTexte.Ligne(0, "// Le corps est lu par OWL de façon tolérante : un champ absent ou d'un autre type prend la valeur par défaut du type (0, texte vide, Faux), sans erreur. Ajoutez vos contrôles dans Cree" + sPascal + " et Modifie" + sPascal + " si cela ne vous convient pas.")
+		oTexte.Ligne(0, "Controleur" + sPascal + " est un ServiceREST")
+		oTexte.Ligne(1, "PROPRIETES")
+		oTexte.Ligne(2, "UrlBase = [" + EbGuillemets("api") + "]")
+		// Les propriétés du garde fourni par les modules du projet (par exemple le schéma d'authentification), une ligne chacune.
+		POUR TOUT sPropriete DE oDemande.GardeProprietes()
+			oTexte.Ligne(2, sPropriete)
+		FIN
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "// Le corps d'une création ou d'une modification : un membre par colonne, au nom de la colonne avec une majuscule initiale (OWL lie le JSON sans tenir compte de la casse : « nom » remplit « Nom »).")
+		oTexte.Ligne(1, "st" + sPascal + "Corps est une Structure")
+		POUR TOUT oChamp DE EbChampsCorps(oDemande)
+			oTexte.Ligne(2, EbMembreCorps(oChamp) + " est " + EbArticleTypeOwl(oChamp.TypeOwl()))
+		FIN
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		SI oDemande.GardePresente() ALORS
+			// Les procédures du garde, écrites telles quelles (les tabulations relatives sont dans le texte) : le cœur ne sait pas ce qu'elles font.
+			POUR TOUT sLigneGarde DE oDemande.GardeProcedures()
+				SI sLigneGarde = "" ALORS
+					oTexte.LigneVide()
+				SINON
+					oTexte.Ligne(1, sLigneGarde)
+				FIN
+			FIN
+			oTexte.LigneVide()
+		SINON
+			oTexte.Ligne(1, "// ROUTES OUVERTES : aucun module de ce projet ne fournit de garde pour les routes (ebony/modules/*.json sans « routes ») quand ce fichier a été généré, donc aucune route n'exige de jeton.")
+			oTexte.Ligne(1, "// Pour les protéger, ajoutez au projet un module qui en fournit un puis régénérez ce fichier, ou protégez-les vous-même.")
+			oTexte.LigneVide()
+		FIN
+		oTexte.Ligne(1, "// Une exception qui échappe aux routes (elles attrapent la leur) : détail au journal, rien d'interne au client.")
+		oTexte.Ligne(1, "PROCEDURE surErreur()")
+		oTexte.Ligne(2, "EbJournaliseErreurHttp(" + EbGuillemets("500") + ", ExceptionInfo(errMessage))")
+		oTexte.Ligne(2, "MoiMême..Réponse..CodeÉtat    = httpErreurServeur")
+		oTexte.Ligne(2, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		oTexte.Ligne(2, "MoiMême..Réponse..Corps       = EbCorpsErreurHttp(" + EbGuillemets("500") + ", " + EbGuillemets("") + ")")
+		oTexte.Ligne(1, "FIN")
+
+		// Liste
+		tabCorps est un tableau de chaînes
+		TableauAjoute(tabCorps, "sJson est une chaîne = " + EbGuillemets(""))
+		TableauAjoute(tabCorps, "POUR TOUT oEntite DE oService.Enumere()")
+		TableauAjoute(tabCorps, Caract(9) + "SI sJson <> " + EbGuillemets("") + " ALORS")
+		TableauAjoute(tabCorps, Caract(9) + Caract(9) + "sJson += " + EbGuillemets(","))
+		TableauAjoute(tabCorps, Caract(9) + "FIN")
+		TableauAjoute(tabCorps, Caract(9) + "sJson += oEntite.EnJson()")
+		TableauAjoute(tabCorps, "FIN")
+		TableauAjoute(tabCorps, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		TableauAjoute(tabCorps, "MoiMême..Réponse..Corps       = " + EbGuillemets("[") + " + sJson + " + EbGuillemets("]"))
+		EbOperationRoutes(oTexte, "Liste" + sPascal, "httpGet", "[" + sSegment + "]", "httpOK, " + sBase, "httpOK", "", tabCorps, sDepot, sService)
+
+		// Lecture
+		TableauSupprimeTout(tabCorps)
+		TableauAjoute(tabCorps, "oEntite est un c" + sPascal + " = oService.Trouve(cle)")
+		TableauAjoute(tabCorps, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		TableauAjoute(tabCorps, "MoiMême..Réponse..Corps       = oEntite.EnJson()")
+		EbOperationRoutes(oTexte, "Lit" + sPascal, "httpGet", "[" + sSegment + ", cle]", "httpOK, httpNonTrouvé, " + sBase, "httpOK", "cle est " + sTypeCle, tabCorps, sDepot, sService)
+
+		// Création
+		TableauSupprimeTout(tabCorps)
+		TableauAjoute(tabCorps, "oNouveau est un c" + sPascal + "(" + EbArgumentsCorps(oDemande, "") + ")")
+		TableauAjoute(tabCorps, "oEnregistre est un c" + sPascal + " = oService.Ajoute(oNouveau)")
+		TableauAjoute(tabCorps, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		TableauAjoute(tabCorps, "MoiMême..Réponse..Corps       = oEnregistre.EnJson()")
+		sReponsesCree est une chaîne = "httpCréé, " + sBadCree
+		SI bCleDonnee ALORS
+			sReponsesCree += "httpConflit, "
+		FIN
+		tabAvec est un tableau de chaînes = EbLignesControlesCorps(oDemande, Vrai)
+		POUR TOUT sLigneCorps DE tabCorps
+			TableauAjoute(tabAvec, sLigneCorps)
+		FIN
+		EbOperationRoutes(oTexte, "Cree" + sPascal, "httpPost", "[" + sSegment + "]", sReponsesCree + sBase, "httpCréé", "stCorps est un st" + sPascal + "Corps", tabAvec, sDepot, sService)
+
+		// Modification
+		TableauSupprimeTout(tabCorps)
+		TableauAjoute(tabCorps, "oChange est un c" + sPascal + "(" + EbArgumentsCorps(oDemande, "cle") + ")")
+		TableauAjoute(tabCorps, "oService.Modifie(oChange)")
+		TableauAjoute(tabCorps, "MoiMême..Réponse..TypeContenu = " + EbGuillemets("application/json"))
+		TableauAjoute(tabCorps, "MoiMême..Réponse..Corps       = oChange.EnJson()")
+		tabAvec = EbLignesControlesCorps(oDemande, Faux)
+		POUR TOUT sLigneCorps DE tabCorps
+			TableauAjoute(tabAvec, sLigneCorps)
+		FIN
+		EbOperationRoutes(oTexte, "Modifie" + sPascal, "httpPut", "[" + sSegment + ", cle]", "httpOK, " + sBadModifie + "httpNonTrouvé, " + sBase, "httpOK", "cle est " + sTypeCle + ", stCorps est un st" + sPascal + "Corps", tabAvec, sDepot, sService)
+
+		// Suppression
+		TableauSupprimeTout(tabCorps)
+		TableauAjoute(tabCorps, "oService.Supprime(cle)")
+		EbOperationRoutes(oTexte, "Supprime" + sPascal, "httpDelete", "[" + sSegment + ", cle]", "httpSansContenu, httpNonTrouvé, " + sBase, "httpSansContenu", "cle est " + sTypeCle, tabCorps, sDepot, sService)
+
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+FIN

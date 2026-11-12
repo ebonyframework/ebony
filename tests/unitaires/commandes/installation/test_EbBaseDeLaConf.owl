@@ -1,0 +1,18 @@
+// Tests de EbBaseDeLaConf : la base de données notée dans ebony.conf (base.fournisseur), lue sans jamais lever.
+
+// ebony.conf tel que « ebony new » l'écrit : la base est lue.
+PROCEDURE scenario_base_lue_dans_la_conf()
+	dbgVérifieEgalité(EbBaseDeLaConf(EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", EbOptionsParDefaut())), "sqlite", "base par défaut")
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	dbgVérifieEgalité(EbBaseDeLaConf(EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oPostgres)), "postgresql", "postgresql")
+FIN
+
+// Un texte qui n'est pas un JSON, un objet sans base, une base qui n'est pas une chaîne : « » sans erreur.
+PROCEDURE scenario_base_absente_ou_illisible()
+	dbgVérifieEgalité(EbBaseDeLaConf("pas du json"), "", "texte quelconque")
+	dbgVérifieEgalité(EbBaseDeLaConf(""), "", "vide")
+	dbgVérifieEgalité(EbBaseDeLaConf("{}"), "", "objet vide")
+	dbgVérifieEgalité(EbBaseDeLaConf(`{"base":{}}`), "", "base sans fournisseur")
+	dbgVérifieEgalité(EbBaseDeLaConf(`{"base":{"fournisseur":3}}`), "", "fournisseur qui est un nombre")
+	dbgVérifieEgalité(EbBaseDeLaConf(`{"base":"sqlite"}`), "", "base qui est une chaîne")
+FIN

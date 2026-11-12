@@ -1,0 +1,136 @@
+// Adaptateur du vrai système de fichiers (celui qu'utilise la commande ebony).
+cEbSystemeFichiersReel est une Classe implemente iEbSystemeFichiers implemente iEbEcritureFichiers
+	// owl se place dans la racine du projet d'ebony ; le lanceur transmet donc le vrai dossier de lancement (-cwd=).
+	// Sans cet argument (tests), c'est le dossier courant d'OWL.
+	PROCEDURE DossierDeLancement() : chaîne
+		RENVOYER LigneCommande("cwd", fRepEnCours())
+	FIN
+
+	PROCEDURE DossierActif() : chaîne
+		RENVOYER fRepEnCours()
+	FIN
+
+	// Le lanceur passe -racine=. Sans lui (tests, owl lancé à la main), la valeur est vide.
+	PROCEDURE DossierInstallation() : chaîne
+		RENVOYER LigneCommande("racine", "")
+	FIN
+
+	// Le lanceur passe -affiche= (nom long, pour les messages). Sans lui, on affiche le dossier d'installation tel quel.
+	PROCEDURE DossierInstallationAffiche() : chaîne
+		RENVOYER LigneCommande("affiche", :DossierInstallation())
+	FIN
+
+	// Le lanceur passe -programmes=. Sans lui (tests, owl lancé à la main), la valeur est vide.
+	PROCEDURE DossierProgrammes() : chaîne
+		RENVOYER LigneCommande("programmes", "")
+	FIN
+
+	PROCEDURE DossierExiste(chemin est une chaîne) : booléen
+		RENVOYER fRepExiste(EbCheminDuSysteme(chemin))
+	FIN
+
+	// fSauveTexte ne lève rien : on transforme son Faux en exception, avec la cause donnée par ErreurInfo().
+	PROCEDURE EcritFichierTemoin(chemin est une chaîne)
+		SI PAS fSauveTexte(EbCheminDuSysteme(chemin), "ebony doctor : fichier de test, supprimable") ALORS
+			ExceptionDéclenche(12, "écriture impossible : " + ErreurInfo())
+		FIN
+	FIN
+
+	PROCEDURE SupprimeFichier(chemin est une chaîne) : booléen
+		RENVOYER fSupprime(EbCheminDuSysteme(chemin))
+	FIN
+
+	PROCEDURE FichierExiste(chemin est une chaîne) : booléen
+		RENVOYER fFichierExiste(EbCheminDuSysteme(chemin))
+	FIN
+
+	// Mesuré (owl 1.5.0) : fListeFichier liste aussi les fichiers cachés (.gitkeep) ; un dossier qui ne contient qu'un sous-dossier vide
+	// n'a aucun fichier mais un répertoire : il faut tester les deux listes.
+	PROCEDURE DossierEstVide(chemin est une chaîne) : booléen
+		sDossier est une chaîne = Remplace(chemin, "\", "/")
+		RENVOYER fListeFichier(sDossier + "/*") = "" ET fListeRépertoire(sDossier) = ""
+	FIN
+
+	// fListeFichier est récursif par défaut et rend des chemins complets séparés par CRLF : on ne garde que ceux dont le parent est le dossier demandé.
+	PROCEDURE ListeFichiers(chemin est une chaîne) : tableau de chaînes
+		tabNoms est un tableau de chaînes
+		SI PAS fRepExiste(EbCheminDuSysteme(chemin)) ALORS
+			RENVOYER tabNoms
+		FIN
+		sListe est une chaîne = fListeFichier(Remplace(chemin, "\", "/") + "/*")
+		POUR TOUT sFichier DE ChaîneDécoupe(sListe, Caract(13) + Caract(10))
+			SI sFichier <> "" ALORS
+				SI EbMemeChemin(EbParentChemin(sFichier), chemin) ALORS
+					TableauAjoute(tabNoms, EbNomDernierElement(sFichier))
+				FIN
+			FIN
+		FIN
+		TableauTrie(tabNoms)
+		RENVOYER tabNoms
+	FIN
+
+	// fListeRépertoire est récursif par défaut et rend des chemins complets séparés par CRLF (mesuré avec OWL 1.8.0, vide pour un dossier absent) : même filtre que ListeFichiers.
+	PROCEDURE ListeDossiers(chemin est une chaîne) : tableau de chaînes
+		tabNoms est un tableau de chaînes
+		SI PAS fRepExiste(EbCheminDuSysteme(chemin)) ALORS
+			RENVOYER tabNoms
+		FIN
+		sListe est une chaîne = fListeRépertoire(Remplace(chemin, "\", "/"))
+		POUR TOUT sDossier DE ChaîneDécoupe(sListe, Caract(13) + Caract(10))
+			SI sDossier <> "" ALORS
+				SI EbMemeChemin(EbParentChemin(sDossier), chemin) ALORS
+					TableauAjoute(tabNoms, EbNomDernierElement(sDossier))
+				FIN
+			FIN
+		FIN
+		TableauTrie(tabNoms)
+		RENVOYER tabNoms
+	FIN
+
+	// fChargeTexte rend une chaîne vide pour un fichier absent comme pour un fichier vide : on teste l'existence d'abord.
+	PROCEDURE LitTexte(chemin est une chaîne) : chaîne
+		SI PAS fFichierExiste(EbCheminDuSysteme(chemin)) ALORS
+			ExceptionDéclenche(12, "lecture impossible : le fichier n'existe pas : " + chemin)
+		FIN
+		RENVOYER fChargeTexte(EbCheminDuSysteme(chemin))
+	FIN
+
+	PROCEDURE CreeDossier(chemin est une chaîne)
+		fRepCree(EbCheminDuSysteme(chemin))
+		SI PAS fRepExiste(EbCheminDuSysteme(chemin)) ALORS
+			ExceptionDéclenche(12, "création impossible du dossier " + chemin + " : " + ErreurInfo())
+		FIN
+	FIN
+
+	PROCEDURE CopieDossier(source est une chaîne, destination est une chaîne)
+		SI PAS fRepExiste(EbCheminDuSysteme(source)) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier source n'existe pas : " + source)
+		FIN
+		SI PAS fRepExiste(EbCheminDuSysteme(EbParentChemin(destination))) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier parent de la destination n'existe pas : " + destination)
+		FIN
+		SI PAS fRepCopie(EbCheminDuSysteme(source), EbCheminDuSysteme(destination)) ALORS
+			ExceptionDéclenche(12, "copie impossible de " + source + " vers " + destination + " : " + ErreurInfo())
+		FIN
+	FIN
+
+	// Mesuré (owl 1.5.0) : fCopieFichier renvoie Vrai/Faux, copie octet pour octet (binaire compris), remplace l'existant, et échoue (Faux) si la source est absente,
+	// si le dossier parent de la destination est absent ou si la destination est un dossier.
+	PROCEDURE CopieFichier(source est une chaîne, destination est une chaîne)
+		SI PAS fFichierExiste(EbCheminDuSysteme(source)) ALORS
+			ExceptionDéclenche(12, "copie impossible : le fichier source n'existe pas : " + source)
+		FIN
+		SI PAS fRepExiste(EbCheminDuSysteme(EbParentChemin(destination))) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier parent de la destination n'existe pas : " + destination)
+		FIN
+		SI PAS fCopieFichier(EbCheminDuSysteme(source), EbCheminDuSysteme(destination)) ALORS
+			ExceptionDéclenche(12, "copie impossible de " + source + " vers " + destination + " : " + ErreurInfo())
+		FIN
+	FIN
+
+	PROCEDURE EcritTexte(chemin est une chaîne, contenu est une chaîne)
+		SI PAS fSauveTexte(EbCheminDuSysteme(chemin), contenu) ALORS
+			ExceptionDéclenche(12, "écriture impossible de " + chemin + " : " + ErreurInfo())
+		FIN
+	FIN
+FIN

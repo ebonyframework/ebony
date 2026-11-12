@@ -1,0 +1,362 @@
+// Tests de EbContenuProjet : le contenu exact des fichiers produits par « ebony new ». Les accents sont écrits avec Caract(code).
+
+// ebony.conf est un JSON valide qui se relit : version, nom libre avec accents, dossier, identifiant, type, base.
+PROCEDURE scenario_conf_se_relit()
+	sNom   est une chaîne = "Caf" + Caract(233) + " de la Gare"
+	sTexte est une chaîne = EbContenuConf(sNom, "cafe-de-la-gare", "AppCafeDeLaGare", "0.1.0")
+	dbgVérifieVrai(JSONValide(sTexte), "JSON valide")
+	j est un JSON = ChaîneVersJSON(sTexte)
+	dbgVérifieEgalité(j.ebony.version, "0.1.0", "version de la bibliothèque")
+	dbgVérifieEgalité(j.projet.Nom, sNom, "nom libre conservé tel quel, accents compris")
+	dbgVérifieEgalité(j.projet.dossier, "cafe-de-la-gare", "dossier")
+	dbgVérifieEgalité(j.projet.identifiant, "AppCafeDeLaGare", "identifiant")
+	dbgVérifieEgalité(j.projet["type"], "api", "type (clé lue avec des crochets)")
+	dbgVérifieEgalité(j.base.fournisseur, "sqlite", "base")
+FIN
+
+// Le fichier finit par un saut de ligne, sans retour chariot ni BOM : fins de ligne LF.
+PROCEDURE scenario_conf_forme_du_fichier()
+	sTexte est une chaîne = EbContenuConf("x", "x", "AppX", "0.1.0")
+	dbgVérifieEgalité(Droite(sTexte, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(sTexte, Caract(13)), 0, "aucun retour chariot")
+	dbgVérifieEgalité(Asc(Gauche(sTexte, 1)), 123, "commence par { : aucun BOM")
+FIN
+
+// Un nom contenant des guillemets, des barres inverses ou un saut de ligne reste intact dans le JSON (échappé, puis relu à l'identique).
+PROCEDURE scenario_conf_nom_delicat()
+	sNom est une chaîne = "Chez " + Caract(34) + "Paul" + Caract(34) + " \ ligne1" + Caract(10) + "ligne2"
+	j    est un JSON    = ChaîneVersJSON(EbContenuConf(sNom, "chez-paul", "AppChezPaul", "0.1.0"))
+	dbgVérifieEgalité(j.projet.Nom, sNom, "nom relu à l'identique")
+FIN
+
+// projet.owl : l'identifiant, le nom lisible dans Description, la langue, et une trace ; tabulations et LF exacts.
+PROCEDURE scenario_projet_owl_exact()
+	sNom     est une chaîne = "Caf" + Caract(233) + " de la Gare"
+	sTab     est une chaîne = Caract(9)
+	sLigne   est une chaîne = Caract(10)
+	sAttendu est une chaîne = "AppCafeDeLaGare est un Projet" + sLigne
+	sAttendu += sTab + "PROPRIETES" + sLigne
+	sAttendu += sTab + sTab + "Description = " + Caract(34) + sNom + Caract(34) + sLigne
+	sAttendu += sTab + sTab + "Langues = [langueFran" + Caract(231) + "ais]" + sLigne
+	sAttendu += sTab + "FIN" + sLigne + sLigne
+	sAttendu += sTab + "Trace(" + Caract(34) + sNom + " : projet cr" + Caract(233) + Caract(233) + " par ebony" + Caract(34) + ")" + sLigne
+	sAttendu += "FIN" + sLigne
+	dbgVérifieEgalité(EbContenuProjetOwl(sNom, "AppCafeDeLaGare"), sAttendu, "texte exact")
+FIN
+
+// Un nom avec des guillemets ne casse pas la chaîne OWL du projet : ils deviennent des apostrophes, les sauts de ligne des espaces.
+PROCEDURE scenario_projet_owl_nom_delicat()
+	sNom     est une chaîne = "Chez " + Caract(34) + "Paul" + Caract(34) + Caract(10) + "et fils"
+	sContenu est une chaîne = EbContenuProjetOwl(sNom, "AppChezPaul")
+	dbgVérifieVrai(Position(sContenu, "Description = " + Caract(34) + "Chez 'Paul' et fils" + Caract(34)) > 0, "guillemets et saut de ligne neutralisés")
+	dbgVérifieEgalité(EbNomPourCode("  x  "), "x", "espaces de bord retirés")
+	dbgVérifieEgalité(EbNomPourCode("a" + Caract(9) + "b"), "a b", "tabulation remplacée")
+FIN
+
+// Le projet produit se compile : le texte est une déclaration de projet bien formée (une seule ligne de déclaration, FIN final).
+PROCEDURE scenario_projet_owl_forme()
+	sContenu est une chaîne = EbContenuProjetOwl("x", "AppX")
+	sDebut   est une chaîne = "AppX est un Projet" + Caract(10) + Caract(9) + "PROPRIETES"
+	sFin     est une chaîne = "FIN" + Caract(10)
+	dbgVérifieEgalité(Gauche(sContenu, Taille(sDebut)), sDebut, "commence par la déclaration")
+	dbgVérifieEgalité(Droite(sContenu, Taille(sFin)), sFin, "finit par FIN et un saut de ligne")
+	dbgVérifieEgalité(Position(sContenu, Caract(13)), 0, "aucun retour chariot")
+FIN
+
+// .gitignore : bibliothèque copiée, stockage local, fichier d'environnement, fichier de secrets.
+PROCEDURE scenario_gitignore()
+	sContenu est une chaîne = EbContenuGitignore()
+	dbgVérifieEgalité(sContenu, "ebony/" + Caract(10) + "storage/" + Caract(10) + ".env" + Caract(10) + ".env.secrets" + Caract(10), "contenu exact")
+FIN
+
+// README.md : le nom libre en titre, les deux commandes pour démarrer, le rôle du dossier ebony/.
+PROCEDURE scenario_readme()
+	sNom     est une chaîne = "Caf" + Caract(233) + " de la Gare"
+	sContenu est une chaîne = EbContenuReadme(sNom)
+	dbgVérifieEgalité(Gauche(sContenu, Taille("# " + sNom)), "# " + sNom, "titre : le nom libre")
+	dbgVérifieVrai(Position(sContenu, "ebony doctor") > 0, "mentionne ebony doctor")
+	dbgVérifieVrai(Position(sContenu, "owl --check projet.owl") > 0, "mentionne owl --check")
+	dbgVérifieVrai(Position(sContenu, "ebony restore") > 0, "explique ebony restore")
+	dbgVérifieVrai(Position(sContenu, "## Les pièces d'une ressource") > 0, "présente les pièces d'une ressource")
+	dbgVérifieVrai(Position(sContenu, "**Le contrôleur**") > 0, "explique le contrôleur")
+	dbgVérifieVrai(Position(sContenu, "**Le service**") > 0, "explique le service")
+	dbgVérifieVrai(Position(sContenu, "**Le repository**") > 0, "explique le repository")
+	dbgVérifieEgalité(Droite(sContenu, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(sContenu, Caract(13)), 0, "aucun retour chariot")
+FIN
+
+// Le nom du service : « Service » + l'identifiant sans son « App ».
+PROCEDURE scenario_nom_du_service()
+	dbgVérifieEgalité(EbNomService("AppCafeDeLaGare"), "ServiceCafeDeLaGare", "nom du service")
+	dbgVérifieEgalité(EbNomService("App2dJeu"), "Service2dJeu", "identifiant commençant par un chiffre")
+FIN
+
+// Le service généré : un ServiceREST sous /api, une cEbApplication démarrée et arrêtée par le cycle de vie du service, la base du projet, et /health qui rend 200 ou 503.
+PROCEDURE scenario_contenu_du_service()
+	oOptions est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	sContenu est une chaîne                                         = EbContenuService("Ma Boutique", "AppMaBoutique", oOptions)
+	dbgVérifieVrai(Position(sContenu, "ServiceMaBoutique est un ServiceREST") > 0, "déclaration du service")
+	dbgVérifieVrai(Position(sContenu, "UrlBase = [" + Caract(34) + "api" + Caract(34) + "]") > 0, "préfixe /api")
+	dbgVérifieVrai(Position(sContenu, "oApp est un cEbApplication(oLecture, oSortie, oHorloge)") > 0, "l'application, sans la base dans son constructeur")
+	dbgVérifieVrai(Position(sContenu, "oBase est un cEbServiceBase(" + Caract(34) + "postgresql" + Caract(34) + ")") > 0, "la base du projet est un composant")
+	dbgVérifieVrai(Position(sContenu, "oApp.Ajoute(oBase)") > 0, "le composant est ajouté à l'application")
+	dbgVérifieVrai(Position(sContenu, "PROCEDURE FinInitialisation()") > 0 ET Position(sContenu, "cEbServiceApplication.Application().Démarre()") > 0, "démarrage dans FinInitialisation")
+	dbgVérifieVrai(Position(sContenu, "PROCEDURE Fermeture()") > 0 ET Position(sContenu, "cEbServiceApplication.Arrête()") > 0, "arrêt dans Fermeture")
+	dbgVérifieVrai(Position(sContenu, "cEbServiceApplication.Definit(oApp)") > 0, "l'application est posée dans cEbServiceApplication")
+	dbgVérifieEgalité(Position(sContenu, Caract(10) + Caract(9) + "oApp est un"), 0, "pas de variable de bloc pour l'application non plus")
+	dbgVérifieEgalité(Position(sContenu, Caract(10) + Caract(9) + "oApplication est un"), 0, "aucune variable de bloc d'une classe du projet : owl test planterait")
+	dbgVérifieEgalité(Position(sContenu, Caract(10) + Caract(9) + "oLecture est un"), 0, "pas de variable de bloc non plus pour la lecture")
+	dbgVérifieVrai(Position(sContenu, "PROCEDURE surErreur()") > 0, "surErreur")
+	dbgVérifieVrai(Position(sContenu, "Réponses = [httpOK, httpServiceIndisponible]") > 0, "/health déclare 200 et 503")
+	dbgVérifieVrai(Position(sContenu, "cEbServiceApplication.Application().Sante()") > 0 ET Position(sContenu, "oSante.Corps()") > 0, "/health rend l'état de santé des composants")
+	dbgVérifieEgalité(Position(sContenu, "BaseRepond"), 0, "/health ne nomme plus la base : un projet sans base n'a rien à sonder")
+	dbgVérifieVrai(Position(sContenu, "Accueil est une OpérationHTTP") > 0 ET Position(sContenu, "Chemin = []") > 0, "GET /api : l'accueil, sans chemin propre")
+	dbgVérifieVrai(Position(sContenu, Caract(96) + "{" + Caract(34) + "statut" + Caract(34) + ":" + Caract(34) + "ok" + Caract(34) + "," + Caract(34) + "sante" + Caract(34) + ":" + Caract(34) + "/api/health" + Caract(34) + "}" + Caract(96)) > 0, "l'accueil rend un JSON qui désigne /api/health")
+	dbgVérifieEgalité(Position(sContenu, "Authentification"), 0, "l'accueil est public : le service n'a aucun garde")
+	dbgVérifieVrai(Position(sContenu, "cEbServiceApplication.Application().Journal().Erreur(") > 0 ET Position(sContenu, "erreur_interne") > 0, "le détail va au journal, le client reçoit un code fixe")
+	dbgVérifieEgalité(Droite(sContenu, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(sContenu, Caract(13)), 0, "aucun retour chariot")
+FIN
+
+// Le README et le projet.owl d'un nom à guillemets restent bien formés.
+PROCEDURE scenario_readme_nom_delicat()
+	sContenu est une chaîne = EbContenuReadme("A" + Caract(34) + "B")
+	dbgVérifieEgalité(Gauche(sContenu, 7), "# A'B" + Caract(10) + Caract(10), "titre sans guillemet")
+FIN
+
+// ebony.conf avec options : base et section « auth » (jetons, table) ; sans authentification la section n'existe pas.
+PROCEDURE scenario_conf_avec_options()
+	oOptions est un cEbOptionsProjet("api", "hfsql", Vrai, "utilisateurs")
+	sTexte   est une chaîne                                                = EbContenuConfAvecOptions("x", "x", "AppX", "0.1.0", oOptions)
+	dbgVérifieVrai(JSONValide(sTexte), "JSON valide")
+	j est un JSON = ChaîneVersJSON(sTexte)
+	dbgVérifieEgalité(j.base.fournisseur, "hfsql", "base")
+	dbgVérifieVrai(j.auth.jetons, "jetons")
+	dbgVérifieEgalité(j.auth.table, "utilisateurs", "table")
+	dbgVérifieEgalité(Droite(sTexte, 1), Caract(10), "finit par un saut de ligne")
+	oSans est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	dbgVérifieEgalité(Position(EbContenuConfAvecOptions("x", "x", "AppX", "0.1.0", oSans), Caract(34) + "auth" + Caract(34) + ":"), 0, "pas de section auth (le module auth reste listé dans « modules »)")
+FIN
+
+// .env.exemple : les variables de chaque base, aucun secret (le mot de passe est dans .env.secrets.exemple), LF seulement, ligne finale.
+PROCEDURE scenario_env_exemple_par_base()
+	oSqlite est un cEbOptionsProjet = EbOptionsParDefaut()
+	sSqlite est une chaîne          = EbContenuEnvExemple("mon-app", oSqlite)
+	dbgVérifieVrai(Position(sSqlite, "DB_FICHIER=storage/app.db" + Caract(10)) > 0, "SQLite : fichier")
+	dbgVérifieEgalité(Position(sSqlite, "DB_HOTE"), 0, "SQLite : pas d'hôte")
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	sPostgres est une chaîne                                         = EbContenuEnvExemple("mon-app", oPostgres)
+	POUR TOUT sVariable DE["DB_HOTE=localhost", "DB_PORT=5432", "DB_NOM=mon-app", "DB_UTILISATEUR=postgres"]
+		dbgVérifieVrai(Position(sPostgres, sVariable) > 0, "PostgreSQL : " + sVariable)
+	FIN
+	oHfsql est un cEbOptionsProjet("api", "hfsql", Faux, "")
+	sHfsql est une chaîne                                    = EbContenuEnvExemple("mon-app", oHfsql)
+	POUR TOUT sVariable DE["DB_HOTE=localhost", "DB_PORT=4900", "DB_NOM=mon-app", "DB_UTILISATEUR=admin"]
+		dbgVérifieVrai(Position(sHfsql, sVariable) > 0, "HFSQL : " + sVariable)
+	FIN
+	dbgVérifieEgalité(Position(sPostgres, Caract(13)), 0, "aucun retour chariot")
+	dbgVérifieEgalité(Droite(sPostgres, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(sPostgres, "DB_FICHIER"), 0, "PostgreSQL : pas de fichier")
+FIN
+
+// .env.secrets.exemple : le mot de passe, vide, et lui seul ; jamais dans .env.exemple. SQLite : aucune variable, mais le fichier existe (emplacement à monter stable).
+PROCEDURE scenario_secrets_exemple_par_base()
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	sPostgres est une chaîne                                         = EbContenuSecretsExemple(oPostgres)
+	dbgVérifieVrai(Position(sPostgres, "DB_MOT_DE_PASSE=" + Caract(10)) > 0, "PostgreSQL : mot de passe vide")
+	dbgVérifieEgalité(Position(sPostgres, "DB_HOTE"), 0, "PostgreSQL : rien d'autre que des secrets")
+	oHfsql est un cEbOptionsProjet("api", "hfsql", Faux, "")
+	dbgVérifieVrai(Position(EbContenuSecretsExemple(oHfsql), "DB_MOT_DE_PASSE=" + Caract(10)) > 0, "HFSQL : mot de passe vide")
+	oSqlite est un cEbOptionsProjet = EbOptionsParDefaut()
+	sSqlite est une chaîne          = EbContenuSecretsExemple(oSqlite)
+	dbgVérifieEgalité(Position(sSqlite, "DB_"), 0, "SQLite : aucune variable")
+	dbgVérifieVrai(Taille(sSqlite) > 0, "SQLite : le fichier existe quand même")
+	dbgVérifieEgalité(Position(sPostgres, Caract(13)), 0, "aucun retour chariot")
+	dbgVérifieEgalité(Droite(sPostgres, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(EbContenuEnvExemple("mon-app", oPostgres), "MOT_DE_PASSE"), 0, "aucun mot de passe dans .env.exemple")
+FIN
+
+// ebony.conf : le mode de jeton « opaque » est écrit avec l'authentification, et il n'y a aucune trace de JWT.
+PROCEDURE scenario_conf_mode_de_jeton()
+	oOptions est un cEbOptionsProjet("api", "sqlite", Vrai, "users")
+	sTexte   est une chaîne                                          = EbContenuConfAvecOptions("x", "x", "AppX", "0.1.0", oOptions)
+	j        est un JSON                                             = ChaîneVersJSON(sTexte)
+	dbgVérifieEgalité(j.auth.mode, "opaque", "mode de jeton")
+	dbgVérifieEgalité(Position(Minuscule(sTexte), "jwt"), 0, "pas de JWT")
+FIN
+
+// config/env.json (SQLite) : du JSON valide, une seule variable, un chemin avec son défaut.
+PROCEDURE scenario_schema_env_sqlite()
+	oSqlite est un cEbOptionsProjet = EbOptionsParDefaut()
+	sSchema est une chaîne          = EbContenuSchemaEnv("mon-app", oSqlite)
+	dbgVérifieVrai(JSONValide(sSchema), "du JSON valide")
+	dbgVérifieEgalité(Droite(sSchema, 1), Caract(10), "finit par un saut de ligne")
+	dbgVérifieEgalité(Position(sSchema, Caract(13)), 0, "aucun retour chariot")
+	j est un JSON = ChaîneVersJSON(sSchema)
+	dbgVérifieEgalité(j.variables..Occurrence, 1, "une variable")
+	POUR TOUT v DE j.variables
+		dbgVérifieEgalité(v.cle, "DB_FICHIER", "DB_FICHIER")
+		dbgVérifieEgalité(v["type"], "chemin", "de type chemin")
+		dbgVérifieEgalité(v.defaut, "storage/app.db", "avec son défaut")
+	FIN
+FIN
+
+// config/env.json (PostgreSQL) : sept variables (dont DB_TLS et DB_CERTIFICAT_CA), le nom de la base vaut le dossier du projet, et SEUL le mot de passe est un secret, sans défaut.
+PROCEDURE scenario_schema_env_postgresql()
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	j         est un JSON                                            = ChaîneVersJSON(EbContenuSchemaEnv("ma-boutique", oPostgres))
+	dbgVérifieEgalité(j.variables..Occurrence, 7, "sept variables")
+	nSecrets est un entier = 0
+	POUR TOUT v DE j.variables
+		SI v.cle = "DB_NOM" ALORS
+			dbgVérifieEgalité(v.defaut, "ma-boutique", "DB_NOM = dossier")
+		FIN
+		SI v.cle = "DB_PORT" ALORS
+			dbgVérifieEgalité(v["type"], "port", "DB_PORT : port")
+			dbgVérifieEgalité(v.defaut, "5432", "5432 pour PostgreSQL")
+		FIN
+		SI JSONExiste(v, "secret") ALORS
+			nSecrets++
+			dbgVérifieEgalité(v.cle, "DB_MOT_DE_PASSE", "le seul secret est le mot de passe")
+			dbgVérifieFaux(JSONExiste(v, "defaut"), "un secret n'a pas de défaut")
+		FIN
+	FIN
+	dbgVérifieEgalité(nSecrets, 1, "un seul secret")
+FIN
+
+// HFSQL : le port et l'utilisateur par défaut sont ceux d'HFSQL Client/Serveur.
+PROCEDURE scenario_schema_env_hfsql()
+	oHfsql est un cEbOptionsProjet("api", "hfsql", Faux, "")
+	j      est un JSON                                       = ChaîneVersJSON(EbContenuSchemaEnv("x", oHfsql))
+	POUR TOUT v DE j.variables
+		SI v.cle = "DB_PORT" ALORS
+			dbgVérifieEgalité(v.defaut, "4900", "4900 pour HFSQL")
+		FIN
+		SI v.cle = "DB_UTILISATEUR" ALORS
+			dbgVérifieEgalité(v.defaut, "admin", "admin pour HFSQL")
+		FIN
+	FIN
+FIN
+
+// L'aller-retour : le schéma et les deux modèles générés, une fois copiés en .env et .env.secrets, donnent une configuration VALIDE pour chaque base (ce que « ebony env » dira juste après « ebony new »).
+PROCEDURE scenario_schema_et_modeles_forment_une_configuration_valide()
+	POUR TOUT sBase DE["sqlite", "postgresql", "hfsql"]
+		oOptions  est un cEbOptionsProjet("api", sBase, Faux, "")
+		oFichiers est un cEbLectureEnvFictive
+		oFichiers.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oOptions))
+		oFichiers.AjouteFichier(".env", EbContenuEnvExemple("ma-boutique", oOptions))
+		oFichiers.AjouteFichier(".env.secrets", EbContenuSecretsExemple(oOptions))
+		oEnvBase est un cEbEnv(oFichiers)
+		dbgVérifieVrai(oEnvBase.Charge("config/env.json", ".env", ".env.secrets"), sBase + " : valide (" + oEnvBase.Erreurs()..Occurrence + " erreur(s))")
+		dbgVérifieVrai(oEnvBase.SchemaPresent(), sBase + " : schéma lu")
+	FIN
+	oPostgres   est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oFichiersPg est un cEbLectureEnvFictive
+	oFichiersPg.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oPostgres))
+	oFichiersPg.AjouteFichier(".env", EbContenuEnvExemple("ma-boutique", oPostgres))
+	oEnvPg est un cEbEnv(oFichiersPg)
+	oEnvPg.Charge("config/env.json", ".env", ".env.secrets")
+	dbgVérifieEgalité(oEnvPg.LitEntier("DB_PORT"), 5432, "les valeurs du modèle sont celles lues")
+	dbgVérifieEgalité(oEnvPg.LitTexte("DB_NOM"), "ma-boutique", "DB_NOM = dossier")
+FIN
+
+// DB_TLS et DB_CERTIFICAT_CA : PostgreSQL seulement (SQLite n'a pas de réseau, le transport d'HFSQL est chiffré par le serveur). DB_TLS est une liste de quatre valeurs dont « verifie », le niveau strict, est le défaut.
+PROCEDURE scenario_schema_tls_postgresql_seulement()
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	j         est un JSON                                            = ChaîneVersJSON(EbContenuSchemaEnv("ma-boutique", oPostgres))
+	bTls      est un booléen                                         = Faux
+	bCa       est un booléen                                         = Faux
+	POUR TOUT v DE j.variables
+		SI v.cle = "DB_TLS" ALORS
+			bTls = Vrai
+			dbgVérifieEgalité(v["type"], "liste", "DB_TLS : une liste")
+			dbgVérifieEgalité(v.valeurs..Occurrence, 4, "quatre valeurs permises")
+			dbgVérifieEgalité(v.defaut, "verifie", "le défaut est le niveau strict")
+		FIN
+		SI v.cle = "DB_CERTIFICAT_CA" ALORS
+			bCa = Vrai
+			dbgVérifieEgalité(v["type"], "chemin", "DB_CERTIFICAT_CA : un chemin")
+			dbgVérifieFaux(JSONExiste(v, "defaut"), "facultatif : pas de défaut")
+		FIN
+	FIN
+	dbgVérifieVrai(bTls, "DB_TLS est dans le schéma PostgreSQL")
+	dbgVérifieVrai(bCa, "DB_CERTIFICAT_CA est dans le schéma PostgreSQL")
+	dbgVérifieVrai(Position(EbContenuEnvExemple("ma-boutique", oPostgres), "DB_TLS=verifie" + Caract(10)) > 0, ".env.exemple : DB_TLS=verifie")
+	oSqlite est un cEbOptionsProjet = EbOptionsParDefaut()
+	dbgVérifieEgalité(Position(EbContenuSchemaEnv("ma-boutique", oSqlite), "DB_TLS"), 0, "SQLite : pas de DB_TLS")
+	oHfsql est un cEbOptionsProjet("api", "hfsql", Faux, "")
+	dbgVérifieEgalité(Position(EbContenuSchemaEnv("ma-boutique", oHfsql), "DB_TLS"), 0, "HFSQL : pas de DB_TLS")
+FIN
+
+// Une valeur de DB_TLS hors liste est refusée par la configuration, avec le nom de la variable : « desactive » est la seule façon d'écrire « pas de TLS ».
+PROCEDURE scenario_tls_hors_liste_refuse()
+	oPostgres est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oFichiers est un cEbLectureEnvFictive
+	oFichiers.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oPostgres))
+	oFichiers.AjouteFichier(".env", "DB_TLS=disable" + Caract(10))
+	oEnvFaux est un cEbEnv(oFichiers)
+	dbgVérifieFaux(oEnvFaux.Charge("config/env.json", ".env", ".env.secrets"), "DB_TLS=disable est refusé")
+	dbgVérifieVrai(Position(oEnvFaux.Erreurs()[1], "DB_TLS") > 0, "l'erreur nomme la variable")
+	oFichiersBon est un cEbLectureEnvFictive
+	oFichiersBon.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oPostgres))
+	oFichiersBon.AjouteFichier(".env", "DB_TLS=desactive" + Caract(10))
+	oEnvBon est un cEbEnv(oFichiersBon)
+	dbgVérifieVrai(oEnvBon.Charge("config/env.json", ".env", ".env.secrets"), "DB_TLS=desactive est accepté")
+	dbgVérifieEgalité(oEnvBon.LitTexte("DB_TLS"), "desactive", "et lu tel quel")
+FIN
+
+// Les variables déclarées par les modules (leur manifeste) s'ajoutent à celles de la base, dans le schéma, le .env.exemple, et forment encore une configuration valide ; l'original des options n'est pas modifié.
+PROCEDURE scenario_variables_des_modules_dans_le_schema()
+	oSans      est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	tabModules est un tableau
+	tabAucune  est un tableau
+	TableauAjoute(tabModules, EbVariableSchemaListe("ESSAI_MODE", "a|b", "a", "Le mode d'essai."))
+	oAvec est un cEbOptionsProjet = oSans.AvecModules(tabModules, tabAucune, tabAucune)
+	dbgVérifieEgalité((oSans.VariablesModules())..Occurrence, 0, "l'original n'a pas changé")
+	dbgVérifieEgalité((oAvec.VariablesModules())..Occurrence, 1, "la copie porte la variable")
+	dbgVérifieVrai(Position(EbContenuSchemaEnv("ma-boutique", oAvec), "ESSAI_MODE") > 0, "dans config/env.json")
+	dbgVérifieFaux(Position(EbContenuSchemaEnv("ma-boutique", oSans), "ESSAI_MODE") > 0, "pas dans le schéma sans module")
+	dbgVérifieVrai(Position(EbContenuEnvExemple("ma-boutique", oAvec), "ESSAI_MODE=a" + Caract(10)) > 0, "dans .env.exemple, avec son défaut")
+	// Après les variables de la base : l'ordre est celui des déclarations.
+	dbgVérifieVrai(Position(EbContenuEnvExemple("ma-boutique", oAvec), "DB_FICHIER") < Position(EbContenuEnvExemple("ma-boutique", oAvec), "ESSAI_MODE"), "les variables de la base d'abord")
+	oFichiers est un cEbLectureEnvFictive
+	oFichiers.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oAvec))
+	oFichiers.AjouteFichier(".env", EbContenuEnvExemple("ma-boutique", oAvec))
+	oEnvModules est un cEbEnv(oFichiers)
+	dbgVérifieVrai(oEnvModules.Charge("config/env.json", ".env", ".env.secrets"), "schéma et modèle : configuration valide")
+	dbgVérifieEgalité(oEnvModules.LitTexte("ESSAI_MODE"), "a", "valeur lue")
+	oFichiersFaute est un cEbLectureEnvFictive
+	oFichiersFaute.AjouteFichier("config/env.json", EbContenuSchemaEnv("ma-boutique", oAvec))
+	oFichiersFaute.AjouteFichier(".env", EbContenuEnvExemple("ma-boutique", oAvec) + "ESSAI_MODE=z" + Caract(10))
+	oEnvFaute est un cEbEnv(oFichiersFaute)
+	dbgVérifieFaux(oEnvFaute.Charge("config/env.json", ".env", ".env.secrets"), "une valeur hors liste est refusée")
+FIN
+
+// Le kit slim : aucune variable DB_*, un schéma de configuration vide mais valide, pas de section base dans ebony.conf, un service sans la base et une santé qui ne parle que de l'application.
+PROCEDURE scenario_kit_slim_contenu_sans_base()
+	oSlim        est un cEbOptionsProjet("slim", "", Faux, "")
+	tabVariables est un tableau                                = EbVariablesSchema("x", oSlim)
+	dbgVérifieEgalité(tabVariables..Occurrence, 0, "aucune variable de configuration")
+	dbgVérifieEgalité(Position(EbContenuEnvExemple("x", oSlim), "DB_"), 0, ".env.exemple sans DB_")
+	dbgVérifieVrai(Position(EbContenuSecretsExemple(oSlim), "kit slim") > 0, "le fichier des secrets dit pourquoi il est vide")
+	sConf est une chaîne = EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oSlim)
+	dbgVérifieEgalité(Position(sConf, "base"), 0, "ebony.conf sans base")
+	dbgVérifieVrai(Position(sConf, Caract(34) + "type" + Caract(34) + ": " + Caract(34) + "api" + Caract(34)) > 0, "le type d'application reste api")
+	dbgVérifieVrai(Position(sConf, Caract(34) + "kit" + Caract(34) + ": " + Caract(34) + "slim" + Caract(34)) > 0, "le kit est noté")
+	sService est une chaîne = EbContenuService("Mon App", "AppMonApp", oSlim)
+	dbgVérifieEgalité(Position(sService, "oBase"), 0, "le service n'a pas de oBase")
+	dbgVérifieEgalité(Position(sService, "cEbServiceBase"), 0, "ni cEbServiceBase")
+	dbgVérifieVrai(Position(sService, "oSante est un cEbSante") > 0, "/api/health compose toujours la santé des composants")
+	// Le kit api, lui, garde tout (non-régression).
+	oApi est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	dbgVérifieVrai(Position(EbContenuService("Mon App", "AppMonApp", oApi), "oApp.Ajoute(oBase)") > 0, "api : la base est ajoutée")
+	dbgVérifieVrai(Position(EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oApi), "fournisseur") > 0, "api : ebony.conf note le fournisseur")
+FIN
+
+// Le schéma de configuration d'un projet slim reste un JSON valide, avec une liste de variables vide.
+PROCEDURE scenario_kit_slim_schema_env_valide()
+	oSlim est un cEbOptionsProjet("slim", "", Faux, "")
+	j     est un JSON                                   = ChaîneVersJSON(EbContenuSchemaEnv("x", oSlim))
+	dbgVérifieVrai(JSONExiste(j, "variables"), "la clé variables existe")
+	dbgVérifieEgalité(j.variables..Occurrence, 0, "aucune variable")
+FIN

@@ -1,0 +1,346 @@
+// Contenu des fichiers d'un projet créé par « ebony new » : fonctions pures (aucun accès au disque), testées dans tests/unitaires/commandes/nouveau/.
+// OWL n'a pas d'échappement dans ses chaînes : les guillemets, tabulations et sauts de ligne du texte produit sont fabriqués avec Caract() (34, 9, 10, 96).
+// Les fichiers produits sont en UTF-8 sans BOM, fins de ligne LF, et finissent par un saut de ligne (convention du dépôt, voir .gitattributes).
+EbContenuProjet est une CollectionDeProcédures
+
+	// Type et base d'un projet à ce stade : API REST, SQLite en développement (décisions du cadrage). À paramétrer quand d'autres choix existeront.
+	PROCEDURE EbTypeProjetDefaut() : chaîne
+		RENVOYER "api"
+	FIN
+
+	PROCEDURE EbBaseDefaut() : chaîne
+		RENVOYER "sqlite"
+	FIN
+
+	// Nom pouvant être écrit entre guillemets dans du code OWL : les guillemets sont remplacés par des apostrophes et les sauts de ligne par des espaces
+	// (une chaîne OWL n'a pas d'échappement), et les espaces de bord sont retirés.
+	PROCEDURE EbNomPourCode(sNom est une chaîne) : chaîne
+		sPropre est une chaîne = Remplace(sNom, Caract(34), "'")
+		sPropre = Remplace(sPropre, Caract(13), " ")
+		sPropre = Remplace(sPropre, Caract(10), " ")
+		sPropre = Remplace(sPropre, Caract(9), " ")
+		RENVOYER SansEspace(sPropre)
+	FIN
+
+	// ebony.conf : JSON, lu par ebony (version de la bibliothèque, type, base) et modifiable par « ebony upgrade ». Le nom libre y est conservé tel quel.
+	// La clé « type » s'écrit avec des crochets : c'est aussi une propriété de JSON en OWL (mesuré, j.projet.type est refusé).
+	PROCEDURE EbContenuConf(sNom est une chaîne, sDossier est une chaîne, sIdentifiant est une chaîne, sVersionBibliotheque est une chaîne) : chaîne
+		oOptions est un cEbOptionsProjet = EbOptionsParDefaut()
+		RENVOYER EbContenuConfAvecOptions(sNom, sDossier, sIdentifiant, sVersionBibliotheque, oOptions)
+	FIN
+
+	// Mode de jeton d'une authentification demandée : « opaque », un jeton aléatoire sans contenu lisible dont seule l'empreinte SHA-256 est conservée (décision 8 du cadrage).
+	// Ce n'est pas un JWT. Aucune option ne choisit un autre mode pour l'instant.
+	PROCEDURE EbModeJetonDefaut() : chaîne
+		RENVOYER "opaque"
+	FIN
+
+	// Comme EbContenuConf, avec les choix de l'utilisateur. La section « auth » n'existe que si l'authentification est demandée : sans option, le fichier est celui d'avant.
+	// Elle résume pour les outils ce que décrit config/Auth.owl (table et mode de jeton) ; la source de vérité du code est config/Auth.owl, que l'utilisateur modifie.
+	PROCEDURE EbContenuConfAvecOptions(sNom est une chaîne, sDossier est une chaîne, sIdentifiant est une chaîne, sVersionBibliotheque est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		j est un JSON
+		j.ebony.version      = sVersionBibliotheque
+		j.projet.Nom         = sNom
+		j.projet.dossier     = sDossier
+		j.projet.identifiant = sIdentifiant
+		j.projet["type"]     = EbTypeProjetDefaut()
+		j.projet["kit"]      = oOptions.Kit()
+		j.modules            = ChaîneVersJSON(EbModulesEnJson(oOptions.Kit()))
+		SI oOptions.ABase() ALORS
+			j.base.fournisseur = oOptions.BaseDonnees()
+		FIN
+		SI oOptions.Auth() ALORS
+			j.auth.jetons = Vrai
+			j.auth.table  = oOptions.TableUtilisateurs()
+			j.auth.mode   = EbModeJetonDefaut()
+		FIN
+		RENVOYER JSONVersChaîne(j, psdMiseEnForme) + Caract(10)
+	FIN
+
+	// Une variable du schéma de configuration. Ne pas appeler dans un CAS : une déclaration dans un CAS non exécuté corrompt les variables locales d'OWL, d'où une fonction qui la construit.
+	PROCEDURE EbVariableSchema(sCle est une chaîne, sNature est une chaîne, bADefaut est un booléen, sDefaut est une chaîne, bSecret est un booléen, sDescription est une chaîne) : cEbVariableEnv
+		tabAucune est un tableau de chaînes
+		oVariable est un cEbVariableEnv(sCle, sNature, tabAucune, Faux, bADefaut, sDefaut, bSecret, sDescription)
+		RENVOYER oVariable
+	FIN
+
+	// Une variable du schéma qui n'accepte que certaines valeurs (nature « liste ») : sValeurs les donne séparées par « | », sDefaut est l'une d'elles.
+	PROCEDURE EbVariableSchemaListe(sCle est une chaîne, sValeurs est une chaîne, sDefaut est une chaîne, sDescription est une chaîne) : cEbVariableEnv
+		tabValeurs est un tableau de chaînes                                                                 = ChaîneDécoupe(sValeurs, "|")
+		oVariable  est un cEbVariableEnv(sCle, "liste", tabValeurs, Faux, Vrai, sDefaut, Faux, sDescription)
+		RENVOYER oVariable
+	FIN
+
+	// Les variables de configuration d'un projet, d'après sa base : la SOURCE UNIQUE de config/env.json, de .env.exemple et de .env.secrets.exemple.
+	// Pas d'obligation sur le mot de passe : un serveur de développement local peut ne pas en avoir ; qui veut l'imposer en production met "obligatoire": true dans config/env.json.
+	PROCEDURE EbVariablesSchema(sDossier est une chaîne, oOptions est un cEbOptionsProjet) : tableau
+		tabVariables est un tableau
+		sPort        est une chaîne = "5432"
+		sUtilisateur est une chaîne = "postgres"
+		SI oOptions.BaseDonnees() = "hfsql" ALORS
+			sPort        = "4900"
+			sUtilisateur = "admin"
+		FIN
+		SELON oOptions.BaseDonnees()
+			CAS ""
+			// Un kit sans base (slim) : aucune variable DB_*.
+			CAS "sqlite"
+			TableauAjoute(tabVariables, EbVariableSchema("DB_FICHIER", "chemin", Vrai, "storage/app.db", Faux, "Fichier de la base SQLite."))
+			AUTRE CAS
+			TableauAjoute(tabVariables, EbVariableSchema("DB_HOTE", "texte", Vrai, "localhost", Faux, "Hôte du serveur de base de données."))
+			TableauAjoute(tabVariables, EbVariableSchema("DB_PORT", "port", Vrai, sPort, Faux, "Port du serveur de base de données."))
+			TableauAjoute(tabVariables, EbVariableSchema("DB_NOM", "texte", Vrai, sDossier, Faux, "Nom de la base."))
+			TableauAjoute(tabVariables, EbVariableSchema("DB_UTILISATEUR", "texte", Vrai, sUtilisateur, Faux, "Utilisateur de la base."))
+			TableauAjoute(tabVariables, EbVariableSchema("DB_MOT_DE_PASSE", "texte", Faux, "", Vrai, "Mot de passe de la base."))
+		FIN
+		// PostgreSQL seulement (le transport d'HFSQL est chiffré par le serveur : ModeTLS sans effet). OWL exige un TLS vérifié par défaut : un serveur local de développement sans TLS demande DB_TLS=desactive.
+		SI oOptions.BaseDonnees() = "postgresql" ALORS
+			TableauAjoute(tabVariables, EbVariableSchemaListe("DB_TLS", "verifie|ca|accepte|desactive", "verifie", "Chiffrement TLS vers la base : verifie (certificat et nom du serveur vérifiés, défaut), ca (chaîne de certificats vérifiée, pas le nom), accepte (chiffré, certificat non vérifié), desactive (aucun TLS : serveur local de développement seulement)."))
+			TableauAjoute(tabVariables, EbVariableSchema("DB_CERTIFICAT_CA", "chemin", Faux, "", Faux, "Fichier PEM de l'autorité de certification du serveur (CA interne, certificat auto-signé) ; facultatif, sans lui la liste de confiance d'OWL s'applique."))
+		FIN
+		// Puis celles que les modules installés déclarent dans leur manifeste : le cœur ne les connaît pas par leur nom.
+		POUR TOUT oVariableModule DE oOptions.VariablesModules()
+			TableauAjoute(tabVariables, oVariableModule)
+		FIN
+		RENVOYER tabVariables
+	FIN
+
+	// config/env.json : le schéma de la configuration, des DONNÉES (jamais du code exécuté) lues au démarrage par cEbEnv et par « ebony env ». À l'utilisateur de le modifier : ajouter une variable,
+	// la rendre obligatoire, changer un défaut. Les .env.exemple sont générés d'après lui. Tabulations et LF, saut de ligne final.
+	PROCEDURE EbContenuSchemaEnv(sDossier est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		sTab       est une chaîne = Caract(9)
+		sLigne     est une chaîne = Caract(10)
+		sVariables est une chaîne = ""
+		POUR TOUT oVariable DE EbVariablesSchema(sDossier, oOptions)
+			SI sVariables <> "" ALORS
+				sVariables += "," + sLigne
+			FIN
+			sVariables += sTab + sTab + "{" + sLigne
+			sVariables += sTab + sTab + sTab + EbJsonChaine("cle") + ": " + EbJsonChaine(oVariable.Cle()) + "," + sLigne
+			sVariables += sTab + sTab + sTab + EbJsonChaine("type") + ": " + EbJsonChaine(oVariable.Nature())
+			SI oVariable.Nature() = "liste" ALORS
+				sVariables += "," + sLigne + sTab + sTab + sTab + EbJsonChaine("valeurs") + ": " + EbJsonListe(oVariable.Valeurs())
+			FIN
+			SI oVariable.ADefaut() ALORS
+				sVariables += "," + sLigne + sTab + sTab + sTab + EbJsonChaine("defaut") + ": " + EbJsonChaine(oVariable.Defaut())
+			FIN
+			SI oVariable.Secret() ALORS
+				sVariables += "," + sLigne + sTab + sTab + sTab + EbJsonChaine("secret") + ": true"
+			FIN
+			sVariables += "," + sLigne + sTab + sTab + sTab + EbJsonChaine("description") + ": " + EbJsonChaine(oVariable.Description()) + sLigne
+			sVariables += sTab + sTab + "}"
+		FIN
+		RENVOYER "{" + sLigne + sTab + EbJsonChaine("variables") + ": [" + sLigne + sVariables + sLigne + sTab + "]" + sLigne + "}" + sLigne
+	FIN
+
+	// .env.exemple : modèle du fichier .env, la configuration SANS secret (non versionné, voir .gitignore), généré d'après le schéma config/env.json : une ligne CLE=défaut par variable non secrète.
+	// Les secrets sont dans un fichier distinct, .env.secrets (voir EbContenuSecretsExemple) : l'hébergeur peut monter l'un sans l'autre.
+	PROCEDURE EbContenuEnvExemple(sDossier est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		sLigne   est une chaîne = Caract(10)
+		sContenu est une chaîne = "# Copiez ce fichier en .env (il n'est pas versionné) et adaptez les valeurs. Les secrets (mots de passe) vont dans .env.secrets." + sLigne
+		sContenu += "# Les variables et leurs types sont décrits dans config/env.json ; vérifiez-les avec « ebony env »." + sLigne
+		POUR TOUT oVariable DE EbVariablesSchema(sDossier, oOptions)
+			SI PAS oVariable.Secret() ALORS
+				sContenu += "# " + oVariable.Description() + sLigne
+				sContenu += oVariable.Cle() + "=" + oVariable.Defaut() + sLigne
+			FIN
+		FIN
+		RENVOYER sContenu
+	FIN
+
+	// .env.secrets.exemple : modèle du fichier .env.secrets, les SEULES valeurs secrètes (non versionné), généré d'après le schéma. Lu après .env : une variable présente dans les deux prend la valeur de .env.secrets.
+	// Aucun secret n'est écrit ici : les valeurs restent vides. Avec SQLite il n'y a pas de secret pour l'instant ; le fichier existe quand même, pour que l'emplacement à monter soit toujours le même.
+	PROCEDURE EbContenuSecretsExemple(oOptions est un cEbOptionsProjet) : chaîne
+		sLigne   est une chaîne = Caract(10)
+		sContenu est une chaîne = "# Copiez ce fichier en .env.secrets (il n'est pas versionné). Ne mettez ici que des secrets ; le reste va dans .env." + sLigne
+		nSecrets est un entier  = 0
+		POUR TOUT oVariable DE EbVariablesSchema("", oOptions)
+			SI oVariable.Secret() ALORS
+				sContenu += "# " + oVariable.Description() + sLigne
+				sContenu += oVariable.Cle() + "=" + sLigne
+				nSecrets++
+			FIN
+		FIN
+		SI nSecrets = 0 ALORS
+			SI oOptions.ABase() ALORS
+				sContenu += "# Aucun secret pour SQLite. Les jetons et clés viendront ici." + sLigne
+			SINON
+				sContenu += "# Aucun secret pour l'instant : le kit slim n'a ni base ni authentification. Vos clés viendront ici." + sLigne
+			FIN
+		FIN
+		RENVOYER sContenu
+	FIN
+
+	// Les fichiers et dossiers écrits par « ebony new », relatifs au dossier du projet (un dossier se termine par « / »). Source unique de la liste donnée par --json.
+	PROCEDURE EbFichiersProjet(oOptions est un cEbOptionsProjet) : tableau de chaînes
+		tabFichiers est un tableau de chaînes
+		TableauAjoute(tabFichiers, "ebony/")
+		TableauAjoute(tabFichiers, "ebony.conf")
+		TableauAjoute(tabFichiers, "projet.owl")
+		TableauAjoute(tabFichiers, ".gitignore")
+		TableauAjoute(tabFichiers, ".env.exemple")
+		TableauAjoute(tabFichiers, ".env.secrets.exemple")
+		TableauAjoute(tabFichiers, "config/env.json")
+		TableauAjoute(tabFichiers, "app/")
+		TableauAjoute(tabFichiers, "README.md")
+		// Les fichiers que les modules installés fournissent (leur manifeste : config/Auth.owl avec --auth).
+		POUR TOUT oFichierModule DE oOptions.FichiersModules()
+			TableauAjoute(tabFichiers, oFichierModule.Chemin())
+		FIN
+		// Les migrations que les modules installés fournissent (leur manifeste), dans database/migrations/.
+		POUR TOUT oMigration DE oOptions.MigrationsModules()
+			TableauAjoute(tabFichiers, oMigration.Fichier())
+		FIN
+		RENVOYER tabFichiers
+	FIN
+
+	// projet.owl minimal : le bloc « est un Projet » porte l'identifiant déduit (AppCafeDeLaGare) et le nom lisible dans Description.
+	// Le code du bloc est le programme : une trace suffit à voir que le projet s'exécute.
+	PROCEDURE EbContenuProjetOwl(sNom est une chaîne, sIdentifiant est une chaîne) : chaîne
+		sLisible   est une chaîne = EbNomPourCode(sNom)
+		sGuillemet est une chaîne = Caract(34)
+		sTab       est une chaîne = Caract(9)
+		sLigne     est une chaîne = Caract(10)
+		sContenu   est une chaîne = sIdentifiant + " est un Projet" + sLigne
+		sContenu += sTab + "PROPRIETES" + sLigne
+		sContenu += sTab + sTab + "Description = " + sGuillemet + sLisible + sGuillemet + sLigne
+		sContenu += sTab + sTab + "Langues = [langueFrançais]" + sLigne
+		sContenu += sTab + "FIN" + sLigne
+		sContenu += sLigne
+		sContenu += sTab + "Trace(" + sGuillemet + sLisible + " : projet créé par ebony" + sGuillemet + ")" + sLigne
+		sContenu += "FIN" + sLigne
+		RENVOYER sContenu
+	FIN
+
+	// Nom du service REST généré : « Service » + l'identifiant du projet sans son « App » (AppCafeDeLaGare → ServiceCafeDeLaGare). Le préfixe de nature « Service » évite toute collision avec les noms de l'utilisateur.
+	PROCEDURE EbNomService(sIdentifiant est une chaîne) : chaîne
+		RENVOYER "Service" + Droite(sIdentifiant, Taille(sIdentifiant) - 3)
+	FIN
+
+	// app/http/Service<Nom>.owl : le service REST du projet (jalon M1). Il possède UNE cEbApplication (configuration, journal, base) démarrée dans FinInitialisation, arrêtée dans Fermeture,
+	// répond aux erreurs de route par un JSON sans détail interne (le détail va au journal), et expose GET /api/health (200, ou 503 quand la base ne répond pas). Le fichier est à l'utilisateur ensuite : il y ajoute ses routes.
+	PROCEDURE EbContenuService(sNom est une chaîne, sIdentifiant est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		sTab       est une chaîne = Caract(9)
+		sLigne     est une chaîne = Caract(10)
+		sGuillemet est une chaîne = Caract(34)
+		sAccent    est une chaîne = Caract(96)
+		sContenu   est une chaîne = "// Service REST de " + EbNomPourCode(sNom) + ", généré par ebony. Le fichier est à vous : ajoutez vos routes ici (une OpérationHTTP chacune) ou dans d'autres services." + sLigne
+		sContenu += "// Lancer : owl serve --port 8080 ; vérifier : GET /api/health. La configuration vient de config/env.json, .env et .env.secrets (voir « ebony env »)." + sLigne
+		sContenu += EbNomService(sIdentifiant) + " est un ServiceREST" + sLigne
+		sContenu += sTab + "PROPRIETES" + sLigne
+		sContenu += sTab + sTab + "UrlBase = [" + sGuillemet + "api" + sGuillemet + "]" + sLigne
+		sContenu += sTab + "FIN" + sLigne + sLigne
+		sContenu += sTab + "// L'application unique est posée dans cEbServiceApplication, pas dans une variable du bloc du service : une variable de bloc d'une classe du projet fait planter « owl test »." + sLigne
+		sContenu += sTab + "// Vos propres objets partagés (un repository, par exemple) suivent la même règle : un membre GLOBAL d'une classe à vous, posé dans FinInitialisation." + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += sTab + "// La base de données est un composant de l'application (oApp.Ajoute) : un projet qui n'en veut pas n'ajoute pas oBase, et GET /api/health ne parle plus de base." + sLigne
+		SINON
+			sContenu += sTab + "// Ce projet n'a pas de base de données (kit slim) : l'application n'a aucun composant, et GET /api/health ne parle que d'elle. Un composant s'ajoute avec oApp.Ajoute(...)." + sLigne
+		FIN
+		sContenu += sTab + "// Une configuration invalide arrête ici le démarrage : le service n'écoute pas, et toutes les erreurs sont listées." + sLigne
+		sContenu += sTab + "PROCEDURE FinInitialisation()" + sLigne
+		sContenu += sTab + sTab + "oLecture est un cEbLectureEnvReelle" + sLigne
+		sContenu += sTab + sTab + "oSortie est un cEbSortieJournalConsole" + sLigne
+		sContenu += sTab + sTab + "oHorloge est un cEbHorlogeSysteme" + sLigne
+		sContenu += sTab + sTab + "oApp est un cEbApplication(oLecture, oSortie, oHorloge)" + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += sTab + sTab + "oBase est un cEbServiceBase(" + sGuillemet + oOptions.BaseDonnees() + sGuillemet + ")" + sLigne
+			sContenu += sTab + sTab + "oApp.Ajoute(oBase)" + sLigne
+		FIN
+		sContenu += sTab + sTab + "cEbServiceApplication.Definit(oApp)" + sLigne
+		sContenu += sTab + sTab + "cEbServiceApplication.Application().Démarre()" + sLigne
+		sContenu += sTab + "FIN" + sLigne + sLigne
+		sContenu += sTab + "PROCEDURE Fermeture()" + sLigne
+		sContenu += sTab + sTab + "cEbServiceApplication.Arrête()" + sLigne
+		sContenu += sTab + "FIN" + sLigne + sLigne
+		sContenu += sTab + "// Une route qui échoue : le détail va au journal, le client reçoit un JSON sans rien d'interne." + sLigne
+		sContenu += sTab + "PROCEDURE surErreur()" + sLigne
+		sContenu += sTab + sTab + "cEbServiceApplication.Application().Journal().Erreur(" + sGuillemet + "Erreur dans une route : " + sGuillemet + " + ExceptionInfo(errMessage))" + sLigne
+		sContenu += sTab + sTab + "MoiMême..Réponse..CodeÉtat = httpErreurServeur" + sLigne
+		sContenu += sTab + sTab + "MoiMême..Réponse..TypeContenu = " + sGuillemet + "application/json" + sGuillemet + sLigne
+		sContenu += sTab + sTab + "MoiMême..Réponse..Corps = " + sAccent + "{" + sGuillemet + "code" + sGuillemet + ":" + sGuillemet + "erreur_interne" + sGuillemet + "," + sGuillemet + "message" + sGuillemet + ":" + sGuillemet + "Une erreur interne est survenue." + sGuillemet + "}" + sAccent + sLigne
+		sContenu += sTab + "FIN" + sLigne + sLigne
+		sContenu += sTab + "// GET /api : l'accueil de l'API, en JSON. Public, comme /api/health ; remplacez son corps par ce que vous voulez annoncer." + sLigne
+		sContenu += sTab + "Accueil est une OpérationHTTP" + sLigne
+		sContenu += sTab + sTab + "PROPRIETES" + sLigne
+		sContenu += sTab + sTab + sTab + "Méthode = httpGet" + sLigne
+		sContenu += sTab + sTab + sTab + "Chemin = []" + sLigne
+		sContenu += sTab + sTab + sTab + "Réponses = [httpOK]" + sLigne
+		sContenu += sTab + sTab + sTab + "CodeÉtat = httpOK" + sLigne
+		sContenu += sTab + sTab + "FIN" + sLigne
+		sContenu += sTab + sTab + "PROCEDURE surRequête() : chaîne" + sLigne
+		sContenu += sTab + sTab + sTab + "MoiMême..Réponse..TypeContenu = " + sGuillemet + "application/json" + sGuillemet + sLigne
+		sContenu += sTab + sTab + sTab + "RENVOYER " + sAccent + "{" + sGuillemet + "statut" + sGuillemet + ":" + sGuillemet + "ok" + sGuillemet + "," + sGuillemet + "sante" + sGuillemet + ":" + sGuillemet + "/api/health" + sGuillemet + "}" + sAccent + sLigne
+		sContenu += sTab + sTab + "FIN" + sLigne
+		sContenu += sTab + "FIN" + sLigne + sLigne
+		sContenu += sTab + "// GET /api/health : 200 si l'application et ses composants (la base) répondent, 503 sinon (le service, lui, tourne : un orchestrateur peut attendre le retour de la base)." + sLigne
+		sContenu += sTab + "Sante est une OpérationHTTP" + sLigne
+		sContenu += sTab + sTab + "PROPRIETES" + sLigne
+		sContenu += sTab + sTab + sTab + "Méthode = httpGet" + sLigne
+		sContenu += sTab + sTab + sTab + "Chemin = [" + sGuillemet + "health" + sGuillemet + "]" + sLigne
+		sContenu += sTab + sTab + sTab + "Réponses = [httpOK, httpServiceIndisponible]" + sLigne
+		sContenu += sTab + sTab + sTab + "CodeÉtat = httpOK" + sLigne
+		sContenu += sTab + sTab + "FIN" + sLigne
+		sContenu += sTab + sTab + "PROCEDURE surRequête() : chaîne" + sLigne
+		sContenu += sTab + sTab + sTab + "MoiMême..Réponse..TypeContenu = " + sGuillemet + "application/json" + sGuillemet + sLigne
+		sContenu += sTab + sTab + sTab + "oSante est un cEbSante = cEbServiceApplication.Application().Sante()" + sLigne
+		sContenu += sTab + sTab + sTab + "SI PAS oSante.Saine() ALORS" + sLigne
+		sContenu += sTab + sTab + sTab + sTab + "MoiMême..Réponse..CodeÉtat = httpServiceIndisponible" + sLigne
+		sContenu += sTab + sTab + sTab + "FIN" + sLigne
+		sContenu += sTab + sTab + sTab + "MoiMême..Réponse..Corps = oSante.Corps()" + sLigne
+		sContenu += sTab + sTab + sTab + "RENVOYER " + sGuillemet + sGuillemet + sLigne
+		sContenu += sTab + sTab + "FIN" + sLigne
+		sContenu += sTab + "FIN" + sLigne
+		sContenu += "FIN" + sLigne
+		RENVOYER sContenu
+	FIN
+
+	// .gitignore : la bibliothèque copiée (restaurée par « ebony restore »), le stockage local, le fichier d'environnement et le fichier de secrets ne sont pas versionnés.
+	PROCEDURE EbContenuGitignore() : chaîne
+		RENVOYER "ebony/" + Caract(10) + "storage/" + Caract(10) + ".env" + Caract(10) + ".env.secrets" + Caract(10)
+	FIN
+
+	// README.md du projet : le nom libre en titre, puis les deux commandes pour commencer. Sans option : celui du kit par défaut (api).
+	PROCEDURE EbContenuReadme(sNom est une chaîne) : chaîne
+		oOptions est un cEbOptionsProjet = EbOptionsParDefaut()
+		RENVOYER EbContenuReadmeAvecOptions(sNom, oOptions)
+	FIN
+
+	// Comme EbContenuReadme, selon le kit : un projet sans base (slim) ne parle ni de base ni de ressources.
+	PROCEDURE EbContenuReadmeAvecOptions(sNom est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		sLigne   est une chaîne = Caract(10)
+		sBloc    est une chaîne = Caract(96) + Caract(96) + Caract(96)
+		sContenu est une chaîne = "# " + EbNomPourCode(sNom) + sLigne + sLigne
+		SI oOptions.ABase() ALORS
+			sContenu += "Projet créé avec ebony (API REST en OWL)." + sLigne + sLigne
+		SINON
+			sContenu += "Projet créé avec ebony (API REST en OWL), kit slim : le cœur seul, sans base de données ni authentification." + sLigne + sLigne
+		FIN
+		sContenu += "## Démarrer" + sLigne + sLigne
+		sContenu += sBloc + sLigne
+		sContenu += "ebony doctor" + sLigne
+		sContenu += "owl --check projet.owl" + sLigne
+		sContenu += "owl serve --port 8080" + sLigne
+		sContenu += sBloc + sLigne + sLigne
+		sSante est une chaîne = " répond 200 quand la base répond, 503 sinon."
+		SI PAS oOptions.ABase() ALORS
+			sSante = " répond 200 tant que l'application tourne."
+		FIN
+		sContenu += "Le service est dans " + Caract(96) + "app/http/" + Caract(96) + " ; " + Caract(96) + "GET /api/health" + Caract(96) + sSante + " La configuration (" + Caract(96) + ".env" + Caract(96) + ", " + Caract(96) + ".env.secrets" + Caract(96) + ") se vérifie avec " + Caract(96) + "ebony env" + Caract(96) + "." + sLigne + sLigne
+		sContenu += "Le dossier " + Caract(96) + "ebony/" + Caract(96) + " est la bibliothèque d'exécution : ne le modifiez pas, il n'est pas versionné (" + Caract(96) + "ebony restore" + Caract(96) + " le restaure)." + sLigne
+		SI PAS oOptions.ABase() ALORS
+			sContenu += sLigne + "## Ajouter une base de données ou l'authentification" + sLigne + sLigne
+			sContenu += "Ce projet est un kit slim : il n'a pas le module " + Caract(96) + "db" + Caract(96) + ", donc " + Caract(96) + "ebony migrate" + Caract(96) + ", " + Caract(96) + "ebony make" + Caract(96) + " et " + Caract(96) + "ebony token" + Caract(96) + " ne s'y appliquent pas. Pour un projet avec base et authentification, créez-le avec " + Caract(96) + "ebony new <nom>" + Caract(96) + " (kit api, le défaut)." + sLigne
+			RENVOYER sContenu
+		FIN
+		sContenu += sLigne + "## Les pièces d'une ressource" + sLigne + sLigne
+		sContenu += "« ebony make resource Client --champs … » écrit, dans " + Caract(96) + "app/" + Caract(96) + ", les pièces suivantes ; chacune a un seul rôle." + sLigne + sLigne
+		sContenu += "- **L'entité** (" + Caract(96) + "cClient" + Caract(96) + ") : un client, avec ses champs ; elle ne sait rien de la base ni du HTTP." + sLigne
+		sContenu += "- **Le repository** (" + Caract(96) + "cRepoClientSql" + Caract(96) + ") : le seul endroit qui parle à la base ; il lit, ajoute, modifie et supprime des entités." + sLigne
+		sContenu += "- **Le repository en mémoire** (" + Caract(96) + "cRepoClientMemoire" + Caract(96) + ") : le même contrat, sans base, pour que les tests tournent vite et sans rien installer." + sLigne
+		sContenu += "- **Le service** (" + Caract(96) + "cServiceClient" + Caract(96) + ") : les règles métier (« un client inactif ne peut pas commander ») ; il ne sait ni répondre en HTTP ni parler à la base, il appelle le repository. C'est ici que vous écrivez votre logique." + sLigne
+		sContenu += "- **Le contrôleur** (" + Caract(96) + "ControleurClient" + Caract(96) + ") : la porte d'entrée HTTP ; il déclare les routes, vérifie ce que le client envoie, appelle le service (jamais le repository) et répond en JSON." + sLigne
+		sContenu += "- **Les tests** (" + Caract(96) + "tests/" + Caract(96) + ") : ils vérifient l'entité, le service et les repositories ; " + Caract(96) + "owl test" + Caract(96) + " les lance." + sLigne
+		RENVOYER sContenu
+	FIN
+FIN

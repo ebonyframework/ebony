@@ -1,0 +1,272 @@
+// Tests de cEbExecuteurMigrations (« ebony migrate ») : un faux disque pour les fichiers de migration, une VRAIE base SQLite en mémoire pour le SQL et les transactions.
+// Chaque scénario part d'une base neuve. Les migrations sont celles que « make migration » écrit (EbContenuMigration), sauf celles qu'on abîme exprès.
+
+PROCEDURE EbTestConnexionExecuteur() : cEbConnexionSqlReelle
+	cnx est une sqlConnexion
+	cnx..Provider = sqlSqlite
+	cnx..Source   = ":memory:"
+	oConnexion est un cEbConnexionSqlReelle(cnx, "SELECT 1")
+	oConnexion.Ouvre()
+	RENVOYER oConnexion
+FIN
+
+// La base du scénario en cours : neuve avant chaque scénario, fermée après chacun.
+gConnexionExecuteur est un cEbConnexionSqlReelle = EbTestConnexionExecuteur()
+
+PROCEDURE avantChaqueTest()
+	gConnexionExecuteur = EbTestConnexionExecuteur()
+FIN
+
+PROCEDURE apresChaqueTest()
+	gConnexionExecuteur.Ferme()
+FIN
+
+// Un projet ebony dans C:\Projets\Mon App avec deux migrations écrites par make : CreeClients puis CreePays (dans cet ordre), et des fichiers qui ne sont pas des migrations.
+PROCEDURE EbTestDisqueExecuteur() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oDisque.AjouteDossier("C:\Projets\Mon App\database\migrations")
+	oClients est un cEbDemandeMake = EbAnalyseArgumentsMake(ChaîneDécoupe("migration;CreeClients;--champs;id:entier*,nom:texte", ";"))
+	oPays    est un cEbDemandeMake = EbAnalyseArgumentsMake(ChaîneDécoupe("migration;CreePays;--champs;id:entier*,nom:texte", ";"))
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611021015_CreeClients.owl", EbContenuMigration(oClients, "202611021015", "sqlite"))
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611021020_CreePays.owl", EbContenuMigration(oPays, "202611021020", "sqlite"))
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\.gitkeep", "")
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\notes.md", "pas une migration")
+	RENVOYER oDisque
+FIN
+
+PROCEDURE EbTestExecuteur(oDisque est un cEbSystemeFichiersFictif) : cEbExecuteurMigrations
+	oHorloge est un cEbHorlogeFictive
+	oHorloge.Definit("2026-11-07T09:30:00Z")
+	oExecuteur est un cEbExecuteurMigrations(oDisque, gConnexionExecuteur, oHorloge, "C:\Projets\Mon App", "sqlite")
+	RENVOYER oExecuteur
+FIN
+
+// Vrai si la table existe dans la base du scénario.
+PROCEDURE EbTestTableExiste(sTable est une chaîne) : booléen
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionExecuteur.Envoie("SELECT 1 FROM " + Caract(34) + sTable + Caract(34), tabAucun)
+	RENVOYER oResultat.Succes()
+FIN
+
+// Le nombre de lignes de la table de suivi, ou -1 si elle n'existe pas.
+PROCEDURE EbTestNbSuivi() : entier
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionExecuteur.Envoie("SELECT COUNT(*) AS n FROM " + Caract(34) + "eb_migrations" + Caract(34), tabAucun)
+	SI PAS oResultat.Succes() ALORS
+		RENVOYER -1
+	FIN
+	RENVOYER oResultat.Lignes()[1]["n"]
+FIN
+
+// Une migration écrite à la main qui envoie deux instructions : la seconde peut être fausse.
+PROCEDURE EbTestMigrationDeuxInstructions(sUne est une chaîne, sDeux est une chaîne) : chaîne
+	sTexte est une chaîne = "cMx est une Classe implemente iEbMigration" + Caract(10)
+	sTexte += Caract(9) + "PROCEDURE PUBLIQUE Monte() : tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "tabSql est un tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(34) + sUne + Caract(34) + ")" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(34) + sDeux + Caract(34) + ")" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "RENVOYER tabSql" + Caract(10)
+	sTexte += Caract(9) + "FIN" + Caract(10)
+	sTexte += Caract(9) + "PROCEDURE PUBLIQUE Descend() : tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "tabSql est un tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(34) + "DROP TABLE IF EXISTS t" + Caract(34) + ")" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "RENVOYER tabSql" + Caract(10)
+	sTexte += Caract(9) + "FIN" + Caract(10)
+	sTexte += "FIN" + Caract(10)
+	RENVOYER sTexte
+FIN
+
+// Les trois opérations qui peuvent lever, chacune rend « code|message » si elle lève, « » sinon. (Pas de SELON avec des déclarations dans les branches : une déclaration dans une branche non exécutée corrompt les variables locales d'OWL.)
+PROCEDURE EbTestEchecMonte(oExecuteur est un cEbExecuteurMigrations) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oEtat est un cEbEtatMigrations = oExecuteur.Monte(Faux)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+PROCEDURE EbTestEchecSimule(oExecuteur est un cEbExecuteurMigrations) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oEtat est un cEbEtatMigrations = oExecuteur.Monte(Vrai)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+PROCEDURE EbTestEchecDescend(oExecuteur est un cEbExecuteurMigrations) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oEtat est un cEbEtatMigrations = oExecuteur.Descend(1, Faux)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Avant tout « migrate », « status » dit que tout est en attente et n'écrit rien (pas même la table de suivi) ; les fichiers qui ne sont pas des migrations sont ignorés.
+PROCEDURE scenario_statut_avant_la_premiere_migration()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oEtat      est un cEbEtatMigrations        = oExecuteur.Statut()
+	dbgVérifieEgalité(oEtat.NomCommande(), "migrate status", "commande")
+	dbgVérifieEgalité(oEtat.Noms()..Occurrence, 2, "deux migrations, .gitkeep et notes.md ignorés")
+	dbgVérifieEgalité(oEtat.Noms()[1], "M202611021015_CreeClients", "la plus ancienne d'abord")
+	dbgVérifieEgalité(oEtat.Noms()[2], "M202611021020_CreePays", "puis la suivante")
+	dbgVérifieEgalité(oEtat.Statuts()[1], "pending", "en attente")
+	dbgVérifieEgalité(oEtat.Statuts()[2], "pending", "en attente")
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 0, "rien n'est fait")
+	dbgVérifieEgalité(EbTestNbSuivi(),-1, "la table de suivi n'a pas été créée")
+FIN
+
+// « migrate » applique tout dans l'ordre, enregistre chaque migration avec sa date, et un second « migrate » ne fait rien.
+PROCEDURE scenario_applique_dans_l_ordre_puis_rien()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oEtat      est un cEbEtatMigrations        = oExecuteur.Monte(Faux)
+	dbgVérifieEgalité(oEtat.NomCommande(), "migrate", "commande")
+	dbgVérifieEgalité(oEtat.Fournisseur(), "sqlite", "base")
+	dbgVérifieEgalité(oEtat.Chemin(), "C:\Projets\Mon App", "dossier du projet")
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 2, "deux migrations appliquées")
+	dbgVérifieEgalité(oEtat.Faites()[1], "M202611021015_CreeClients", "la première")
+	dbgVérifieEgalité(oEtat.Faites()[2], "M202611021020_CreePays", "la seconde")
+	dbgVérifieVrai(EbTestTableExiste("clients"), "la table clients existe")
+	dbgVérifieVrai(EbTestTableExiste("pays"), "la table pays existe")
+	dbgVérifieEgalité(EbTestNbSuivi(), 2, "deux lignes de suivi")
+	dbgVérifieEgalité(oEtat.Statuts()[1], "applied", "statut appliquée")
+	dbgVérifieEgalité(oEtat.Dates()[1], "2026-11-07T09:30:00Z", "date d'application")
+	oDeuxieme est un cEbEtatMigrations = oExecuteur.Monte(Faux)
+	dbgVérifieEgalité(oDeuxieme.Faites()..Occurrence, 0, "un second migrate ne fait rien")
+	dbgVérifieEgalité(EbTestNbSuivi(), 2, "toujours deux lignes de suivi")
+FIN
+
+// Une migration ajoutée plus tard est la seule appliquée.
+PROCEDURE scenario_applique_seulement_la_nouvelle()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oExecuteur.Monte(Faux)
+	oVilles est un cEbDemandeMake = EbAnalyseArgumentsMake(ChaîneDécoupe("migration;CreeVilles;--champs;id:entier*,nom:texte", ";"))
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611030900_CreeVilles.owl", EbContenuMigration(oVilles, "202611030900", "sqlite"))
+	oEtat est un cEbEtatMigrations = oExecuteur.Monte(Faux)
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 1, "une seule appliquée")
+	dbgVérifieEgalité(oEtat.Faites()[1], "M202611030900_CreeVilles", "la nouvelle")
+	dbgVérifieVrai(EbTestTableExiste("villes"), "la table villes existe")
+	dbgVérifieEgalité(EbTestNbSuivi(), 3, "trois lignes de suivi")
+FIN
+
+// --dry-run dit ce qui serait appliqué sans rien envoyer : ni table métier, ni table de suivi.
+PROCEDURE scenario_simulation_n_ecrit_rien()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oEtat      est un cEbEtatMigrations        = oExecuteur.Monte(Vrai)
+	dbgVérifieVrai(oEtat.Simulation(), "marqué comme aperçu")
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 2, "les deux qui seraient appliquées")
+	dbgVérifieFaux(EbTestTableExiste("clients"), "aucune table clients")
+	dbgVérifieEgalité(EbTestNbSuivi(),-1, "aucune table de suivi")
+	dbgVérifieEgalité(oEtat.Statuts()[1], "pending", "toujours en attente")
+FIN
+
+// « rollback » défait la dernière migration (une par défaut), oublie son suivi, et laisse les autres.
+PROCEDURE scenario_defait_la_derniere()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oExecuteur.Monte(Faux)
+	oEtat est un cEbEtatMigrations = oExecuteur.Descend(1, Faux)
+	dbgVérifieEgalité(oEtat.NomCommande(), "migrate rollback", "commande")
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 1, "une migration défaite")
+	dbgVérifieEgalité(oEtat.Faites()[1], "M202611021020_CreePays", "la plus récente")
+	dbgVérifieFaux(EbTestTableExiste("pays"), "la table pays a disparu")
+	dbgVérifieVrai(EbTestTableExiste("clients"), "la table clients reste")
+	dbgVérifieEgalité(EbTestNbSuivi(), 1, "une ligne de suivi")
+	dbgVérifieEgalité(oEtat.Statuts()[1], "applied", "CreeClients reste appliquée")
+	dbgVérifieEgalité(oEtat.Statuts()[2], "pending", "CreePays est de nouveau en attente")
+	oRefait est un cEbEtatMigrations = oExecuteur.Monte(Faux)
+	dbgVérifieEgalité(oRefait.Faites()..Occurrence, 1, "migrate la réapplique")
+	dbgVérifieVrai(EbTestTableExiste("pays"), "la table pays est revenue")
+FIN
+
+// « rollback » avec un nombre de pas plus grand que ce qui est appliqué défait tout ; sans rien d'appliqué, il ne fait rien ; --dry-run ne touche à rien.
+PROCEDURE scenario_defait_plusieurs_et_apercu()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oRien      est un cEbEtatMigrations        = oExecuteur.Descend(1, Faux)
+	dbgVérifieEgalité(oRien.Faites()..Occurrence, 0, "rien d'appliqué : rien à défaire")
+	oExecuteur.Monte(Faux)
+	oApercu est un cEbEtatMigrations = oExecuteur.Descend(5, Vrai)
+	dbgVérifieEgalité(oApercu.Faites()..Occurrence, 2, "l'aperçu annonce deux migrations")
+	dbgVérifieEgalité(oApercu.Faites()[1], "M202611021020_CreePays", "de la plus récente...")
+	dbgVérifieEgalité(oApercu.Faites()[2], "M202611021015_CreeClients", "...à la plus ancienne")
+	dbgVérifieVrai(EbTestTableExiste("clients"), "l'aperçu n'a rien défait")
+	oTout est un cEbEtatMigrations = oExecuteur.Descend(5, Faux)
+	dbgVérifieEgalité(oTout.Faites()..Occurrence, 2, "tout est défait")
+	dbgVérifieFaux(EbTestTableExiste("clients"), "la table clients a disparu")
+	dbgVérifieEgalité(EbTestNbSuivi(), 0, "la table de suivi est vide")
+FIN
+
+// Une instruction refusée annule SA migration entière (la première instruction, qui avait réussi, est défaite), laisse les précédentes appliquées, et arrête la commande.
+PROCEDURE scenario_echec_annule_la_migration()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oExecuteur.Monte(Faux)
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611040900_Cassee.owl", EbTestMigrationDeuxInstructions("CREATE TABLE t (id INTEGER)", "CREATE TABLE u ("))
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611040910_Apres.owl", EbTestMigrationDeuxInstructions("CREATE TABLE v (id INTEGER)", "CREATE TABLE w (id INTEGER)"))
+	sRes est une chaîne = EbTestEchecMonte(oExecuteur)
+	dbgVérifieEgalité(Gauche(sRes, 3), "46|", "code 46")
+	dbgVérifieVrai(Position(sRes, "M202611040900_Cassee") > 0, "le message nomme la migration")
+	dbgVérifieVrai(Position(sRes, "instruction 2 sur 2") > 0, "le message dit quelle instruction")
+	dbgVérifieFaux(EbTestTableExiste("t"), "la première instruction a été annulée (transaction)")
+	dbgVérifieFaux(EbTestTableExiste("v"), "la migration suivante n'a pas été tentée")
+	dbgVérifieVrai(EbTestTableExiste("clients"), "les migrations précédentes restent appliquées")
+	dbgVérifieEgalité(EbTestNbSuivi(), 2, "la migration cassée n'est pas enregistrée")
+	oEtat est un cEbEtatMigrations = oExecuteur.Statut()
+	dbgVérifieEgalité(oEtat.Statuts()[3], "pending", "la migration cassée reste en attente")
+FIN
+
+// Une migration illisible arrête la commande AVANT la première instruction : même la bonne qui la précède n'est pas appliquée.
+PROCEDURE scenario_migration_illisible_rien_n_est_applique()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oDisque.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611040900_Bizarre.owl", "cM est une Classe" + Caract(10) + "FIN" + Caract(10))
+	sRes est une chaîne = EbTestEchecMonte(oExecuteur)
+	dbgVérifieEgalité(Gauche(sRes, 3), "44|", "code 44")
+	dbgVérifieFaux(EbTestTableExiste("clients"), "la bonne migration qui précède n'a pas été appliquée")
+	dbgVérifieEgalité(EbTestNbSuivi(),-1, "la table de suivi n'a pas été créée")
+	sSimule est une chaîne = EbTestEchecSimule(oExecuteur)
+	dbgVérifieEgalité(Gauche(sSimule, 3), "44|", "l'aperçu refuse aussi : il dirait sinon ce qui ne peut pas se faire")
+FIN
+
+// Une migration appliquée dont le fichier a disparu : « status » la montre « missing », « migrate » ne s'en occupe pas, « rollback » refuse (47) sans rien défaire.
+PROCEDURE scenario_fichier_disparu()
+	oDisque    est un cEbSystemeFichiersFictif = EbTestDisqueExecuteur()
+	oExecuteur est un cEbExecuteurMigrations   = EbTestExecuteur(oDisque)
+	oExecuteur.Monte(Faux)
+	// Le même projet, où le fichier de CreePays n'a jamais existé.
+	oSansPays est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oSansPays.AjouteDossier("C:\Projets\Mon App\database\migrations")
+	oSansPays.AjouteFichier("C:\Projets\Mon App\database\migrations\M202611021015_CreeClients.owl", oDisque.ContenuDe("C:\Projets\Mon App\database\migrations\M202611021015_CreeClients.owl"))
+	oAvecSuivi est un cEbExecuteurMigrations = EbTestExecuteur(oSansPays)
+	oEtat      est un cEbEtatMigrations      = oAvecSuivi.Statut()
+	dbgVérifieEgalité(oEtat.Noms()..Occurrence, 2, "les deux noms restent visibles")
+	dbgVérifieEgalité(oEtat.Statuts()[2], "missing", "la migration sans fichier est « missing »")
+	dbgVérifieEgalité(oEtat.Dates()[2], "2026-11-07T09:30:00Z", "sa date reste connue")
+	oRien est un cEbEtatMigrations = oAvecSuivi.Monte(Faux)
+	dbgVérifieEgalité(oRien.Faites()..Occurrence, 0, "migrate ne s'en occupe pas")
+	sRes est une chaîne = EbTestEchecDescend(oAvecSuivi)
+	dbgVérifieEgalité(Gauche(sRes, 3), "47|", "rollback : code 47")
+	dbgVérifieVrai(Position(sRes, "M202611021020_CreePays") > 0, "le message nomme la migration")
+	dbgVérifieVrai(EbTestTableExiste("pays"), "rien n'a été défait")
+	dbgVérifieEgalité(EbTestNbSuivi(), 2, "le suivi est intact")
+FIN
+
+// Un projet sans dossier database/migrations n'a simplement aucune migration.
+PROCEDURE scenario_aucune_migration()
+	oDisque    est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oExecuteur est un cEbExecuteurMigrations                         = EbTestExecuteur(oDisque)
+	oEtat      est un cEbEtatMigrations                              = oExecuteur.Monte(Faux)
+	dbgVérifieEgalité(oEtat.Noms()..Occurrence, 0, "aucune migration")
+	dbgVérifieEgalité(oEtat.Faites()..Occurrence, 0, "rien d'appliqué")
+	dbgVérifieEgalité(EbTestNbSuivi(),-1, "pas même la table de suivi")
+FIN

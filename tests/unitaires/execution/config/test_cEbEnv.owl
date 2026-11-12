@@ -1,0 +1,302 @@
+// Tests de cEbEnv avec des fichiers en mémoire : lecture, priorité des sources, contrôle des types, schéma invalide,
+// messages (jamais la valeur d'un secret), arrêt du démarrage avec toutes les erreurs.
+
+// Des fichiers en mémoire et le cEbEnv qui les lit : neufs avant CHAQUE scénario (voir avantChaqueTest). Le scénario y pose ses fichiers (gDisqueEnv.AjouteFichier) puis appelle gEnv.Charge.
+gDisqueEnv est un cEbLectureEnvFictive
+gEnv       est un cEbEnv               = cEbEnv(gDisqueEnv)
+
+// Fixture : un disque vide et un cEbEnv neuf.
+PROCEDURE avantChaqueTest()
+	gDisqueEnv = cEbLectureEnvFictive()
+	gEnv       = cEbEnv(gDisqueEnv)
+FIN
+
+PROCEDURE EbTestSchemaStandard() : chaîne
+	sSchema est une chaîne = `{"variables":[`
+	sSchema += `{"cle":"DB_HOTE","type":"texte","obligatoire":true,"description":"Hôte de la base"},`
+	sSchema += `{"cle":"DB_PORT","type":"port","defaut":"5432"},`
+	sSchema += `{"cle":"DB_MOT_DE_PASSE","type":"texte","secret":true,"obligatoire":true},`
+	sSchema += `{"cle":"APP_ENV","type":"liste","valeurs":["development","production"],"defaut":"development"},`
+	sSchema += `{"cle":"APP_DEBUG","type":"booleen","defaut":"false"},`
+	sSchema += `{"cle":"CACHE_TAILLE","type":"entier","defaut":100}`
+	sSchema += `]}`
+	RENVOYER sSchema
+FIN
+
+PROCEDURE EbTestEnv(oFichiers est un cEbLectureEnvFictive) : cEbEnv
+	oAutre est un cEbEnv(oFichiers)
+	RENVOYER oAutre
+FIN
+
+// Pose un schéma à les entrées données, charge, et rend la liste des erreurs. Sert aux scénarios « schéma invalide », qui vérifient une anomalie chacun.
+PROCEDURE EbTestChargeSchema(sEntrees est une chaîne) : tableau de chaînes
+	gDisqueEnv.AjouteFichier("config/env.json", `{"variables":[` + sEntrees + `]}`)
+	gEnv.Charge("config/env.json", ".env", ".env.secrets")
+	RENVOYER gEnv.Erreurs()
+FIN
+
+// Sans schéma : aucun contrôle, mais les valeurs sont lisibles, .env.secrets par-dessus .env. Les projets d'avant le schéma continuent de fonctionner.
+PROCEDURE scenario_sans_schema()
+	gDisqueEnv.AjouteFichier(".env", "A=1" + Caract(10) + "B=env" + Caract(10) + "PORT=abc" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "B=secret" + Caract(10) + "C=3" + Caract(10))
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "valide : rien à contrôler")
+	dbgVérifieFaux(gEnv.SchemaPresent(), "pas de schéma")
+	dbgVérifieEgalité(gEnv.LitTexte("A"), "1", "valeur de .env")
+	dbgVérifieEgalité(gEnv.LitTexte("B"), "secret", ".env.secrets l'emporte")
+	dbgVérifieEgalité(gEnv.LitTexte("C"), "3", "valeur de .env.secrets")
+	dbgVérifieEgalité(gEnv.LitTexte("PORT"), "abc", "pas de contrôle de type sans schéma")
+	dbgVérifieEgalité(gEnv.Etats()..Occurrence, 0, "aucun état de variable")
+	dbgVérifieVrai(gEnv.ADeValeur("A"), "ADeValeur")
+	dbgVérifieFaux(gEnv.ADeValeur("Z"), "variable inconnue")
+FIN
+
+// Aucun fichier du tout : valide, sans valeur.
+PROCEDURE scenario_aucun_fichier()
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "valide")
+	dbgVérifieEgalité(gEnv.LitTexte("A"), "", "pas de valeur")
+	dbgVérifieEgalité(gEnv.LitEntier("A"), 0, "entier 0")
+	dbgVérifieFaux(gEnv.LitBooleen("A"), "booléen faux")
+FIN
+
+// Schéma et fichiers valides : les valeurs, les défauts, les sources.
+PROCEDURE scenario_schema_valide()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=db.exemple.fr" + Caract(10) + "APP_ENV=production" + Caract(10) + "APP_DEBUG=oui" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=s3cret" + Caract(10))
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "valide : " + gEnv.Erreurs()..Occurrence + " erreur(s)")
+	dbgVérifieVrai(gEnv.SchemaPresent(), "schéma présent")
+	dbgVérifieEgalité(gEnv.LitTexte("DB_HOTE"), "db.exemple.fr", "texte")
+	dbgVérifieEgalité(gEnv.LitEntier("DB_PORT"), 5432, "port : défaut du schéma")
+	dbgVérifieEgalité(gEnv.LitTexte("DB_MOT_DE_PASSE"), "s3cret", "secret lu dans .env.secrets")
+	dbgVérifieEgalité(gEnv.LitTexte("APP_ENV"), "production", "liste : valeur de .env")
+	dbgVérifieVrai(gEnv.LitBooleen("APP_DEBUG"), "booléen oui")
+	dbgVérifieEgalité(gEnv.LitEntier("CACHE_TAILLE"), 100, "entier : défaut numérique du schéma")
+FIN
+
+// L'état de chaque variable dit d'où vient sa valeur, si elle est valide, et rappelle sa déclaration.
+PROCEDURE scenario_etats_des_variables()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=db.exemple.fr" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=s3cret" + Caract(10))
+	gEnv.Charge("config/env.json", ".env", ".env.secrets")
+	dbgVérifieEgalité(gEnv.Etats()..Occurrence, 6, "six variables déclarées")
+	oHote est un cEbEtatVariableEnv = gEnv.Etats()[1]
+	dbgVérifieEgalité(oHote.Source(), ".env", "source de DB_HOTE")
+	dbgVérifieVrai(oHote.Valide(), "DB_HOTE valide")
+	dbgVérifieEgalité(oHote.Variable().Description(), "Hôte de la base", "description")
+	oPort est un cEbEtatVariableEnv = gEnv.Etats()[2]
+	dbgVérifieEgalité(oPort.Source(), "defaut", "source de DB_PORT : le défaut")
+	oMdp est un cEbEtatVariableEnv = gEnv.Etats()[3]
+	dbgVérifieEgalité(oMdp.Source(), ".env.secrets", "source du mot de passe")
+	dbgVérifieVrai(oMdp.Variable().Secret(), "marqué secret")
+FIN
+
+// Un port invalide : DB_PORT=abc est refusé AU DÉMARRAGE, avec la variable et le type attendu.
+PROCEDURE scenario_port_invalide()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=h" + Caract(10) + "DB_PORT=abc" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=x" + Caract(10))
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 1, "une erreur")
+	dbgVérifieEgalité(gEnv.Erreurs()[1], "DB_PORT : un port (entier de 1 à 65535) attendu, reçu « abc » (lu dans .env).", "message exact")
+	oPort est un cEbEtatVariableEnv = gEnv.Etats()[2]
+	dbgVérifieFaux(oPort.Valide(), "état invalide")
+	dbgVérifieEgalité(oPort.Source(), ".env", "d'où vient la valeur fautive")
+FIN
+
+// Une valeur invalide n'est jamais retenue : la variable n'a pas de valeur lisible.
+PROCEDURE scenario_valeur_invalide_non_retenue()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=h" + Caract(10) + "DB_PORT=abc" + Caract(10))
+	gEnv.Charge("config/env.json", ".env", ".env.secrets")
+	dbgVérifieFaux(gEnv.ADeValeur("DB_PORT"), "la valeur invalide n'est pas retenue")
+	dbgVérifieEgalité(gEnv.LitEntier("DB_PORT"), 0, "lue comme 0")
+FIN
+
+// Un secret invalide : le message dit que c'est un secret et n'écrit pas la valeur.
+PROCEDURE scenario_secret_invalide_non_affiche()
+	gDisqueEnv.AjouteFichier("config/env.json", `{"variables":[{"cle":"JETON_PORT","type":"port","secret":true}]}`)
+	gDisqueEnv.AjouteFichier(".env.secrets", "JETON_PORT=MotDePasseTresSecret" + Caract(10))
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(Position(gEnv.Erreurs()[1], "MotDePasseTresSecret"), 0, "la valeur du secret n'est pas dans le message : " + gEnv.Erreurs()[1])
+	dbgVérifieVrai(Position(gEnv.Erreurs()[1], "JETON_PORT") > 0, "la variable est nommée")
+	dbgVérifieVrai(Position(gEnv.Erreurs()[1], "secret") > 0, "dit que c'est un secret")
+	oEtat est un cEbEtatVariableEnv = gEnv.Etats()[1]
+	dbgVérifieEgalité(Position(oEtat.Erreur(), "MotDePasseTresSecret"), 0, "ni dans l'état")
+FIN
+
+// Une variable obligatoire sans valeur : l'erreur dit où elle a été cherchée.
+PROCEDURE scenario_obligatoire_absente()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 2, "DB_HOTE et DB_MOT_DE_PASSE manquent")
+	dbgVérifieEgalité(gEnv.Erreurs()[1], "DB_HOTE : obligatoire, mais absente de .env et de .env.secrets (et sans valeur par défaut).", "message exact")
+	dbgVérifieVrai(Position(gEnv.Erreurs()[2], "DB_MOT_DE_PASSE") > 0, "le second est le mot de passe")
+	oHote est un cEbEtatVariableEnv = gEnv.Etats()[1]
+	dbgVérifieEgalité(oHote.Source(), "absente", "source absente")
+FIN
+
+// Une valeur vide compte comme absente : le défaut s'applique, et une obligatoire vide est manquante.
+PROCEDURE scenario_valeur_vide_comme_absente()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=" + Caract(10) + "DB_PORT=" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=" + Caract(10))
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "DB_HOTE vide : manquante")
+	dbgVérifieEgalité(gEnv.LitEntier("DB_PORT"), 5432, "DB_PORT vide : le défaut")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 2, "DB_HOTE et DB_MOT_DE_PASSE vides")
+FIN
+
+// .env.secrets l'emporte sur .env pour une variable déclarée, et la source le dit.
+PROCEDURE scenario_priorite_des_sources()
+	gDisqueEnv.AjouteFichier("config/env.json", `{"variables":[{"cle":"X","type":"texte"}]}`)
+	gDisqueEnv.AjouteFichier(".env", "X=dans-env" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "X=dans-secrets" + Caract(10))
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "valide")
+	dbgVérifieEgalité(gEnv.LitTexte("X"), "dans-secrets", ".env.secrets l'emporte")
+	oEtat est un cEbEtatVariableEnv = gEnv.Etats()[1]
+	dbgVérifieEgalité(oEtat.Source(), ".env.secrets", "la source")
+FIN
+
+// Une variable non déclarée reste lisible, sans contrôle.
+PROCEDURE scenario_variable_non_declaree()
+	gDisqueEnv.AjouteFichier("config/env.json", `{"variables":[{"cle":"X","type":"entier"}]}`)
+	gDisqueEnv.AjouteFichier(".env", "X=1" + Caract(10) + "AUTRE=quoi que ce soit" + Caract(10))
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "valide")
+	dbgVérifieEgalité(gEnv.LitTexte("AUTRE"), "quoi que ce soit", "lisible")
+FIN
+
+// Toutes les erreurs d'un coup, pas seulement la première.
+PROCEDURE scenario_toutes_les_erreurs_listees()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_PORT=99999" + Caract(10) + "APP_ENV=prod" + Caract(10) + "APP_DEBUG=peut-etre" + Caract(10) + "CACHE_TAILLE=1.5" + Caract(10))
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 6, "DB_HOTE, DB_PORT, mot de passe, APP_ENV, APP_DEBUG, CACHE_TAILLE")
+FIN
+
+// Lignes mal formées : signalées par leur numéro, JAMAIS par leur contenu (ce pourrait être un secret).
+PROCEDURE scenario_ligne_invalide_sans_contenu()
+	gDisqueEnv.AjouteFichier(".env.secrets", "OK=1" + Caract(10) + "monmotdepassesansegal" + Caract(10))
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(gEnv.Erreurs()[1], ".env.secrets : la ligne 2") > 0, "fichier et numéro : " + gEnv.Erreurs()[1])
+	dbgVérifieEgalité(Position(gEnv.Erreurs()[1], "monmotdepasse"), 0, "pas le contenu de la ligne")
+FIN
+
+// Schéma abîmé : un JSON illisible est une erreur, pas un plantage.
+PROCEDURE scenario_schema_json_invalide()
+	gDisqueEnv.AjouteFichier("config/env.json", "{ pas du json")
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieEgalité(gEnv.Erreurs()[1], "config/env.json : JSON invalide.", "message")
+FIN
+
+// Schéma abîmé : sans le membre « variables », l'erreur dit ce qui manque.
+PROCEDURE scenario_schema_sans_variables()
+	gDisqueEnv.AjouteFichier("config/env.json", `{"autre":[]}`)
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "invalide")
+	dbgVérifieVrai(Position(gEnv.Erreurs()[1], "variables") > 0, "dit ce qui manque : " + gEnv.Erreurs()[1])
+FIN
+
+// Schéma : une entrée sans « cle » est refusée, l'erreur la désigne par son rang.
+PROCEDURE scenario_schema_entree_sans_cle()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"type":"texte"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], "variables[1]") > 0 ET Position(tabErreurs[1], "cle") > 0, "désigne l'entrée et le membre : " + tabErreurs[1])
+FIN
+
+// Schéma : un type inconnu est refusé, l'erreur nomme la variable.
+PROCEDURE scenario_schema_type_inconnu()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"A","type":"uuid"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": A :") > 0 ET Position(tabErreurs[1], "type") > 0, "nomme la variable et le membre : " + tabErreurs[1])
+FIN
+
+// Schéma : le type liste demande des valeurs.
+PROCEDURE scenario_schema_liste_sans_valeurs()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"B","type":"liste"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": B :") > 0 ET Position(tabErreurs[1], "valeurs") > 0, "demande « valeurs » : " + tabErreurs[1])
+FIN
+
+// Schéma : une valeur par défaut qui ne convient pas à son type est refusée.
+PROCEDURE scenario_schema_defaut_invalide()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"C","type":"port","defaut":"abc"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": C :") > 0 ET Position(tabErreurs[1], "défaut") > 0, "parle du défaut : " + tabErreurs[1])
+FIN
+
+// Schéma : « obligatoire » et « defaut » s'excluent.
+PROCEDURE scenario_schema_obligatoire_et_defaut()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"D","type":"texte","obligatoire":true,"defaut":"x"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": D :") > 0 ET Position(tabErreurs[1], "s'excluent") > 0, "dit qu'ils s'excluent : " + tabErreurs[1])
+FIN
+
+// Schéma : « secret » doit être un booléen JSON.
+PROCEDURE scenario_schema_secret_pas_booleen()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"E","type":"texte","secret":"oui"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": E :") > 0 ET Position(tabErreurs[1], "secret") > 0, "parle de secret : " + tabErreurs[1])
+FIN
+
+// Schéma : une valeur par défaut vide est refusée (une valeur vide compte comme absente).
+PROCEDURE scenario_schema_defaut_vide()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"F","type":"texte","defaut":""}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], ": F :") > 0 ET Position(tabErreurs[1], "défaut") > 0, "parle du défaut : " + tabErreurs[1])
+FIN
+
+// Schéma : une clé déclarée deux fois est signalée, et seule la première est retenue.
+PROCEDURE scenario_schema_cle_en_double()
+	tabErreurs est un tableau de chaînes = EbTestChargeSchema(`{"cle":"ok","type":"texte"},{"cle":"ok","type":"entier"}`)
+	dbgVérifieEgalité(tabErreurs..Occurrence, 1, "une erreur")
+	dbgVérifieVrai(Position(tabErreurs[1], "ok") > 0 ET Position(tabErreurs[1], "deux fois") > 0, "dit qu'elle est déclarée deux fois : " + tabErreurs[1])
+	dbgVérifieEgalité(gEnv.Etats()..Occurrence, 1, "seule la première variable « ok » est retenue")
+FIN
+
+// ExigeValide() arrête le démarrage avec le code 60 et la liste de toutes les erreurs.
+PROCEDURE scenario_exige_valide_leve_avec_toutes_les_erreurs()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gEnv.Charge("config/env.json", ".env", ".env.secrets")
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		gEnv.ExigeValide()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "60|", "code 60 : " + sRes)
+	dbgVérifieVrai(Position(sRes, "Configuration invalide (2 erreur(s))") > 0, "annonce le nombre : " + sRes)
+	dbgVérifieVrai(Position(sRes, "- DB_HOTE") > 0 ET Position(sRes, "- DB_MOT_DE_PASSE") > 0, "liste les deux erreurs : " + sRes)
+FIN
+
+// ExigeValide() ne fait rien quand la configuration est valide.
+PROCEDURE scenario_exige_valide_ne_leve_pas_si_valide()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=h" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=m" + Caract(10))
+	gEnv.Charge("config/env.json", ".env", ".env.secrets")
+	sRes est une chaîne = "rien"
+	QUAND EXCEPTION DANS
+		gEnv.ExigeValide()
+	FAIRE
+		sRes = "exception"
+	FIN
+	dbgVérifieEgalité(sRes, "rien", "valide : pas d'exception")
+FIN
+
+// Recharger remet tout à zéro (pas d'erreurs ni de valeurs gardées d'un chargement précédent).
+PROCEDURE scenario_recharger()
+	gDisqueEnv.AjouteFichier("config/env.json", EbTestSchemaStandard())
+	dbgVérifieFaux(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "premier chargement : invalide")
+	gDisqueEnv.AjouteFichier(".env", "DB_HOTE=h" + Caract(10))
+	gDisqueEnv.AjouteFichier(".env.secrets", "DB_MOT_DE_PASSE=m" + Caract(10))
+	dbgVérifieVrai(gEnv.Charge("config/env.json", ".env", ".env.secrets"), "second chargement : valide")
+	dbgVérifieEgalité(gEnv.Erreurs()..Occurrence, 0, "plus d'erreur")
+	dbgVérifieEgalité(gEnv.Etats()..Occurrence, 6, "six états, pas douze")
+FIN
+
+// L'adaptateur réel : un fichier absent n'existe pas et se lit « ».
+PROCEDURE scenario_lecture_reelle_fichier_absent()
+	oReelle est un cEbLectureEnvReelle
+	dbgVérifieFaux(oReelle.Existe("n-existe-pas/.env.zzz"), "n'existe pas")
+	dbgVérifieEgalité(oReelle.Lit("n-existe-pas/.env.zzz"), "", "se lit vide")
+FIN

@@ -1,0 +1,162 @@
+// « ebony make resource|migration » : écrit dans le projet du dossier COURANT les fichiers d'une ressource (entité, repositories, tests) ou d'une migration (voir EbContenuRessource et EbContenuMigration).
+// NE REMPLACE JAMAIS UN FICHIER : un fichier qui existe est conservé tel quel et listé (« kept »), les autres sont créés ; le résultat dit les deux, avec une note par fichier conservé.
+// Tout est calculé et vérifié AVANT la première écriture. Un chemin occupé par un DOSSIER, ou dont un dossier parent est un FICHIER, est un conflit : rien n'est écrit, tous les conflits sont listés.
+// Avec --dry-run, le résultat est le même (« created » = ce qui serait créé) mais le disque n'est pas touché.
+// Règles du projet : un ebony.conf dans le dossier courant (pas de remontée), qui dit la base (base.fournisseur). Ne connaît que les ports iEbSystemeFichiers, iEbEcritureFichiers et iEbHorloge : se teste avec un faux disque.
+// Chaque erreur est une exception de code : 24 écriture interrompue, 28 conflit, 29 horloge illisible, 30 OWL mal placé, 31 pas un projet ebony, 38 ebony.conf sans base, 39 HFSQL pas pris en charge pour une migration.
+cEbGenerationMake est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+	oHorloge  est un iEbHorloge
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers, horloge est un iEbHorloge)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+		:oHorloge = horloge
+	FIN
+
+	// Le chemin complet d'un chemin relatif du projet (« app/domaine/x.owl »).
+	PROCEDURE PRIVÉE Complet(lancement est une chaîne, relatif est une chaîne) : chaîne
+		RENVOYER EbJointChemin(lancement, Remplace(relatif, "/", "\"))
+	FIN
+
+	// Le garde des routes que fournissent les modules DU PROJET : les membres « routes » de ses manifestes (ebony/modules/*.json, par ordre alphabétique). Sans manifeste ni « routes », le garde est vide et le contrôleur est généré OUVERT.
+	// Lève (22) si un manifeste est illisible. Le cœur ne sait pas quel module fournit le garde ni ce qu'il contient.
+	PROCEDURE PRIVÉE LitGarde(lancement est une chaîne) : cEbGardeRoutes
+		tabAucune est un tableau de chaînes
+		oGarde    est un cEbGardeRoutes(tabAucune, tabAucune)
+		sDossier  est une chaîne                              = :Complet(lancement, EbDossierManifestesProjet())
+		POUR TOUT sNom DE :oSysteme.ListeFichiers(sDossier)
+			SI Droite(Minuscule(sNom), 5) = ".json" ALORS
+				sManifeste est une chaîne        = EbJointChemin(sDossier, sNom)
+				oDuModule  est un cEbGardeRoutes = EbGardeDuManifeste(:oSysteme.LitTexte(sManifeste), sManifeste)
+				oGarde = oGarde.Suivi(oDuModule)
+			FIN
+		FIN
+		RENVOYER oGarde
+	FIN
+
+	// Le premier élément du chemin relatif qui fait obstacle : un dossier à la place du fichier, ou un fichier à la place d'un dossier parent. « » si rien ne gêne.
+	PROCEDURE PRIVÉE Obstacle(lancement est une chaîne, relatif est une chaîne) : chaîne
+		tabParties est un tableau de chaînes = ChaîneDécoupe(relatif, "/")
+		sCourant   est une chaîne            = ""
+		nNb        est un entier             = tabParties..Occurrence
+		POUR i = 1 À nNb
+			SI sCourant <> "" ALORS
+				sCourant += "/"
+			FIN
+			sCourant += tabParties[i]
+			sComplet est une chaîne = :Complet(lancement, sCourant)
+			SI i < nNb ALORS
+				SI :oSysteme.FichierExiste(sComplet) ALORS
+					RENVOYER sCourant + " (un fichier porte ce nom, il devrait être un dossier)"
+				FIN
+			SINON
+				SI :oSysteme.DossierExiste(sComplet) ALORS
+					RENVOYER sCourant + " (un dossier porte ce nom)"
+				FIN
+			FIN
+		FIN
+		RENVOYER ""
+	FIN
+
+	PROCEDURE PUBLIQUE Execute(demande est un cEbDemandeMake) : cEbMakeGenere
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(30, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+		sConf est une chaîne = EbJointChemin(sLancement, "ebony.conf")
+		SI PAS :oSysteme.FichierExiste(sConf) ALORS
+			ExceptionDéclenche(31, "Ce dossier n'est pas un projet ebony : ebony.conf est introuvable dans " + sLancement + ". Placez-vous dans le dossier d'un projet, ou créez-en un avec « ebony new <nom> ».")
+		FIN
+		sTexteConf est une chaîne = :oSysteme.LitTexte(sConf)
+		EbExigeModuleDuProjet(sTexteConf, "db", "ebony make " + demande.SousCommande())
+		sBase est une chaîne = EbBaseDeLaConf(sTexteConf)
+		SI PAS EbValeurDansListe(sBase, "sqlite|postgresql|hfsql") ALORS
+			ExceptionDéclenche(38, "ebony.conf n'indique pas une base connue (base.fournisseur : « " + sBase + " » ; attendu : sqlite, postgresql ou hfsql). Corrigez-le, ou recréez le projet avec « ebony new ».")
+		FIN
+		bMigration est un booléen = (demande.SousCommande() = "migration")
+		SI bMigration ET sBase = "hfsql" ALORS
+			ExceptionDéclenche(39, "« ebony make migration » n'écrit pas encore de SQL pour HFSQL (non mesuré). Bases prises en charge : sqlite, postgresql.")
+		FIN
+		// Le garde des routes : celui que fournissent les manifestes des modules du projet. Sans garde, le contrôleur est généré OUVERT, et une note le dit (EbSortieMake).
+		oDemande est un cEbDemandeMake = demande.AvecGarde(:LitGarde(sLancement))
+
+		// Tout ce qu'on écrira, avec son contenu, calculé avant de toucher au disque.
+		tabFichiers est un tableau de chaînes
+		tabContenus est un tableau de chaînes
+		sHorodatage est une chaîne            = ""
+		SI bMigration ALORS
+			sHorodatage = EbHorodatageMigration(:oHorloge.Maintenant())
+			SI sHorodatage = "" ALORS
+				ExceptionDéclenche(29, "L'horloge a rendu un instant illisible (« " + :oHorloge.Maintenant() + " ») : impossible de dater la migration.")
+			FIN
+			tabFichiers = EbFichiersMigration(demande, sHorodatage, sBase)
+			POUR i = 1 À tabFichiers..Occurrence
+				TableauAjoute(tabContenus, EbContenuFichierMigration(demande, sHorodatage, sBase, i))
+			FIN
+		SINON
+			tabFichiers = EbFichiersRessource(oDemande)
+			POUR i = 1 À tabFichiers..Occurrence
+				TableauAjoute(tabContenus, EbContenuFichierRessource(oDemande, i))
+			FIN
+		FIN
+
+		// Conflits : tous listés d'un coup, avant la moindre écriture.
+		sConflits est une chaîne = ""
+		POUR TOUT sRelatif DE tabFichiers
+			sObstacle est une chaîne = :Obstacle(sLancement, sRelatif)
+			SI sObstacle <> "" ALORS
+				sConflits += EbSeparateur(sConflits) + sObstacle
+			FIN
+		FIN
+		SI sConflits <> "" ALORS
+			ExceptionDéclenche(28, "Rien n'a été écrit. Ces chemins sont occupés autrement que par le fichier attendu, et ebony ne remplace rien : " + sConflits + ". Renommez-les ou déplacez-les, puis relancez la commande.")
+		FIN
+
+		// Créés ou conservés : un fichier qui existe n'est jamais remplacé.
+		tabCrees          est un tableau de chaînes
+		tabConserves      est un tableau de chaînes
+		tabACreer         est un tableau de chaînes
+		tabContenusACreer est un tableau de chaînes
+		POUR i = 1 À tabFichiers..Occurrence
+			SI :oSysteme.FichierExiste(:Complet(sLancement, tabFichiers[i])) ALORS
+				TableauAjoute(tabConserves, tabFichiers[i])
+			SINON
+				TableauAjoute(tabCrees, tabFichiers[i])
+				TableauAjoute(tabACreer, tabFichiers[i])
+				TableauAjoute(tabContenusACreer, tabContenus[i])
+			FIN
+		FIN
+
+		// Déclaré avant le SI : une déclaration dans une branche non exécutée (--dry-run) a corrompu des variables locales en OWL 1.6.0 (le cas du SELON est le même).
+		sComplet est une chaîne = ""
+		SI PAS demande.Simulation() ALORS
+			QUAND EXCEPTION DANS
+				POUR i = 1 À tabACreer..Occurrence
+					sComplet = :Complet(sLancement, tabACreer[i])
+					:oEcriture.CreeDossier(EbParentChemin(sComplet))
+					:oEcriture.EcritTexte(sComplet, EbAligneSiOwl(sComplet, tabContenusACreer[i]))
+				FIN
+			FAIRE
+				ExceptionDéclenche(24, "Génération interrompue : " + ExceptionInfo(errMessage) + ". Vos fichiers n'ont pas été touchés ; ebony a pu écrire une partie de ce qu'il crée (" + EbListeVirgules(tabCrees) + "). Supprimez-les, puis relancez la commande.")
+			FIN
+		FIN
+
+		tabNotes est un tableau de chaînes = EbNotesMake(oDemande, sBase, tabConserves)
+		// Un projet généré avant iEbMigration a une copie d'ebony/ sans ce contrat (la version de la bibliothèque n'a pas changé, « upgrade » la dit alignée) : la migration ne compilerait pas.
+		sContrats est une chaîne = EbJointChemin(sLancement, "ebony\donnees\EbContratsDonnees.owl")
+		SI bMigration ET :oSysteme.FichierExiste(sContrats) ALORS
+			SI Position(:oSysteme.LitTexte(sContrats), "iEbMigration") = 0 ALORS
+				TableauAjoute(tabNotes, "La copie d'ebony/ de ce projet est plus ancienne que cette migration (iEbMigration y est absent) : elle ne compilera pas. Supprimez le dossier ebony/ à la main, puis lancez « ebony restore ».")
+			FIN
+		FIN
+		sCommande est une chaîne = "make resource"
+		SI bMigration ALORS
+			sCommande = "make migration"
+		FIN
+		oGenere est un cEbMakeGenere(sCommande, demande.Nom(), demande.NomTable(), sLancement, demande.Simulation(), tabCrees, tabConserves, tabNotes)
+		RENVOYER oGenere
+	FIN
+FIN

@@ -1,0 +1,54 @@
+// Tests de EbSortieInit : l'objet JSON de « ebony init --json » (lu par les outils) et les consignes de fin.
+
+PROCEDURE EbTestAjoute(oOptions est un cEbOptionsProjet) : cEbEbonyAjoute
+	tabCrees est un tableau de chaînes
+	TableauAjoute(tabCrees, "ebony/")
+	TableauAjoute(tabCrees, "ebony.conf")
+	tabConserves est un tableau de chaînes
+	TableauAjoute(tabConserves, "projet.owl")
+	tabNotes est un tableau de chaînes
+	TableauAjoute(tabNotes, "Ajoutez " + Caract(34) + "ebony/" + Caract(34) + " au .gitignore")
+	oAjoute est un cEbEbonyAjoute("Caf" + Caract(233) + " de la Gare", "cafe-de-la-gare", "MonAppli", "C:\Projets\Caf" + Caract(233), oOptions, tabCrees, tabConserves, tabNotes)
+	RENVOYER oAjoute
+FIN
+
+PROCEDURE scenario_etapes()
+	tabEtapes est un tableau de chaînes = EbEtapesInit()
+	dbgVérifieEgalité(tabEtapes..Occurrence, 2, "deux étapes")
+	dbgVérifieEgalité(tabEtapes[1], "Copiez .env.exemple en .env et .env.secrets.exemple en .env.secrets", "copier le modèle")
+	dbgVérifieEgalité(tabEtapes[2], "ebony doctor", "vérifier")
+FIN
+
+// Le JSON est valide, sur une seule ligne, et se relit champ par champ ; « files » = créés, « kept » = conservés, « notes » = à faire soi-même.
+PROCEDURE scenario_json_complet()
+	oOptions est un cEbOptionsProjet = EbOptionsParDefaut()
+	sJson    est une chaîne          = EbJsonEbonyAjoute(EbTestAjoute(oOptions))
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide : " + sJson)
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieEgalité(j.dir, "C:\Projets\Caf" + Caract(233), "dir")
+	dbgVérifieEgalité(j.files..Occurrence, 2, "deux créés")
+	dbgVérifieEgalité(j.files[1], "ebony/", "ebony/ d'abord")
+	dbgVérifieEgalité(j.files[2], "ebony.conf", "ebony.conf")
+	dbgVérifieEgalité(j.kept..Occurrence, 1, "un conservé")
+	dbgVérifieEgalité(j.kept[1], "projet.owl", "projet.owl conservé")
+	dbgVérifieEgalité(j.notes..Occurrence, 1, "une note")
+	dbgVérifieEgalité(j.notes[1], "Ajoutez " + Caract(34) + "ebony/" + Caract(34) + " au .gitignore", "note relue à l'identique, guillemets compris")
+	dbgVérifieEgalité(j.Next..Occurrence, 2, "deux consignes")
+	dbgVérifieEgalité(j.Name, "Caf" + Caract(233) + " de la Gare", "nom")
+	dbgVérifieEgalité(j.folder, "cafe-de-la-gare", "dossier")
+	dbgVérifieEgalité(j.identifier, "MonAppli", "identifiant")
+	dbgVérifieEgalité(j["type"], "api", "type")
+	dbgVérifieEgalité(j.base, "sqlite", "base")
+	dbgVérifieFaux(j.auth.enabled, "authentification désactivée")
+FIN
+
+PROCEDURE scenario_json_avec_options()
+	oOptions est un cEbOptionsProjet("api", "postgresql", Vrai, "users")
+	j        est un JSON                                                 = ChaîneVersJSON(EbJsonEbonyAjoute(EbTestAjoute(oOptions)))
+	dbgVérifieEgalité(j.base, "postgresql", "base")
+	dbgVérifieVrai(j.auth.enabled, "authentification")
+	dbgVérifieEgalité(j.auth.table, "users", "table")
+	dbgVérifieEgalité(j.auth.mode, "opaque", "mode")
+FIN

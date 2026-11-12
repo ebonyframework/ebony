@@ -1,0 +1,132 @@
+// Le service d'une ressource (app/services/<dossier>/cService<Nom>.owl) et son test : la couche des règles métier, entre le contrôleur et le repository.
+// Il est mince à dessein : il passe les appels au repository, et c'est ici que l'utilisateur ajoute ses règles. Il ne connaît ni HTTP ni SQL : il reçoit un repository (l'interface iRepo<Nom>) et ne sait pas lequel.
+// Le contrôleur construit le repository SQL, le donne au service et n'appelle que le service ; le test du service passe le repository en mémoire.
+EbContenuService est une CollectionDeProcédures
+
+	// Le chemin relatif du service d'une ressource.
+	PROCEDURE EbCheminService(oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER "app/services/" + oDemande.Dossier() + "/cService" + oDemande.Pascal() + ".owl"
+	FIN
+
+	// Le chemin relatif du test du service.
+	PROCEDURE EbCheminTestService(oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER "tests/unitaires/" + oDemande.Dossier() + "/test_cService" + oDemande.Pascal() + ".owl"
+	FIN
+
+	// Le texte du service : une méthode par opération du repository, mêmes noms (Enumere, Trouve, Ajoute, Modifie, Supprime).
+	PROCEDURE EbTexteService(oDemande est un cEbDemandeMake) : chaîne
+		sPascal  est une chaîne      = oDemande.Pascal()
+		sType    est une chaîne      = EbArticleTypeOwl(EbTypeCleOwl(oDemande))
+		sContrat est une chaîne      = "iRepo" + sPascal
+		oTexte   est un cEbTexteCode
+		oTexte.Ligne(0, "// Service de la ressource « " + EbNomAffiche(oDemande) + " », généré par « ebony make resource ». Les règles métier sont ici : ni HTTP (le contrôleur) ni SQL (le repository).")
+		oTexte.Ligne(0, "// Le fichier est à vous. Il passe pour l'instant les appels au repository tels quels ; ajoutez vos règles dans les méthodes (une règle violée lève une exception : ExceptionDéclenche(409, « … »)).")
+		oTexte.Ligne(0, "// Il reçoit le repository par son contrat " + sContrat + " : le contrôleur lui donne le repository SQL, les tests le repository en mémoire.")
+		oTexte.Ligne(0, "cService" + sPascal + " est une Classe")
+		oTexte.Ligne(0, "PRIVÉ")
+		oTexte.Ligne(1, "oRepository est un " + sContrat)
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE Constructeur(repository est un " + sContrat + ")")
+		oTexte.Ligne(2, ":oRepository = repository")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Enumere() : tableau de c" + sPascal)
+		oTexte.Ligne(2, "RENVOYER :oRepository.Enumere()")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Trouve(cle est " + sType + ") : c" + sPascal)
+		oTexte.Ligne(2, "RENVOYER :oRepository.Trouve(cle)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Ajoute(entite est un c" + sPascal + ") : c" + sPascal)
+		oTexte.Ligne(2, "RENVOYER :oRepository.Ajoute(entite)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Modifie(entite est un c" + sPascal + ")")
+		oTexte.Ligne(2, ":oRepository.Modifie(entite)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Supprime(cle est " + sType + ")")
+		oTexte.Ligne(2, ":oRepository.Supprime(cle)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Le test du service sur le repository en mémoire : chaque méthode atteint bien le repository, et une erreur du repository (404) traverse le service.
+	PROCEDURE EbTexteTestService(oDemande est un cEbDemandeMake) : chaîne
+		sPascal      est une chaîne       = oDemande.Pascal()
+		oCle         est un cEbChampTable = EbChampCle(oDemande.Champs())
+		sClePremiere est une chaîne       = EbCleAjoutee(oCle, 1)
+		sAbsente     est une chaîne       = EbCleAbsente(oCle)
+		sMemoire     est une chaîne       = "cRepo" + sPascal + "Memoire"
+		sService     est une chaîne       = "cService" + sPascal
+		oTexte       est un cEbTexteCode
+		oTexte.Ligne(0, "// Tests du service « " + EbNomAffiche(oDemande) + " » sur le repository en mémoire (généré par « ebony make resource »). Un scénario = un comportement.")
+		oTexte.Ligne(0, "// Ajoutez ici un scénario par règle métier que vous écrivez dans le service.")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Ajouter puis trouver : le service rend ce que le repository a enregistré.")
+		oTexte.Ligne(0, "PROCEDURE scenario_service_ajoute_puis_trouve()")
+		oTexte.Ligne(1, "oRepository est un " + sMemoire)
+		oTexte.Ligne(1, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oEnregistre est un c" + sPascal + " = oService.Ajoute(oNouveau)")
+		oTexte.Ligne(1, EbAssertion(oCle, "oEnregistre." + oCle.NomAccesseur() + "()", 1, sClePremiere, "clé de la ligne enregistrée"))
+		oTexte.Ligne(1, "oLu est un c" + sPascal + " = oService.Trouve(" + sClePremiere + ")")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, EbAssertion(oChamp, "oLu." + oChamp.NomAccesseur() + "()", 1, sClePremiere, oChamp.NomColonne()))
+		FIN
+		oTexte.Ligne(1, "dbgVérifieVrai(oRepository.Existe(" + sClePremiere + "), " + EbGuillemets("le repository a la ligne") + ")")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Énumérer rend toutes les lignes du repository.")
+		oTexte.Ligne(0, "PROCEDURE scenario_service_enumere_les_lignes()")
+		oTexte.Ligne(1, "oRepository est un " + sMemoire)
+		oTexte.Ligne(1, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(1, "dbgVérifieEgalité(oService.Enumere()..Occurrence, 0, " + EbGuillemets("aucune ligne au départ") + ")")
+		oTexte.Ligne(1, "oUn est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oDeux est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 2, "") + ")")
+		oTexte.Ligne(1, "oService.Ajoute(oUn)")
+		oTexte.Ligne(1, "oService.Ajoute(oDeux)")
+		oTexte.Ligne(1, "dbgVérifieEgalité(oService.Enumere()..Occurrence, 2, " + EbGuillemets("deux lignes") + ")")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Modifier remplace les valeurs de la ligne de même clé.")
+		oTexte.Ligne(0, "PROCEDURE scenario_service_modifie_remplace_les_valeurs()")
+		oTexte.Ligne(1, "oRepository est un " + sMemoire)
+		oTexte.Ligne(1, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oService.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "oChange est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 2, sClePremiere) + ")")
+		oTexte.Ligne(1, "oService.Modifie(oChange)")
+		oTexte.Ligne(1, "oLu est un c" + sPascal + " = oService.Trouve(" + sClePremiere + ")")
+		POUR TOUT oChamp DE oDemande.Champs()
+			oTexte.Ligne(1, EbAssertion(oChamp, "oLu." + oChamp.NomAccesseur() + "()", 2, sClePremiere, oChamp.NomColonne()))
+		FIN
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Supprimer retire la ligne.")
+		oTexte.Ligne(0, "PROCEDURE scenario_service_supprime_retire_la_ligne()")
+		oTexte.Ligne(1, "oRepository est un " + sMemoire)
+		oTexte.Ligne(1, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(1, "oNouveau est un c" + sPascal + "(" + EbArgumentsExemple(oDemande, 1, "") + ")")
+		oTexte.Ligne(1, "oService.Ajoute(oNouveau)")
+		oTexte.Ligne(1, "oService.Supprime(" + sClePremiere + ")")
+		oTexte.Ligne(1, "dbgVérifieFaux(oRepository.Existe(" + sClePremiere + "), " + EbGuillemets("la ligne n'existe plus") + ")")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Une clé absente est introuvable : l'erreur 404 du repository traverse le service.")
+		oTexte.Ligne(0, "PROCEDURE scenario_service_cle_absente_leve_404()")
+		oTexte.Ligne(1, "oRepository est un " + sMemoire)
+		oTexte.Ligne(1, "oService est un " + sService + "(oRepository)")
+		oTexte.Ligne(1, "nCode est un entier = 0")
+		oTexte.Ligne(1, "QUAND EXCEPTION DANS")
+		oTexte.Ligne(2, "oService.Trouve(" + sAbsente + ")")
+		oTexte.Ligne(1, "FAIRE")
+		oTexte.Ligne(2, "nCode = ExceptionInfo(errCode)")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(1, "dbgVérifieEgalité(nCode, 404, " + EbGuillemets("code 404") + ")")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+FIN

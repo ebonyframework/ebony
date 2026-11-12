@@ -1,0 +1,47 @@
+// Un composant fictif pour les tests : il compte ses ouvertures et ses fermetures et répond ce qu'on lui a dit de répondre. Aucun accès au système.
+cEbComposantFictif est une Classe implemente iEbComposant
+PRIVÉ
+	sNom        est une chaîne = ""
+	bRepond     est un booléen = Vrai
+	nOuvertures est un entier  = 0
+	nFermetures est un entier  = 0
+	nSondes     est un entier  = 0
+
+	PROCEDURE Constructeur(Nom est une chaîne)
+		:sNom = Nom
+	FIN
+
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	PROCEDURE PUBLIQUE Ouvre()
+		:nOuvertures = :nOuvertures + 1
+	FIN
+
+	PROCEDURE PUBLIQUE Ferme()
+		:nFermetures = :nFermetures + 1
+	FIN
+
+	PROCEDURE PUBLIQUE Repond() : booléen
+		:nSondes = :nSondes + 1
+		RENVOYER :bRepond
+	FIN
+
+	// Règle ce que la sonde répondra.
+	PROCEDURE PUBLIQUE DefinitRepond(bValeur est un booléen)
+		:bRepond = bValeur
+	FIN
+
+	PROCEDURE PUBLIQUE NbOuvertures() : entier
+		RENVOYER :nOuvertures
+	FIN
+
+	PROCEDURE PUBLIQUE NbFermetures() : entier
+		RENVOYER :nFermetures
+	FIN
+
+	PROCEDURE PUBLIQUE NbSondes() : entier
+		RENVOYER :nSondes
+	FIN
+FIN

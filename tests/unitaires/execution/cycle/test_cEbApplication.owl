@@ -1,0 +1,197 @@
+// Tests de cEbApplication : démarrage, arrêt, idempotence, composants (la base en est un), santé, base injoignable, configuration invalide. Disque et sortie fictifs, SQLite en mémoire pour la vraie base.
+// Non testé ici : la création du dossier d'une base SQLite sur disque (vérifiée par le test d'intégration du lanceur, qui lance un vrai service) ; l'ordre inverse de fermeture de deux composants (non observable avec les fictifs actuels).
+
+// Fichiers de configuration en mémoire, journal en mémoire, horloge fixe, et l'application qui les assemble : neufs avant CHAQUE scénario (voir avantChaqueTest).
+gDisqueApp   est un cEbLectureEnvFictive
+gSortieApp   est un cEbSortieJournalFictive
+gHorlogeApp  est un cEbHorlogeFictive
+gApplication est un cEbApplication          = cEbApplication(gDisqueApp, gSortieApp, gHorlogeApp)
+
+// Fixture : un disque avec un schéma SQLite et un .env qui désigne une base en mémoire, un journal vide, et une application neuve, sans composant, pas encore démarrée.
+PROCEDURE avantChaqueTest()
+	gDisqueApp  = cEbLectureEnvFictive()
+	gSortieApp  = cEbSortieJournalFictive()
+	gHorlogeApp = cEbHorlogeFictive()
+	gDisqueApp.AjouteFichier("config/env.json", `{"variables":[{"cle":"DB_FICHIER","type":"chemin","defaut":":memory:"}]}`)
+	gApplication = cEbApplication(gDisqueApp, gSortieApp, gHorlogeApp)
+FIN
+
+// Fixture : ferme la base du scénario, même s'il a échoué en route (Arrête() est sans effet sur une application non démarrée).
+PROCEDURE apresChaqueTest()
+	gApplication.Arrête()
+FIN
+
+// Combien de lignes du journal contiennent ce texte.
+PROCEDURE EbTestCompte(sTexte est une chaîne) : entier
+	nTrouvees est un entier = 0
+	POUR nLigne = 1 À gSortieApp.NbLignes()
+		SI Position(gSortieApp.Ligne(nLigne), sTexte) > 0 ALORS
+			nTrouvees++
+		FIN
+	FIN
+	RENVOYER nTrouvees
+FIN
+
+// Ajoute à l'application du scénario la base d'un fournisseur (sqlite, postgresql…), comme le fait le service généré.
+PROCEDURE EbTestAjouteBase(oApp est un cEbApplication, sFournisseur est une chaîne)
+	oBase est un cEbServiceBase(sFournisseur)
+	oApp.Ajoute(oBase)
+FIN
+
+// Avant Démarre(), l'application n'est pas démarrée et n'est pas saine : rien n'est sondé.
+PROCEDURE scenario_avant_le_demarrage()
+	EbTestAjouteBase(gApplication, "sqlite")
+	dbgVérifieFaux(gApplication.EstDemarree(), "pas démarrée")
+	dbgVérifieFaux(gApplication.Sante().Saine(), "pas saine avant le démarrage")
+	dbgVérifieEgalité(gApplication.Sante().Corps(), `{"statut":"degrade"}`, "le corps avant le démarrage")
+	dbgVérifieEgalité(gSortieApp.NbLignes(), 0, "rien dans le journal")
+FIN
+
+// Un démarrage normal : la configuration est chargée, la base s'ouvre, le journal le dit, et la santé dit « base : ok ».
+PROCEDURE scenario_demarrage_normal()
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Démarre()
+	dbgVérifieVrai(gApplication.EstDemarree(), "démarrée")
+	dbgVérifieEgalité(EbTestCompte("Base ouverte"), 1, "la base est ouverte")
+	dbgVérifieEgalité(EbTestCompte("Application démarrée"), 1, "démarrage journalisé")
+	dbgVérifieVrai(gApplication.Sante().Saine(), "saine")
+	dbgVérifieEgalité(gApplication.Sante().Corps(), `{"statut":"ok","base":"ok"}`, "le corps de santé avec une base")
+	dbgVérifieEgalité(gApplication.Env().LitTexte("DB_FICHIER"), ":memory:", "la configuration est accessible")
+FIN
+
+// Un projet SANS base : l'application démarre, est saine, et ne parle d'aucune base (ni dans le journal ni dans la santé).
+PROCEDURE scenario_demarrage_sans_composant()
+	gApplication.Démarre()
+	dbgVérifieVrai(gApplication.EstDemarree(), "démarrée sans composant")
+	dbgVérifieVrai(gApplication.Sante().Saine(), "saine sans composant")
+	dbgVérifieEgalité(gApplication.Sante().Corps(), `{"statut":"ok"}`, "le corps de santé sans composant : pas de clé « base »")
+	dbgVérifieEgalité(EbTestCompte("Base ouverte"), 0, "aucune base ouverte")
+	dbgVérifieEgalité(EbTestCompte("Application démarrée"), 1, "démarrage journalisé")
+FIN
+
+// Deux Démarre() de suite (le code au sommet d'un service peut s'exécuter deux fois) ne démarrent qu'une fois.
+PROCEDURE scenario_demarrage_idempotent()
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Démarre()
+	gApplication.Démarre()
+	dbgVérifieEgalité(EbTestCompte("Application démarrée"), 1, "un seul démarrage journalisé")
+	dbgVérifieEgalité(EbTestCompte("Base ouverte"), 1, "une seule ouverture")
+FIN
+
+// La base répond vraiment : un ordre SQL écrit, puis relu, passe par la base résiliente que les routes reçoivent (cEbServiceBase.Base()).
+PROCEDURE scenario_la_base_de_l_application_fonctionne()
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Démarre()
+	tabAucun est un tableau associatif
+	dbgVérifieVrai(cEbServiceBase.EstDefinie(), "une base a été posée au démarrage")
+	dbgVérifieVrai(cEbServiceBase.Base().Execute("CREATE TABLE t (id INTEGER)", tabAucun).Succes(), "création")
+	dbgVérifieVrai(cEbServiceBase.Base().Execute("INSERT INTO t (id) VALUES (3)", tabAucun).Succes(), "insertion")
+	oLu est un cEbResultatSql = cEbServiceBase.Base().Execute("SELECT id FROM t", tabAucun)
+	dbgVérifieEgalité(oLu.Lignes()[1]["id"], 3, "la valeur relue")
+FIN
+
+// L'arrêt ferme la base et se dit une seule fois, même demandé deux fois.
+PROCEDURE scenario_arret_idempotent()
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Démarre()
+	gApplication.Arrête()
+	gApplication.Arrête()
+	dbgVérifieFaux(gApplication.EstDemarree(), "arrêtée")
+	dbgVérifieFaux(gApplication.Sante().Saine(), "plus saine après l'arrêt")
+	dbgVérifieEgalité(EbTestCompte("Application arrêtée"), 1, "un seul arrêt journalisé")
+FIN
+
+// Arrêter une application qui n'a jamais démarré ne fait rien et n'échoue pas.
+PROCEDURE scenario_arret_sans_demarrage()
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Arrête()
+	dbgVérifieEgalité(gSortieApp.NbLignes(), 0, "rien dans le journal")
+FIN
+
+// Une configuration invalide arrête le démarrage (exception 60, toutes les erreurs) : l'application n'est pas démarrée et aucun composant n'est créé ni ouvert.
+PROCEDURE scenario_configuration_invalide_arrete_le_demarrage()
+	gDisqueApp.AjouteFichier("config/env.json", `{"variables":[{"cle":"DB_FICHIER","type":"chemin","obligatoire":true}]}`)
+	oComposant est un cEbComposantFictif("x")
+	oFabrique  est un cEbFabriqueComposantFictive(oComposant)
+	gApplication.Ajoute(oFabrique)
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		gApplication.Démarre()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "60|", "code 60 : " + sRes)
+	dbgVérifieVrai(Position(sRes, "DB_FICHIER") > 0, "nomme la variable : " + sRes)
+	dbgVérifieFaux(gApplication.EstDemarree(), "pas démarrée")
+	dbgVérifieEgalité(oFabrique.NbCreations(), 0, "aucun composant créé")
+	dbgVérifieEgalité(oComposant.NbOuvertures(), 0, "aucun composant ouvert")
+	dbgVérifieEgalité(gSortieApp.NbLignes(), 0, "rien n'a été ouvert ni journalisé")
+FIN
+
+// Le niveau du journal vient de LOG_NIVEAU quand il est donné : en « error », les informations de démarrage ne sont pas écrites.
+PROCEDURE scenario_niveau_du_journal_vient_de_l_environnement()
+	gDisqueApp.AjouteFichier(".env", "LOG_NIVEAU=error" + Caract(10))
+	EbTestAjouteBase(gApplication, "sqlite")
+	gApplication.Démarre()
+	dbgVérifieEgalité(gSortieApp.NbLignes(), 0, "aucune information écrite au niveau error")
+FIN
+
+// PostgreSQL injoignable (port fermé) : le service démarre quand même, le journal avertit, et la santé dit « base : indisponible » (503 sur /health).
+PROCEDURE scenario_base_injoignable_le_service_demarre()
+	sSchema est une chaîne = `{"variables":[{"cle":"DB_HOTE","type":"texte","defaut":"127.0.0.1"},{"cle":"DB_PORT","type":"port","defaut":"1"},`
+	sSchema += `{"cle":"DB_NOM","type":"texte","defaut":"x"},{"cle":"DB_UTILISATEUR","type":"texte","defaut":"u"},{"cle":"DB_MOT_DE_PASSE","type":"texte","secret":true}]}`
+	gDisqueApp.AjouteFichier("config/env.json", sSchema)
+	oPostgres est un cEbApplication(gDisqueApp, gSortieApp, gHorlogeApp)
+	EbTestAjouteBase(oPostgres, "postgresql")
+	oPostgres.Démarre()
+	dbgVérifieVrai(oPostgres.EstDemarree(), "démarrée malgré la base absente")
+	dbgVérifieEgalité(EbTestCompte("Base injoignable au démarrage"), 1, "avertissement journalisé")
+	dbgVérifieFaux(oPostgres.Sante().Saine(), "pas saine : la base ne répond pas")
+	dbgVérifieEgalité(EbTestCompte("Sonde de la base en échec"), 1, "échec de sonde journalisé")
+	oPostgres.Arrête()
+FIN
+
+// Chaque composant est créé une fois au démarrage, ouvert une fois, et fermé une fois à l'arrêt, même si Démarre() et Arrête() sont appelés deux fois.
+PROCEDURE scenario_composant_cree_ouvert_et_ferme_une_fois()
+	oComposant est un cEbComposantFictif("cache")
+	oFabrique  est un cEbFabriqueComposantFictive(oComposant)
+	gApplication.Ajoute(oFabrique)
+	gApplication.Démarre()
+	gApplication.Démarre()
+	dbgVérifieEgalité(oFabrique.NbCreations(), 1, "créé une fois")
+	dbgVérifieEgalité(oComposant.NbOuvertures(), 1, "ouvert une fois")
+	dbgVérifieEgalité(oFabrique.EnvRecu().LitTexte("DB_FICHIER"), ":memory:", "la fabrique reçoit la configuration chargée")
+	oFabrique.JournalRecu().Info("écrit par la fabrique")
+	dbgVérifieEgalité(EbTestCompte("écrit par la fabrique"), 1, "la fabrique reçoit le journal de l'application")
+	gApplication.Arrête()
+	gApplication.Arrête()
+	dbgVérifieEgalité(oComposant.NbFermetures(), 1, "fermé une fois")
+FIN
+
+// Un composant ajouté APRÈS le démarrage est ignoré : l'application ne l'ouvre pas et sa fabrique n'est pas appelée.
+PROCEDURE scenario_composant_ajoute_apres_le_demarrage_est_ignore()
+	gApplication.Démarre()
+	oComposant est un cEbComposantFictif("tard")
+	oFabrique  est un cEbFabriqueComposantFictive(oComposant)
+	gApplication.Ajoute(oFabrique)
+	dbgVérifieEgalité(oFabrique.NbCreations(), 0, "fabrique non appelée")
+	dbgVérifieEgalité(oComposant.NbOuvertures(), 0, "composant non ouvert")
+FIN
+
+// La santé sonde chaque composant UNE fois et nomme chacun : un seul qui ne répond pas rend l'application non saine (503), les autres restent « ok ».
+PROCEDURE scenario_sante_nomme_chaque_composant()
+	oUn      est un cEbComposantFictif("cache")
+	oDeux    est un cEbComposantFictif("courriel")
+	oFabUn   est un cEbFabriqueComposantFictive(oUn)
+	oFabDeux est un cEbFabriqueComposantFictive(oDeux)
+	gApplication.Ajoute(oFabUn)
+	gApplication.Ajoute(oFabDeux)
+	gApplication.Démarre()
+	dbgVérifieVrai(gApplication.Sante().Saine(), "saine quand tous répondent")
+	dbgVérifieEgalité(gApplication.Sante().Corps(), `{"statut":"ok","cache":"ok","courriel":"ok"}`, "tous ok, dans l'ordre d'ajout")
+	oDeux.DefinitRepond(Faux)
+	oSante est un cEbSante = gApplication.Sante()
+	dbgVérifieFaux(oSante.Saine(), "pas saine quand un composant ne répond pas")
+	dbgVérifieEgalité(oSante.Corps(), `{"statut":"degrade","cache":"ok","courriel":"indisponible"}`, "le fautif est nommé")
+	dbgVérifieEgalité(oUn.NbSondes(), 3, "chaque appel de Sante() sonde une fois : 3 appels, 3 sondes")
+FIN

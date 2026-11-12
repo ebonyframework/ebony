@@ -1,0 +1,13 @@
+// Adaptateur de test du port iEbHorloge : une heure fixe, que le test choisit.
+cEbHorlogeFictive est une Classe implemente iEbHorloge
+PRIVÉ
+	sInstant est une chaîne = "2026-01-02T03:04:05Z"
+
+	PROCEDURE PUBLIQUE Definit(instant est une chaîne)
+		:sInstant = instant
+	FIN
+
+	PROCEDURE PUBLIQUE Maintenant() : chaîne
+		RENVOYER :sInstant
+	FIN
+FIN

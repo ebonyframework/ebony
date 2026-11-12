@@ -1,0 +1,88 @@
+// Lecture des fichiers d'un projet OWL qui existe déjà, pour « ebony init » : fonctions pures (aucun accès au disque), testées dans tests/unitaires/commandes/init/.
+// ebony ne modifie jamais ces fichiers : il les lit pour s'accorder avec eux et dire à l'utilisateur ce qu'il doit ajouter lui-même.
+EbLectureProjetExistant est une CollectionDeProcédures
+
+	// Les lignes d'un texte, sans retour chariot ni espaces de bord (fins de ligne LF ou CRLF).
+	PROCEDURE EbLignesNettoyees(sTexte est une chaîne) : tableau de chaînes
+		tabLignes est un tableau de chaînes
+		tabBrutes est un tableau de chaînes = ChaîneDécoupe(Remplace(sTexte, Caract(13), ""), Caract(10))
+		POUR TOUT sBrute DE tabBrutes
+			TableauAjoute(tabLignes, SansEspace(Remplace(sBrute, Caract(9), " ")))
+		FIN
+		RENVOYER tabLignes
+	FIN
+
+	// L'identifiant du bloc « <identifiant> est un Projet » de projet.owl (la première ligne qui a cette forme, hors commentaire), ou « » si aucune.
+	PROCEDURE EbIdentifiantDansProjetOwl(sTexte est une chaîne) : chaîne
+		tabLignes est un tableau de chaînes = EbLignesNettoyees(sTexte)
+		POUR TOUT sLigne DE tabLignes
+			SI Gauche(sLigne, 2) <> "//" ALORS
+				nPosition est un entier = Position(sLigne, " est un Projet")
+				SI nPosition > 1 ET nPosition + Taille(" est un Projet") - 1 = Taille(sLigne) ALORS
+					sIdentifiant est une chaîne = Gauche(sLigne, nPosition - 1)
+					SI Position(sIdentifiant, " ") = 0 ALORS
+						RENVOYER sIdentifiant
+					FIN
+				FIN
+			FIN
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Vrai si une ligne du .gitignore désigne cette entrée : « ebony/ », « /ebony/ », « ebony » et « /ebony » désignent toutes le dossier ebony.
+	PROCEDURE EbGitignoreContient(sTexte est une chaîne, sEntree est une chaîne) : booléen
+		sCherchee est une chaîne            = EbEntreeGitignoreNormale(sEntree)
+		tabLignes est un tableau de chaînes = EbLignesNettoyees(sTexte)
+		POUR TOUT sLigne DE tabLignes
+			SI sLigne <> "" ET Gauche(sLigne, 1) <> "#" ALORS
+				SI EbEntreeGitignoreNormale(sLigne) = sCherchee ALORS
+					RENVOYER Vrai
+				FIN
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Une entrée sans barre initiale ni finale.
+	PROCEDURE EbEntreeGitignoreNormale(sEntree est une chaîne) : chaîne
+		sNormale est une chaîne = sEntree
+		SI Gauche(sNormale, 1) = "/" ALORS
+			sNormale = Droite(sNormale, Taille(sNormale) - 1)
+		FIN
+		SI Droite(sNormale, 1) = "/" ALORS
+			sNormale = Gauche(sNormale, Taille(sNormale) - 1)
+		FIN
+		RENVOYER sNormale
+	FIN
+
+	// Les entrées que ebony attend dans le .gitignore (voir EbContenuGitignore) et qui n'y sont pas, séparées par des virgules ; « » si elles y sont toutes.
+	PROCEDURE EbEntreesGitignoreManquantes(sTexte est une chaîne) : chaîne
+		sManquantes  est une chaîne            = ""
+		tabAttendues est un tableau de chaînes = ChaîneDécoupe("ebony/|storage/|.env|.env.secrets", "|")
+		POUR TOUT sEntree DE tabAttendues
+			SI PAS EbGitignoreContient(sTexte, sEntree) ALORS
+				SI sManquantes <> "" ALORS
+					sManquantes += ", "
+				FIN
+				sManquantes += sEntree
+			FIN
+		FIN
+		RENVOYER sManquantes
+	FIN
+
+	// Les noms des variables d'un .env.exemple (les lignes « NOM=valeur », hors commentaires), séparés par des virgules.
+	PROCEDURE EbVariablesEnv(sTexte est une chaîne) : chaîne
+		sNoms     est une chaîne            = ""
+		tabLignes est un tableau de chaînes = EbLignesNettoyees(sTexte)
+		POUR TOUT sLigne DE tabLignes
+			nEgal est un entier = Position(sLigne, "=")
+			SI nEgal > 1 ET Gauche(sLigne, 1) <> "#" ALORS
+				SI sNoms <> "" ALORS
+					sNoms += ", "
+				FIN
+				sNoms += Gauche(sLigne, nEgal - 1)
+			FIN
+		FIN
+		RENVOYER sNoms
+	FIN
+FIN

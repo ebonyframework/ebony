@@ -1,0 +1,34 @@
+// La base de données d'un service REST généré : la FABRIQUE du composant « base » (une instance, ajoutée à l'application par le service) et le point où les routes la retrouvent (membres GLOBAL de la classe).
+// Instance : d'après le fournisseur (sqlite, postgresql ou hfsql, les valeurs de --base), la configuration et le journal que cEbApplication lui donne au démarrage, Cree() fabrique le composant et pose la base partagée. Un projet sans base ne crée pas cette instance.
+// Classe : Base() rend la base résiliente que reçoivent les repositories et les jetons ; EstDefinie() dit si une base a été posée. Même schéma que cEbServiceApplication : une variable de bloc d'une classe du projet fait planter « owl test », un membre GLOBAL non.
+// Tout est dans UNE classe parce qu'OWL refuse d'appeler la méthode GLOBALE d'une autre classe depuis une classe analysée avant elle (mesuré avec OWL 1.8.1 : « n'est ni un ancêtre de … ni n'a de méthode GLOBALE ») : ici, Cree() ne touche que les membres de sa propre classe.
+cEbServiceBase est une Classe implemente iEbFabriqueComposant
+	GLOBAL
+	oBase    est un cEbBaseResiliente
+	bDefinie est un booléen           = Faux
+PRIVÉ
+	sFournisseur est une chaîne = ""
+
+	// sBaseDonnees : sqlite, postgresql ou hfsql.
+	PROCEDURE Constructeur(sBaseDonnees est une chaîne)
+		:sFournisseur = sBaseDonnees
+	FIN
+
+	// Crée le composant « base » (configuré, pas ouvert : cEbApplication l'ouvre) et pose la base résiliente pour les routes, les repositories et les jetons.
+	PROCEDURE PUBLIQUE Cree(oEnv est un cEbEnv, oJournal est un cEbJournal) : iEbComposant
+		oBaseApp est un cEbBaseApplication(:sFournisseur, oEnv, oJournal)
+		cEbServiceBase.oBase    = oBaseApp.Base()
+		cEbServiceBase.bDefinie = Vrai
+		RENVOYER oBaseApp
+	FIN
+
+	// Vrai si une base a été posée (faux dans un projet sans base, ou avant le démarrage).
+	PROCEDURE PUBLIQUE GLOBALE EstDefinie() : booléen
+		RENVOYER cEbServiceBase.bDefinie
+	FIN
+
+	// La base résiliente posée au démarrage : ce que reçoivent les repositories et les jetons. À n'appeler qu'après le démarrage de l'application.
+	PROCEDURE PUBLIQUE GLOBALE Base() : cEbBaseResiliente
+		RENVOYER cEbServiceBase.oBase
+	FIN
+FIN

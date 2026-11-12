@@ -1,0 +1,175 @@
+// Tests de EbChampsMake : la grammaire de --champs (types, clé *, nullable ?, clé étrangère @), les noms tirés d'une colonne et chaque refus avec son code 25.
+
+// Rend « code|message » si l'analyse lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusChamps(sChamps est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabChamps est un tableau de cEbChampTable = EbAnalyseChamps(sChamps)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Les mots d'un texte libre, reliés par des « + » pour les comparer.
+PROCEDURE EbTestMots(sTexte est une chaîne) : chaîne
+	RENVOYER EbJointMots(EbMotsDe(sTexte), "+")
+FIN
+
+// Une liste simple : types, clé et nullabilité sont lus, dans l'ordre.
+PROCEDURE scenario_liste_simple_lue_dans_l_ordre()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("id:entier*,nom:texte,email:texte?")
+	dbgVérifieEgalité(tabChamps..Occurrence, 3, "trois champs")
+	dbgVérifieEgalité(tabChamps[1].NomColonne(), "id", "premier champ")
+	dbgVérifieEgalité(tabChamps[1].TypeChamp(), "entier", "type du premier")
+	dbgVérifieVrai(tabChamps[1].Cle(), "id est la clé")
+	dbgVérifieFaux(tabChamps[2].Cle(), "nom n'est pas la clé")
+	dbgVérifieFaux(tabChamps[2].Nullable(), "nom n'accepte pas NULL")
+	dbgVérifieVrai(tabChamps[3].Nullable(), "email accepte NULL")
+FIN
+
+// Les espaces autour des champs et des marqueurs sont ignorés, une virgule en trop aussi.
+PROCEDURE scenario_espaces_et_virgules_en_trop_ignores()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps(" id : entier * , nom : texte ,, ")
+	dbgVérifieEgalité(tabChamps..Occurrence, 2, "deux champs")
+	dbgVérifieEgalité(tabChamps[1].NomColonne(), "id", "nom sans espaces")
+	dbgVérifieVrai(tabChamps[1].Cle(), "clé reconnue malgré les espaces")
+FIN
+
+// Les types s'écrivent avec ou sans accent, en majuscules ou en minuscules.
+PROCEDURE scenario_types_avec_accents_et_majuscules()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("id:Entier*,note:réel,actif:Booléen,naissance:DATE,vu:dateheure")
+	dbgVérifieEgalité(tabChamps[2].TypeChamp(), "reel", "réel")
+	dbgVérifieEgalité(tabChamps[3].TypeChamp(), "booleen", "Booléen")
+	dbgVérifieEgalité(tabChamps[4].TypeChamp(), "date", "DATE")
+	dbgVérifieEgalité(tabChamps[5].TypeChamp(), "dateheure", "dateheure")
+FIN
+
+// Les marqueurs * et ? s'écrivent dans n'importe quel ordre.
+PROCEDURE scenario_marqueurs_dans_n_importe_quel_ordre()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("code:texte*,a:texte?,b:texte?@autres")
+	dbgVérifieVrai(tabChamps[1].Cle(), "clé texte")
+	dbgVérifieVrai(tabChamps[2].Nullable(), "?")
+	dbgVérifieVrai(tabChamps[3].Nullable(), "? avant @")
+	dbgVérifieEgalité(tabChamps[3].RefTable(), "autres", "table référencée")
+FIN
+
+// @table vise la colonne id ; @table.colonne et @schema.table.colonne visent une autre colonne.
+PROCEDURE scenario_cle_etrangere_trois_formes()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("id:entier*,a:entier@clients,b:entier@clients.code,c:entier@crm.clients.code,d:texte")
+	dbgVérifieEgalité(tabChamps[2].RefTable() + "." + tabChamps[2].RefColonne(), "clients.id", "@clients")
+	dbgVérifieEgalité(tabChamps[3].RefTable() + "." + tabChamps[3].RefColonne(), "clients.code", "@clients.code")
+	dbgVérifieEgalité(tabChamps[4].RefTable() + "." + tabChamps[4].RefColonne(), "crm.clients.code", "@crm.clients.code")
+	dbgVérifieFaux(tabChamps[5].ARef(), "pas de référence")
+FIN
+
+// Le nom de colonne est gardé tel quel (accents, espaces, majuscules) ; seuls les identifiants fabriqués sont nettoyés et préfixés.
+PROCEDURE scenario_nom_de_colonne_garde_et_identifiants_prefixes()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("Id:entier*,Date de naissance:date,Prénom:texte,actif:booleen,note:reel")
+	dbgVérifieEgalité(tabChamps[2].NomColonne(), "Date de naissance", "colonne telle quelle")
+	dbgVérifieEgalité(tabChamps[2].Mot(), "DateDeNaissance", "mots")
+	dbgVérifieEgalité(tabChamps[2].NomChamp(), "sDateDeNaissance", "champ privé : préfixe de type")
+	dbgVérifieEgalité(tabChamps[2].NomAccesseur(), "LitDateDeNaissance", "accesseur : préfixe Lit")
+	dbgVérifieEgalité(tabChamps[2].NomParametre(), "vDateDeNaissance", "paramètre du constructeur")
+	dbgVérifieEgalité(tabChamps[2].NomSql(), "p_date_de_naissance", "paramètre SQL")
+	dbgVérifieEgalité(tabChamps[3].NomAccesseur(), "LitPrenom", "accent retiré")
+	dbgVérifieEgalité(tabChamps[1].NomChamp(), "nId", "entier : n")
+	dbgVérifieEgalité(tabChamps[4].NomChamp(), "bActif", "booléen : b")
+	dbgVérifieEgalité(tabChamps[5].NomChamp(), "rNote", "réel : r")
+FIN
+
+// Un mot que OWL refuse comme nom de méthode (Date, Etat, Libelle, Table, Colonne…) donne quand même un identifiant valide, grâce au préfixe.
+PROCEDURE scenario_mots_reserves_d_owl_restent_valides()
+	tabChamps est un tableau de cEbChampTable = EbAnalyseChamps("id:entier*,date:date,etat:texte,libelle:texte,table:texte")
+	dbgVérifieEgalité(tabChamps[2].NomAccesseur(), "LitDate", "Date")
+	dbgVérifieEgalité(tabChamps[3].NomAccesseur(), "LitEtat", "Etat")
+	dbgVérifieEgalité(tabChamps[4].NomChamp(), "sLibelle", "Libelle")
+	dbgVérifieEgalité(tabChamps[5].NomChamp(), "sTable", "Table")
+FIN
+
+// Les mots : séparateurs, accents, frontière minuscule puis majuscule, chiffres.
+PROCEDURE scenario_mots_d_un_texte_libre()
+	dbgVérifieEgalité(EbTestMots("BonCommande"), "bon+commande", "frontière minuscule/majuscule")
+	dbgVérifieEgalité(EbTestMots("date_naissance"), "date+naissance", "souligné")
+	dbgVérifieEgalité(EbTestMots("Café de la Gare"), "cafe+de+la+gare", "accent et espaces")
+	dbgVérifieEgalité(EbTestMots("clientID"), "client+id", "sigle en fin")
+	dbgVérifieEgalité(EbTestMots("HTTPLog"), "httplog", "majuscules qui se suivent restent un mot")
+	dbgVérifieEgalité(EbTestMots("adresse2"), "adresse2", "chiffre dans un mot")
+	dbgVérifieEgalité(EbTestMots("  --  "), "", "aucune lettre")
+FIN
+
+// Le dossier d'un module et le pluriel de la table par défaut.
+PROCEDURE scenario_dossier_module_et_pluriel()
+	dbgVérifieEgalité(EbDossierModule(EbMotsDe("BonCommande")), "bon-commande", "dossier")
+	dbgVérifieEgalité(EbDossierModule(EbMotsDe("con")), "con-app", "nom réservé par Windows")
+	dbgVérifieEgalité(EbPluriel("client"), "clients", "s")
+	dbgVérifieEgalité(EbPluriel("bus"), "bus", "déjà en s")
+	dbgVérifieEgalité(EbPluriel("prix"), "prix", "déjà en x")
+	dbgVérifieEgalité(EbPascalDe(EbMotsDe("bon commande")), "BonCommande", "majuscules initiales")
+FIN
+
+// Un type inconnu est refusé, jamais remplacé par texte ; le message dit les types acceptés.
+PROCEDURE scenario_type_inconnu_refuse()
+	sRefus est une chaîne = EbTestRefusChamps("id:entier*,nom:varchar")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRefus, "type inconnu") > 0, "dit que le type est inconnu")
+	dbgVérifieVrai(Position(sRefus, "entier, texte, reel, booleen, date, dateheure") > 0, "liste les types")
+FIN
+
+// Un champ sans type, sans « : » ou avec un marqueur seul est refusé.
+PROCEDURE scenario_champ_sans_type_refuse()
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,nom"), 3), "25|", "sans deux-points")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,nom:"), 3), "25|", "type vide")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,nom:?"), 3), "25|", "marqueur sans type")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,:texte"), 3), "25|", "colonne sans nom")
+FIN
+
+// Il faut exactement une clé primaire, de type entier ou texte, accompagnée d'au moins un autre champ.
+PROCEDURE scenario_regles_de_la_cle_primaire()
+	dbgVérifieVrai(Position(EbTestRefusChamps("nom:texte"), "clé primaire") > 0, "sans clé")
+	dbgVérifieVrai(Position(EbTestRefusChamps("a:entier*,b:entier*,c:texte"), "clés composées") > 0, "deux clés")
+	dbgVérifieVrai(Position(EbTestRefusChamps("a:reel*,b:texte"), "entier ou texte") > 0, "clé de type réel")
+	dbgVérifieVrai(Position(EbTestRefusChamps("a:entier*?,b:texte"), "NULL") > 0, "clé nullable")
+	dbgVérifieVrai(Position(EbTestRefusChamps("a:entier*"), "au moins un champ") > 0, "clé seule")
+	dbgVérifieEgalité(EbTestRefusChamps("code:texte*,nom:texte"), "", "clé texte acceptée")
+FIN
+
+// Une liste vide est refusée avec un exemple.
+PROCEDURE scenario_liste_vide_refusee()
+	dbgVérifieVrai(Position(EbTestRefusChamps(""), "Il manque les champs") > 0, "liste vide")
+	dbgVérifieVrai(Position(EbTestRefusChamps(" , , "), "Il manque les champs") > 0, "que des virgules")
+FIN
+
+// Deux colonnes qui donneraient le même identifiant sont refusées, avec leurs deux noms.
+PROCEDURE scenario_deux_colonnes_meme_identifiant_refusees()
+	sRefus est une chaîne = EbTestRefusChamps("id:entier*,Prénom:texte,prenom:texte")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRefus, "Prénom") > 0 ET Position(sRefus, "« prenom »") > 0, "cite les deux colonnes")
+FIN
+
+// Un nom qui ne peut pas être écrit dans du SQL entre guillemets ou dans une chaîne OWL est refusé ; les autres, accents et espaces compris, passent.
+PROCEDURE scenario_noms_refuses_et_acceptes()
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a" + Caract(34) + "b:texte"), 3), "25|", "guillemet")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a" + Caract(96) + "b:texte"), 3), "25|", "accent grave")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a[b:texte"), 3), "25|", "crochet")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a%b:texte"), 3), "25|", "pour cent")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a{b}:texte"), 3), "25|", "accolade")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a.b:texte@t.c.d.e"), 3), "25|", "trop de points dans @")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,a:texte@"), 3), "25|", "@ sans table")
+	dbgVérifieEgalité(EbTestRefusChamps("id:entier*,Date de naissance:date,L'été:texte"), "", "espaces, apostrophe et accents acceptés")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,---:texte"), 3), "25|", "aucun caractère latin")
+FIN
+
+// Deux colonnes qui ne diffèrent que par la casse des mots (prixht et Prix HT) donnent des identifiants qu'OWL confond : refusées.
+PROCEDURE scenario_identifiants_qui_ne_different_que_par_la_casse_refuses()
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,prixht:reel,Prix HT:reel"), 3), "25|", "Prixht et PrixHt")
+FIN
+
+// Un marqueur placé après @ serait avalé dans le nom de la table : refusé avec la bonne écriture.
+PROCEDURE scenario_marqueur_apres_arobase_refuse()
+	sRefus est une chaîne = EbTestRefusChamps("id:entier*,c:entier@clients?")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", "? après @")
+	dbgVérifieVrai(Position(sRefus, "avant @") > 0, "dit où placer le marqueur")
+	dbgVérifieEgalité(Gauche(EbTestRefusChamps("id:entier*,c:entier@clients*"), 3), "25|", "* après @")
+	dbgVérifieEgalité(EbTestRefusChamps("id:entier*,c:entier?@clients"), "", "? avant @ accepté")
+FIN

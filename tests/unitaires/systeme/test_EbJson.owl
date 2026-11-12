@@ -1,0 +1,37 @@
+// Tests de EbJson : l'échappement des textes et des booléens JSON.
+
+// Un texte simple est seulement mis entre guillemets, accents compris.
+PROCEDURE scenario_texte_simple()
+	dbgVérifieEgalité(EbJsonChaine("abc"), Caract(34) + "abc" + Caract(34), "texte simple")
+	dbgVérifieEgalité(EbJsonChaine("Café"), Caract(34) + "Café" + Caract(34), "accents conservés")
+	dbgVérifieEgalité(EbJsonChaine(""), Caract(34) + Caract(34), "texte vide")
+FIN
+
+// Le guillemet et la barre oblique inverse sont précédés d'une barre oblique inverse (un chemin Windows en contient).
+PROCEDURE scenario_guillemet_et_barre()
+	dbgVérifieEgalité(EbJsonChaine("a" + Caract(34) + "b"), Caract(34) + "a" + Caract(92) + Caract(34) + "b" + Caract(34), "guillemet")
+	dbgVérifieEgalité(EbJsonChaine("D:" + Caract(92) + "x"), Caract(34) + "D:" + Caract(92) + Caract(92) + "x" + Caract(34), "barre oblique inverse")
+FIN
+
+// Les sauts de ligne, retours chariot et tabulations ont leur forme courte ; les autres caractères de commande, une forme \u00XX.
+PROCEDURE scenario_caracteres_de_commande()
+	dbgVérifieEgalité(EbJsonChaine("a" + Caract(10) + "b"), Caract(34) + "a" + Caract(92) + "nb" + Caract(34), "saut de ligne")
+	dbgVérifieEgalité(EbJsonChaine("a" + Caract(13) + "b"), Caract(34) + "a" + Caract(92) + "rb" + Caract(34), "retour chariot")
+	dbgVérifieEgalité(EbJsonChaine("a" + Caract(9) + "b"), Caract(34) + "a" + Caract(92) + "tb" + Caract(34), "tabulation")
+	dbgVérifieEgalité(EbJsonChaine(Caract(1)), Caract(34) + Caract(92) + "u0001" + Caract(34), "caractère 1")
+	dbgVérifieEgalité(EbJsonChaine(Caract(27)), Caract(34) + Caract(92) + "u001b" + Caract(34), "caractère 27 (échap), hexadécimal minuscule")
+	dbgVérifieEgalité(EbJsonChaine(Caract(31)), Caract(34) + Caract(92) + "u001f" + Caract(34), "caractère 31")
+	dbgVérifieEgalité(EbJsonChaine(" "), Caract(34) + " " + Caract(34), "l'espace (32) n'est pas échappé")
+FIN
+
+// Le résultat est un JSON valide que OWL sait relire et qui redonne le texte d'origine.
+PROCEDURE scenario_aller_retour()
+	sOriginal est une chaîne = "ligne 1" + Caract(10) + "D:" + Caract(92) + "dossier " + Caract(34) + "x" + Caract(34) + " é" + Caract(9) + Caract(1)
+	sJson     est une chaîne = "[" + EbJsonChaine(sOriginal) + "]"
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide")
+FIN
+
+PROCEDURE scenario_booleens()
+	dbgVérifieEgalité(EbJsonBooleen(Vrai), "true", "vrai")
+	dbgVérifieEgalité(EbJsonBooleen(Faux), "false", "faux")
+FIN

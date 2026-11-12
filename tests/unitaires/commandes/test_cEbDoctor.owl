@@ -1,0 +1,40 @@
+// Tests de cEbDoctor : lance les vérifications dans l'ordre et rassemble leurs résultats. Utilise des vérifications factices.
+
+// Sans vérification, le rapport est vide.
+PROCEDURE scenario_aucune_verification()
+	oDoctor  est un cEbDoctor
+	oRapport est un cEbRapportDoctor = oDoctor.Execute()
+	dbgVérifieEgalité(oRapport.Nombre(), 0, "rapport vide")
+FIN
+
+// Toutes les vérifications ajoutées sont lancées, dans l'ordre.
+PROCEDURE scenario_toutes_lancees_dans_l_ordre()
+	oDoctor est un cEbDoctor
+	oResA   est un cEbResultatVerification("Premier", eEbStatut.reussi, "x", "")
+	oResB   est un cEbResultatVerification("Second", eEbStatut.avertissement, "y", "")
+	oVerifA est un cEbVerifFictive(oResA)
+	oVerifB est un cEbVerifFictive(oResB)
+	oDoctor.Ajoute(oVerifA)
+	oDoctor.Ajoute(oVerifB)
+	oRapport est un cEbRapportDoctor = oDoctor.Execute()
+	dbgVérifieEgalité(oRapport.Nombre(), 2, "deux résultats")
+	dbgVérifieEgalité(oRapport.NbAvertissements(), 1, "l'avertissement est compté")
+	sTexte est une chaîne = oRapport.Texte()
+	dbgVérifieVrai(Position(sTexte, "Premier") < Position(sTexte, "Second"), "ordre d'ajout")
+FIN
+
+// Une vérification qui plante devient une erreur du rapport, et les suivantes sont quand même lancées.
+PROCEDURE scenario_une_exception_devient_une_erreur()
+	oDoctor      est un cEbDoctor
+	oResApres    est un cEbResultatVerification("Apres", eEbStatut.reussi, "ok", "")
+	oVerifPlante est un cEbVerifQuiLeve
+	oVerifApres  est un cEbVerifFictive(oResApres)
+	oDoctor.Ajoute(oVerifPlante)
+	oDoctor.Ajoute(oVerifApres)
+	oRapport est un cEbRapportDoctor = oDoctor.Execute()
+	dbgVérifieEgalité(oRapport.Nombre(), 2, "les deux sont dans le rapport")
+	dbgVérifieEgalité(oRapport.NbErreurs(), 1, "l'exception compte comme une erreur")
+	dbgVérifieVrai(oRapport.ABloquant(), "bloque")
+	dbgVérifieVrai(Position(oRapport.Texte(), "boum") > 0, "la cause est rapportée")
+	dbgVérifieVrai(Position(oRapport.Texte(), "Apres : ok") > 0, "la vérification suivante a bien été lancée")
+FIN

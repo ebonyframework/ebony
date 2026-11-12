@@ -1,0 +1,318 @@
+// Adaptateur de test : un système de fichiers dont on choisit les réponses, sans toucher au disque.
+// Permet de reproduire sur n'importe quelle machine un cas qu'elle ne produit pas (racine de disque, chemin accentué, disque plein…).
+// Par défaut OWL est « bien placé » : le dossier actif est le dossier de lancement ; DefinitActif() simule un échec de placement.
+// Il simule aussi un disque en mémoire (dossiers et fichiers) pour les commandes qui écrivent : mêmes règles que le vrai (le dossier parent doit exister,
+// une copie exige que la source existe), et DefinitEchecSur() fait échouer toute opération dont le chemin contient un motif.
+cEbSystemeFichiersFictif est une Classe implemente iEbSystemeFichiers implemente iEbEcritureFichiers
+PRIVÉ
+	sLancement est une chaîne
+	sActif     est une chaîne
+	// Initialisé à "" : un champ chaîne jamais assigné n'est PAS égal à "" en OWL 1.5.0 (sa taille est 0, mais « champ = "" » est faux).
+	sInstallation         est une chaîne            = ""
+	sProgrammes           est une chaîne            = ""
+	sInstallationAffichee est une chaîne            = ""
+	tabDossiers           est un tableau de chaînes
+	tabFichiers           est un tableau de chaînes
+	tabContenus           est un tableau de chaînes
+	sCauseEcriture        est une chaîne            = ""
+	sMotifEchec           est une chaîne            = ""
+	bSuppressionRefusee   est un booléen            = Faux
+	sDernierEcrit         est une chaîne            = ""
+	nSuppressions         est un entier             = 0
+	sDernierSupprime      est une chaîne            = ""
+
+	PROCEDURE Constructeur(DossierDeLancement est une chaîne)
+		:sLancement = DossierDeLancement
+		:sActif = DossierDeLancement
+	FIN
+
+	// Forme comparable d'un chemin : barres « \ », sans barre finale, en minuscules (Windows ne distingue pas les majuscules).
+	PROCEDURE Forme(chemin est une chaîne) : chaîne
+		RENVOYER Minuscule(EbNormaliseChemin(chemin))
+	FIN
+
+	// Position d'un fichier dans le tableau (0 si absent).
+	PROCEDURE RangFichier(chemin est une chaîne) : entier
+		sCherche est une chaîne = :Forme(chemin)
+		POUR i = 1 À :tabFichiers..Occurrence
+			SI :Forme(:tabFichiers[i]) = sCherche ALORS
+				RENVOYER i
+			FIN
+		FIN
+		RENVOYER 0
+	FIN
+
+	// Lève si une panne est simulée pour ce chemin (DefinitEchecSur).
+	PROCEDURE VerifiePanne(chemin est une chaîne)
+		SI :sMotifEchec <> "" ET Position(:Forme(chemin), Minuscule(:sMotifEchec)) > 0 ALORS
+			ExceptionDéclenche(12, "échec simulé sur " + chemin)
+		FIN
+	FIN
+
+	// Vrai si l'entrée (dossier ou fichier) est strictement sous le dossier donné.
+	PROCEDURE EstSous(entree est une chaîne, dossier est une chaîne) : booléen
+		sPrefixe est une chaîne = :Forme(dossier)
+		SI Droite(sPrefixe, 1) <> "\" ALORS
+			sPrefixe += "\"
+		FIN
+		RENVOYER Gauche(:Forme(entree), Taille(sPrefixe)) = sPrefixe
+	FIN
+
+	// Ajoute un dossier s'il n'existe pas déjà (sans ses parents).
+	PROCEDURE AjouteSiAbsent(chemin est une chaîne)
+		SI PAS :DossierExiste(chemin) ALORS
+			TableauAjoute(:tabDossiers, EbNormaliseChemin(chemin))
+		FIN
+	FIN
+
+	PROCEDURE PUBLIQUE DefinitActif(DossierActif est une chaîne)
+		:sActif = DossierActif
+	FIN
+
+	// Par défaut l'installation est inconnue (vide) et aucun dossier n'existe.
+	PROCEDURE PUBLIQUE DefinitInstallation(DossierInstallation est une chaîne)
+		:sInstallation = DossierInstallation
+	FIN
+
+	// Par défaut le nom d'affichage est celui du dossier d'installation.
+	PROCEDURE PUBLIQUE DefinitInstallationAffichee(DossierAffiche est une chaîne)
+		:sInstallationAffichee = DossierAffiche
+	FIN
+
+	// Par défaut le dossier des programmes est inconnu (vide).
+	PROCEDURE PUBLIQUE DefinitProgrammes(DossierProgrammes est une chaîne)
+		:sProgrammes = DossierProgrammes
+	FIN
+
+	// Déclare qu'un dossier existe et qu'OWL peut l'ouvrir.
+	PROCEDURE PUBLIQUE AjouteDossier(chemin est une chaîne)
+		TableauAjoute(:tabDossiers, chemin)
+	FIN
+
+	// Déclare qu'un fichier existe, avec son contenu. Le dossier parent n'est pas créé : l'ajouter avec AjouteDossier si besoin.
+	PROCEDURE PUBLIQUE AjouteFichier(chemin est une chaîne, contenu est une chaîne)
+		nRang est un entier = :RangFichier(chemin)
+		SI nRang > 0 ALORS
+			:tabContenus[nRang] = contenu
+		SINON
+			TableauAjoute(:tabFichiers, EbNormaliseChemin(chemin))
+			TableauAjoute(:tabContenus, contenu)
+		FIN
+	FIN
+
+	// Toute création, copie ou écriture dont le chemin contient ce motif lève une exception (disque plein, accès refusé…).
+	PROCEDURE PUBLIQUE DefinitEchecSur(motif est une chaîne)
+		:sMotifEchec = motif
+	FIN
+
+	// Contenu d'un fichier du disque simulé, ou « » s'il n'existe pas ; nombre de fichiers ; nombre de dossiers.
+	PROCEDURE PUBLIQUE ContenuDe(chemin est une chaîne) : chaîne
+		nRang est un entier = :RangFichier(chemin)
+		SI nRang = 0 ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER :tabContenus[nRang]
+	FIN
+
+	PROCEDURE PUBLIQUE NbFichiers() : entier
+		RENVOYER :tabFichiers..Occurrence
+	FIN
+
+	PROCEDURE PUBLIQUE NbDossiers() : entier
+		RENVOYER :tabDossiers..Occurrence
+	FIN
+
+	PROCEDURE PUBLIQUE DossierDeLancement() : chaîne
+		RENVOYER :sLancement
+	FIN
+
+	PROCEDURE PUBLIQUE DossierActif() : chaîne
+		RENVOYER :sActif
+	FIN
+
+	// Simule un échec d'écriture (disque plein, accès refusé…) : EcritFichierTemoin lève alors une exception portant cette cause.
+	PROCEDURE PUBLIQUE DefinitEcritureImpossible(cause est une chaîne)
+		:sCauseEcriture = cause
+	FIN
+
+	// Simule un fichier qui reste en place : SupprimeFichier renvoie Faux.
+	PROCEDURE PUBLIQUE DefinitSuppressionImpossible()
+		:bSuppressionRefusee = Vrai
+	FIN
+
+	// Dernier fichier de test écrit avec succès, dernier fichier supprimé (vides si aucun) et nombre de suppressions réussies :
+	// de quoi vérifier que la vérification range derrière elle, et le bon fichier.
+	PROCEDURE PUBLIQUE DernierEcrit() : chaîne
+		RENVOYER :sDernierEcrit
+	FIN
+
+	PROCEDURE PUBLIQUE DernierSupprime() : chaîne
+		RENVOYER :sDernierSupprime
+	FIN
+
+	PROCEDURE PUBLIQUE NbSuppressions() : entier
+		RENVOYER :nSuppressions
+	FIN
+
+	PROCEDURE PUBLIQUE EcritFichierTemoin(chemin est une chaîne)
+		SI :sCauseEcriture <> "" ALORS
+			ExceptionDéclenche(12, :sCauseEcriture)
+		FIN
+		:sDernierEcrit = chemin
+	FIN
+
+	PROCEDURE PUBLIQUE SupprimeFichier(chemin est une chaîne) : booléen
+		SI :bSuppressionRefusee ALORS
+			RENVOYER Faux
+		FIN
+		:nSuppressions = :nSuppressions + 1
+		:sDernierSupprime = chemin
+		RENVOYER Vrai
+	FIN
+
+	PROCEDURE PUBLIQUE DossierInstallation() : chaîne
+		RENVOYER :sInstallation
+	FIN
+
+	PROCEDURE PUBLIQUE DossierInstallationAffiche() : chaîne
+		SI :sInstallationAffichee <> "" ALORS
+			RENVOYER :sInstallationAffichee
+		FIN
+		RENVOYER :sInstallation
+	FIN
+
+	PROCEDURE PUBLIQUE DossierProgrammes() : chaîne
+		RENVOYER :sProgrammes
+	FIN
+
+	PROCEDURE PUBLIQUE DossierExiste(chemin est une chaîne) : booléen
+		POUR TOUT sDossier DE :tabDossiers
+			SI EbMemeChemin(sDossier, chemin) ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	PROCEDURE PUBLIQUE FichierExiste(chemin est une chaîne) : booléen
+		RENVOYER :RangFichier(chemin) > 0
+	FIN
+
+	// Vide si aucun fichier ni sous-dossier n'est dessous (un dossier absent compte pour vide, comme avec le vrai disque).
+	PROCEDURE PUBLIQUE DossierEstVide(chemin est une chaîne) : booléen
+		POUR TOUT sDossier DE :tabDossiers
+			SI :EstSous(sDossier, chemin) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		POUR TOUT sFichier DE :tabFichiers
+			SI :EstSous(sFichier, chemin) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	PROCEDURE PUBLIQUE ListeFichiers(chemin est une chaîne) : tableau de chaînes
+		tabNoms est un tableau de chaînes
+		POUR TOUT sFichier DE :tabFichiers
+			SI EbMemeChemin(EbParentChemin(sFichier), chemin) ALORS
+				TableauAjoute(tabNoms, EbNomDernierElement(sFichier))
+			FIN
+		FIN
+		TableauTrie(tabNoms)
+		RENVOYER tabNoms
+	FIN
+
+	PROCEDURE PUBLIQUE ListeDossiers(chemin est une chaîne) : tableau de chaînes
+		tabNoms est un tableau de chaînes
+		POUR TOUT sDossier DE :tabDossiers
+			SI EbMemeChemin(EbParentChemin(sDossier), chemin) ALORS
+				TableauAjoute(tabNoms, EbNomDernierElement(sDossier))
+			FIN
+		FIN
+		TableauTrie(tabNoms)
+		RENVOYER tabNoms
+	FIN
+
+	PROCEDURE PUBLIQUE LitTexte(chemin est une chaîne) : chaîne
+		SI :RangFichier(chemin) = 0 ALORS
+			ExceptionDéclenche(12, "lecture impossible : le fichier n'existe pas : " + chemin)
+		FIN
+		RENVOYER :ContenuDe(chemin)
+	FIN
+
+	// Comme fRepCree : crée aussi les dossiers parents. Comme fRepCree n'est pas à croire : si un fichier porte le nom, la création échoue ici (le vrai adaptateur le vérifie après coup).
+	PROCEDURE PUBLIQUE CreeDossier(chemin est une chaîne)
+		:VerifiePanne(chemin)
+		SI :RangFichier(chemin) > 0 ALORS
+			ExceptionDéclenche(12, "création impossible du dossier " + chemin + " : un fichier porte déjà ce nom")
+		FIN
+		sCourant est une chaîne = EbNormaliseChemin(chemin)
+		POUR i = 1 À 30
+			SI sCourant = "" ALORS
+				SORTIR
+			FIN
+			:AjouteSiAbsent(sCourant)
+			sSuivant est une chaîne = EbParentChemin(sCourant)
+			SI EbMemeChemin(sSuivant, sCourant) ALORS
+				SORTIR
+			FIN
+			sCourant = sSuivant
+		FIN
+	FIN
+
+	PROCEDURE PUBLIQUE CopieDossier(source est une chaîne, destination est une chaîne)
+		:VerifiePanne(source)
+		:VerifiePanne(destination)
+		SI PAS :DossierExiste(source) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier source n'existe pas : " + source)
+		FIN
+		SI PAS :DossierExiste(EbParentChemin(destination)) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier parent de la destination n'existe pas : " + destination)
+		FIN
+		sSource      est une chaîne = EbNormaliseChemin(source)
+		sDestination est une chaîne = EbNormaliseChemin(destination)
+		:AjouteSiAbsent(sDestination)
+		// Copies prises avant d'ajouter quoi que ce soit : on ne parcourt pas un tableau qu'on agrandit.
+		tabDossiersSource est un tableau de chaînes
+		POUR TOUT sDossier DE :tabDossiers
+			SI :EstSous(sDossier, sSource) ALORS
+				TableauAjoute(tabDossiersSource, sDossier)
+			FIN
+		FIN
+		tabFichiersSource est un tableau de chaînes
+		POUR TOUT sFichier DE :tabFichiers
+			SI :EstSous(sFichier, sSource) ALORS
+				TableauAjoute(tabFichiersSource, sFichier)
+			FIN
+		FIN
+		POUR TOUT sDossier DE tabDossiersSource
+			:AjouteSiAbsent(sDestination + Droite(sDossier, Taille(sDossier) - Taille(sSource)))
+		FIN
+		POUR TOUT sFichier DE tabFichiersSource
+			:AjouteFichier(sDestination + Droite(sFichier, Taille(sFichier) - Taille(sSource)), :ContenuDe(sFichier))
+		FIN
+	FIN
+
+	// Comme le vrai : la source doit être un fichier et le dossier parent de la destination doit exister ; remplace l'existant.
+	PROCEDURE PUBLIQUE CopieFichier(source est une chaîne, destination est une chaîne)
+		:VerifiePanne(source)
+		:VerifiePanne(destination)
+		SI :RangFichier(source) = 0 ALORS
+			ExceptionDéclenche(12, "copie impossible : le fichier source n'existe pas : " + source)
+		FIN
+		SI PAS :DossierExiste(EbParentChemin(destination)) ALORS
+			ExceptionDéclenche(12, "copie impossible : le dossier parent de la destination n'existe pas : " + destination)
+		FIN
+		:AjouteFichier(destination, :ContenuDe(source))
+	FIN
+
+	PROCEDURE PUBLIQUE EcritTexte(chemin est une chaîne, contenu est une chaîne)
+		:VerifiePanne(chemin)
+		SI PAS :DossierExiste(EbParentChemin(chemin)) ALORS
+			ExceptionDéclenche(12, "écriture impossible de " + chemin + " : le dossier parent n'existe pas")
+		FIN
+		:AjouteFichier(chemin, contenu)
+	FIN
+FIN

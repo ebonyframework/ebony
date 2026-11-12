@@ -1,0 +1,249 @@
+// Mise en forme du code OWL que ebony génère : fonctions pures, testées dans tests/unitaires/systeme/.
+// Le formateur d'OWL 1.7.0 (« owl fmt ») aligne en colonnes les lignes consécutives de même nature ; OWL ne sait pas lancer un programme, donc le générateur le refait lui-même.
+// Règles dérivées de « owl fmt » sur des cas construits (2026-11-03), pas supposées :
+//   - déclarations « x est un/une … [= valeur] » consécutives : les noms sont complétés jusqu'au plus long, puis « est un … » jusqu'au plus long (lignes sans valeur comprises), puis « = » ;
+//   - affectations et propriétés « x = valeur » consécutives, dont le nom est un mot ou des mots séparés par « .. » : les noms sont complétés jusqu'au plus long ;
+//   - une ligne vide, un commentaire, un appel, une ligne « :champ = … », « a.b = … », « a += … » ou l'intérieur d'une chaîne multi-lignes entre apostrophes inversées coupent le bloc ;
+//   - une ligne seule garde ses espaces simples.
+EbFormatOwl est une CollectionDeProcédures
+
+	// Vrai si le caractère peut faire partie d'un nom : tout sauf les espaces, signes de ponctuation et opérateurs.
+	PROCEDURE EbEstCaractereDeNom(sCaractere est une chaîne) : booléen
+		sSignes est une chaîne = " :.()[]{}=+-*/%<>!&|,;?@#$^~'\" + Caract(9) + Caract(34) + Caract(96)
+		RENVOYER Position(sSignes, sCaractere) = 0
+	FIN
+
+	// Vrai si le texte est un nom d'un seul tenant (au moins un caractère).
+	PROCEDURE EbEstNomOwl(sTexte est une chaîne) : booléen
+		SI sTexte = "" ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sTexte)
+			SI PAS EbEstCaractereDeNom(Milieu(sTexte, i, 1)) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Vrai si le texte est un nom, ou des noms séparés par « .. » (MoiMême..Réponse..Corps). Un seul point (a.b) n'en est pas un.
+	PROCEDURE EbEstNomAffecte(sTexte est une chaîne) : booléen
+		tabParties est un tableau de chaînes = ChaîneDécoupe(sTexte, "..")
+		SI tabParties..Occurrence = 0 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À tabParties..Occurrence
+			SI PAS EbEstNomOwl(tabParties[i]) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Texte privé des espaces du début.
+	PROCEDURE EbSansEspacesDebut(sTexte est une chaîne) : chaîne
+		nDebut est un entier = 1
+		TANTQUE nDebut <= Taille(sTexte) ET Milieu(sTexte, nDebut, 1) = " "
+			nDebut = nDebut + 1
+		FIN
+		RENVOYER Milieu(sTexte, nDebut, Taille(sTexte) - nDebut + 1)
+	FIN
+
+	// Texte privé des espaces de la fin.
+	PROCEDURE EbSansEspacesFin(sTexte est une chaîne) : chaîne
+		nFin est un entier = Taille(sTexte)
+		TANTQUE nFin >= 1 ET Milieu(sTexte, nFin, 1) = " "
+			nFin = nFin - 1
+		FIN
+		RENVOYER Gauche(sTexte, nFin)
+	FIN
+
+	// Position (à partir de 1) de l'espace qui précède le premier « = » hors guillemets et hors chaîne entre apostrophes inversées ; 0 s'il n'y en a pas.
+	PROCEDURE EbPositionEgal(sTexte est une chaîne) : entier
+		bGuillemets  est un booléen = Faux
+		bApostrophes est un booléen = Faux
+		sCar         est une chaîne = ""
+		POUR i = 1 À Taille(sTexte)
+			sCar = Milieu(sTexte, i, 1)
+			SI sCar = Caract(34) ET PAS bApostrophes ALORS
+				bGuillemets = PAS bGuillemets
+			FIN
+			SI sCar = Caract(96) ET PAS bGuillemets ALORS
+				bApostrophes = PAS bApostrophes
+			FIN
+			SI PAS bGuillemets ET PAS bApostrophes ET Milieu(sTexte, i, 3) = " = " ALORS
+				RENVOYER i
+			FIN
+		FIN
+		RENVOYER 0
+	FIN
+
+	// Vrai si, à la fin de cette ligne, on est à l'intérieur d'une chaîne multi-lignes entre apostrophes inversées (bDebut : c'était déjà le cas au début de la ligne).
+	// Une apostrophe inversée dans un commentaire « // … » ou dans une chaîne entre guillemets ne compte pas (mesuré : le formateur ne s'y trompe pas).
+	PROCEDURE EbDansChaineApres(sLigne est une chaîne, bDebut est un booléen) : booléen
+		bApostrophes est un booléen = bDebut
+		bGuillemets  est un booléen = Faux
+		sCar         est une chaîne = ""
+		POUR i = 1 À Taille(sLigne)
+			sCar = Milieu(sLigne, i, 1)
+			SI bApostrophes ALORS
+				SI sCar = Caract(96) ALORS
+					bApostrophes = Faux
+				FIN
+			SINON
+				SI bGuillemets ALORS
+					SI sCar = Caract(34) ALORS
+						bGuillemets = Faux
+					FIN
+				SINON
+					SI sCar = Caract(34) ALORS
+						bGuillemets = Vrai
+					SINON
+						SI sCar = Caract(96) ALORS
+							bApostrophes = Vrai
+						SINON
+							SI Milieu(sLigne, i, 2) = "//" ALORS
+								RENVOYER bApostrophes
+							FIN
+						FIN
+					FIN
+				FIN
+			FIN
+		FIN
+		RENVOYER bApostrophes
+	FIN
+
+	// Analyse une ligne. dansChaine : la ligne commence à l'intérieur d'une chaîne multi-lignes (elle n'est alors jamais alignée).
+	PROCEDURE EbAnalyseLigneOwl(sLigne est une chaîne, bDansChaine est un booléen) : cEbLigneOwl
+		oNeutre      est un cEbLigneOwl(sLigne, 0, "", "", "", "", Faux)
+		sIndent      est une chaîne                                      = ""
+		sCorps       est une chaîne                                      = ""
+		sNom         est une chaîne                                      = ""
+		sReste       est une chaîne                                      = ""
+		sDeclaration est une chaîne                                      = ""
+		sValeur      est une chaîne                                      = ""
+		nIndent      est un entier                                       = 1
+		nEspace      est un entier                                       = 0
+		nEgal        est un entier                                       = 0
+		SI bDansChaine ALORS
+			RENVOYER oNeutre
+		FIN
+		TANTQUE nIndent <= Taille(sLigne) ET (Milieu(sLigne, nIndent, 1) = Caract(9) OU Milieu(sLigne, nIndent, 1) = " ")
+			nIndent = nIndent + 1
+		FIN
+		sIndent = Gauche(sLigne, nIndent - 1)
+		sCorps  = Milieu(sLigne, nIndent, Taille(sLigne) - nIndent + 1)
+		SI sCorps = "" OU Gauche(sCorps, 2) = "//" ALORS
+			RENVOYER oNeutre
+		FIN
+		nEspace = Position(sCorps, " ")
+		SI nEspace < 2 ALORS
+			RENVOYER oNeutre
+		FIN
+		sNom   = Gauche(sCorps, nEspace - 1)
+		sReste = EbSansEspacesDebut(Milieu(sCorps, nEspace + 1, Taille(sCorps) - nEspace))
+		SI EbEstNomOwl(sNom) ET (Gauche(sReste, 7) = "est un " OU Gauche(sReste, 8) = "est une ") ALORS
+			// L'en-tête d'une structure ouvre un bloc : il n'est pas une déclaration et ne compte pas dans la largeur (constaté avec owl fmt 1.7.0).
+			SI EbSansEspacesFin(sReste) = "est une Structure" ALORS
+				RENVOYER oNeutre
+			FIN
+			nEgal = EbPositionEgal(sReste)
+			SI nEgal > 0 ALORS
+				sDeclaration = EbSansEspacesFin(Gauche(sReste, nEgal - 1))
+				sValeur      = Milieu(sReste, nEgal + 3, Taille(sReste) - nEgal - 2)
+				RENVOYER cEbLigneOwl(sLigne, 1, sIndent, sNom, sDeclaration, sValeur, Vrai)
+			FIN
+			RENVOYER cEbLigneOwl(sLigne, 1, sIndent, sNom, EbSansEspacesFin(sReste), "", Faux)
+		FIN
+		SI EbEstNomAffecte(sNom) ET Gauche(sReste, 2) = "= " ALORS
+			sValeur = Milieu(sReste, 3, Taille(sReste) - 2)
+			RENVOYER cEbLigneOwl(sLigne, 2, sIndent, sNom, "", sValeur, Vrai)
+		FIN
+		RENVOYER oNeutre
+	FIN
+
+	// Chaîne de nCount espaces.
+	PROCEDURE EbEspaces(nCount est un entier) : chaîne
+		sEspaces est une chaîne = ""
+		POUR i = 1 À nCount
+			sEspaces = sEspaces + " "
+		FIN
+		RENVOYER sEspaces
+	FIN
+
+	// Réécrit les lignes d'un bloc (de nDebut à nFin dans tabAnalysees) avec les colonnes du formateur d'OWL, et les ajoute à tabSortie.
+	PROCEDURE EbAjouteBloc(tabAnalysees est un tableau de cEbLigneOwl, nDebut est un entier, nFin est un entier, tabSortie est un tableau de chaînes)
+		nLargeurNom         est un entier  = 0
+		nLargeurDeclaration est un entier  = 0
+		sLigne              est une chaîne = ""
+		POUR i = nDebut À nFin
+			SI Taille(tabAnalysees[i].Nom()) > nLargeurNom ALORS
+				nLargeurNom = Taille(tabAnalysees[i].Nom())
+			FIN
+			SI Taille(tabAnalysees[i].Declaration()) > nLargeurDeclaration ALORS
+				nLargeurDeclaration = Taille(tabAnalysees[i].Declaration())
+			FIN
+		FIN
+		POUR i = nDebut À nFin
+			SI tabAnalysees[i].Nature() = 1 ALORS
+				sLigne = tabAnalysees[i].Indentation() + tabAnalysees[i].Nom() + EbEspaces(nLargeurNom - Taille(tabAnalysees[i].Nom()) + 1) + tabAnalysees[i].Declaration()
+				SI tabAnalysees[i].AvecValeur() ALORS
+					sLigne = sLigne + EbEspaces(nLargeurDeclaration - Taille(tabAnalysees[i].Declaration())) + " = " + tabAnalysees[i].Valeur()
+				FIN
+			SINON
+				sLigne = tabAnalysees[i].Indentation() + tabAnalysees[i].Nom() + EbEspaces(nLargeurNom - Taille(tabAnalysees[i].Nom())) + " = " + tabAnalysees[i].Valeur()
+			FIN
+			TableauAjoute(tabSortie, sLigne)
+		FIN
+	FIN
+
+	// Applique au code OWL le même alignement que « owl fmt » (1.7.0) : voir les règles en tête de fichier. Sans effet sur un texte déjà aligné.
+	PROCEDURE EbAligneDeclarations(sTexte est une chaîne) : chaîne
+		tabLignes    est un tableau de chaînes     = ChaîneDécoupe(sTexte, Caract(10))
+		tabAnalysees est un tableau de cEbLigneOwl
+		tabSortie    est un tableau de chaînes
+		bDansChaine  est un booléen                = Faux
+		bSuite       est un booléen                = Faux
+		nNature      est un entier                 = 0
+		nDebut       est un entier                 = 1
+		nFin         est un entier                 = 1
+		nNombre      est un entier                 = 0
+		POUR i = 1 À tabLignes..Occurrence
+			TableauAjoute(tabAnalysees, EbAnalyseLigneOwl(tabLignes[i], bDansChaine))
+			bDansChaine = EbDansChaineApres(tabLignes[i], bDansChaine)
+		FIN
+		nNombre = tabAnalysees..Occurrence
+		TANTQUE nDebut <= nNombre
+			nNature = tabAnalysees[nDebut].Nature()
+			SI nNature = 0 ALORS
+				TableauAjoute(tabSortie, tabAnalysees[nDebut].Originale())
+				nDebut = nDebut + 1
+			SINON
+				nFin   = nDebut
+				bSuite = Vrai
+				TANTQUE bSuite
+					SI nFin < nNombre ALORS
+						SI tabAnalysees[nFin + 1].Nature() = nNature ALORS
+							nFin = nFin + 1
+						SINON
+							bSuite = Faux
+						FIN
+					SINON
+						bSuite = Faux
+					FIN
+				FIN
+				EbAjouteBloc(tabAnalysees, nDebut, nFin, tabSortie)
+				nDebut = nFin + 1
+			FIN
+		FIN
+		RENVOYER TableauVersChaîne(tabSortie, Caract(10))
+	FIN
+
+	// Le contenu d'un fichier à écrire : aligné si le chemin désigne un fichier « .owl », tel quel sinon (README, JSON, .env…).
+	PROCEDURE EbAligneSiOwl(sChemin est une chaîne, sContenu est une chaîne) : chaîne
+		SI Minuscule(Droite(sChemin, 4)) = ".owl" ALORS
+			RENVOYER EbAligneDeclarations(sContenu)
+		FIN
+		RENVOYER sContenu
+	FIN
+FIN

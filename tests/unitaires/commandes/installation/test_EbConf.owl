@@ -1,0 +1,171 @@
+// Tests de EbVersionDeLaConf : la version de la bibliothèque demandée par ebony.conf, y compris pour des fichiers abîmés ou écrits à la main.
+// Les guillemets sont fabriqués avec Caract(34) : une chaîne OWL n'a pas d'échappement.
+
+// Pour fabriquer un petit JSON dans les tests : {"ebony": {"version": "<v>"}}.
+PROCEDURE EbTestConf(sVersion est une chaîne) : chaîne
+	sQ est une chaîne = Caract(34)
+	RENVOYER "{" + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": " + sQ + sVersion + sQ + "}}"
+FIN
+
+// Un ebony.conf produit par « ebony new » : sa version se relit.
+PROCEDURE scenario_conf_produite_par_ebony_new()
+	sTexte est une chaîne = EbContenuConf("Mon App", "mon-app", "AppMonApp", "0.1.0")
+	dbgVérifieEgalité(EbVersionDeLaConf(sTexte), "0.1.0", "version relue")
+FIN
+
+// Un fichier à la main : espaces, sauts de ligne, autres membres, ordre différent.
+PROCEDURE scenario_conf_ecrite_a_la_main()
+	sQ     est une chaîne = Caract(34)
+	sTexte est une chaîne = "{ " + sQ + "base" + sQ + ": {" + sQ + "fournisseur" + sQ + ": " + sQ + "sqlite" + sQ + "}," + Caract(10)
+	sTexte += "  " + sQ + "ebony" + sQ + " : { " + sQ + "version" + sQ + " : " + sQ + "1.2.3" + sQ + " } }"
+	dbgVérifieEgalité(EbVersionDeLaConf(sTexte), "1.2.3", "version trouvée malgré l'ordre et les espaces")
+FIN
+
+// La valeur n'est pas validée ici : un numéro bizarre est rendu tel quel (EbVersionValide en juge).
+PROCEDURE scenario_numero_rendu_tel_quel()
+	dbgVérifieEgalité(EbVersionDeLaConf(EbTestConf("pas-une-version")), "pas-une-version", "valeur quelconque")
+	dbgVérifieEgalité(EbVersionDeLaConf(EbTestConf("")), "", "valeur vide")
+FIN
+
+// Texte qui n'est pas du JSON : vide, sans lever.
+PROCEDURE scenario_pas_du_json()
+	dbgVérifieEgalité(EbVersionDeLaConf(""), "", "texte vide")
+	dbgVérifieEgalité(EbVersionDeLaConf("version = 0.1.0"), "", "format INI")
+	dbgVérifieEgalité(EbVersionDeLaConf("{ ceci n'est pas du json"), "", "JSON tronqué")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + Caract(34) + "ebony" + Caract(34) + ": {" + Caract(34) + "version" + Caract(34) + ": " + Caract(34) + "0.1.0" + Caract(34) + "},}"), "", "virgule finale : JSON strict")
+FIN
+
+// JSON valide mais sans la version : vide.
+PROCEDURE scenario_membres_absents()
+	sQ est une chaîne = Caract(34)
+	dbgVérifieEgalité(EbVersionDeLaConf("{}"), "", "objet vide")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "projet" + sQ + ": {" + sQ + "nom" + sQ + ": " + sQ + "x" + sQ + "}}"), "", "pas de membre ebony")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "ebony" + sQ + ": {}}"), "", "ebony sans version")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "version" + sQ + ": " + sQ + "0.1.0" + sQ + "}"), "", "version au mauvais niveau (hors du membre ebony)")
+FIN
+
+// JSON valide mais pas un objet, ou membres de mauvais type : vide, sans lever.
+PROCEDURE scenario_formes_inattendues()
+	sQ est une chaîne = Caract(34)
+	dbgVérifieEgalité(EbVersionDeLaConf("[]"), "", "tableau")
+	dbgVérifieEgalité(EbVersionDeLaConf("42"), "", "nombre")
+	dbgVérifieEgalité(EbVersionDeLaConf(sQ + "texte" + sQ), "", "chaîne")
+	dbgVérifieEgalité(EbVersionDeLaConf("null"), "", "null")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "ebony" + sQ + ": " + sQ + "pas un objet" + sQ + "}"), "", "ebony est une chaîne")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "ebony" + sQ + ": 7}"), "", "ebony est un nombre")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": {}}}"), "", "version est un objet")
+	dbgVérifieEgalité(EbVersionDeLaConf("{" + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": [1, 2, 3]}}"), "", "version est un tableau")
+FIN
+
+// Une version qui n'est pas une chaîne JSON (nombre, booléen, null) est refusée : vide. Un numéro de version s'écrit entre guillemets.
+PROCEDURE scenario_version_pas_une_chaine()
+	sQ     est une chaîne = Caract(34)
+	sDebut est une chaîne = "{" + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": "
+	dbgVérifieEgalité(EbVersionDeLaConf(sDebut + "0.1}}"), "", "nombre à virgule")
+	dbgVérifieEgalité(EbVersionDeLaConf(sDebut + "7}}"), "", "entier")
+	dbgVérifieEgalité(EbVersionDeLaConf(sDebut + "true}}"), "", "booléen")
+	dbgVérifieEgalité(EbVersionDeLaConf(sDebut + "null}}"), "", "null")
+	dbgVérifieEgalité(EbVersionDeLaConf(sDebut + sQ + "0.1.0" + sQ + "}}"), "0.1.0", "la même version entre guillemets est acceptée")
+FIN
+
+// Les accents et les caractères délicats ailleurs dans le fichier ne gênent pas.
+PROCEDURE scenario_autres_membres_delicats()
+	sTexte est une chaîne = EbContenuConf("Caf" + Caract(233) + " " + Caract(34) + "Paul" + Caract(34), "cafe-paul", "AppCafePaul", "3.4.5")
+	dbgVérifieEgalité(EbVersionDeLaConf(sTexte), "3.4.5", "version relue malgré un nom à guillemets et accents")
+FIN
+
+// Changer la version d'un ebony.conf produit par « ebony new » donne exactement ce que « ebony new » aurait écrit avec cette version (rien d'autre ne bouge).
+PROCEDURE scenario_remplace_la_version_comme_ebony_new()
+	sAvant   est une chaîne = EbContenuConf("Mon App", "mon-app", "AppMonApp", "0.1.0")
+	sAttendu est une chaîne = EbContenuConf("Mon App", "mon-app", "AppMonApp", "0.2.0")
+	dbgVérifieEgalité(EbConfAvecVersion(sAvant, "0.2.0"), sAttendu, "identique à un ebony.conf neuf")
+	dbgVérifieEgalité(EbVersionDeLaConf(EbConfAvecVersion(sAvant, "0.2.0")), "0.2.0", "la nouvelle version se relit")
+FIN
+
+// Réécrire avec la MÊME version ne change rien, octet pour octet (idempotence).
+PROCEDURE scenario_meme_version_ne_change_rien()
+	sAvant est une chaîne = EbContenuConf("Mon App", "mon-app", "AppMonApp", "0.1.0")
+	dbgVérifieEgalité(EbConfAvecVersion(sAvant, "0.1.0"), sAvant, "inchangé")
+FIN
+
+// Nom accentué avec guillemets, et membres ajoutés à la main (ordre, nombre, booléen, tableau) : tout est conservé, seule la version change.
+PROCEDURE scenario_conserve_les_autres_membres()
+	sQ     est une chaîne = Caract(34)
+	sNom   est une chaîne = "Caf" + Caract(233) + " " + sQ + "Paul" + sQ
+	sAvant est une chaîne = "{" + Caract(10) + Caract(9) + sQ + "zebre" + sQ + ": 42," + Caract(10) + Caract(9) + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": " + sQ + "0.1.0" + sQ + "}," + Caract(10)
+	sAvant += Caract(9) + sQ + "projet" + sQ + ": {" + sQ + "nom" + sQ + ": " + sQ + "Caf" + Caract(233) + " \" + sQ + "Paul\" + sQ + sQ + "}," + Caract(10)
+	sAvant += Caract(9) + sQ + "actif" + sQ + ": true," + Caract(10) + Caract(9) + sQ + "liste" + sQ + ": [1, 2, 3]" + Caract(10) + "}"
+	sApres est une chaîne = EbConfAvecVersion(sAvant, "0.3.0")
+	dbgVérifieEgalité(EbVersionDeLaConf(sApres), "0.3.0", "version changée")
+	j est un JSON = ChaîneVersJSON(sApres)
+	dbgVérifieEgalité(j.projet.Nom, sNom, "nom accentué avec guillemets conservé")
+	dbgVérifieEgalité(j.zebre, 42, "nombre conservé")
+	dbgVérifieEgalité(Position(sApres, sQ + "zebre" + sQ) < Position(sApres, sQ + "ebony" + sQ), Vrai, "ordre des membres conservé")
+	dbgVérifieEgalité(Position(sApres, sQ + "actif" + sQ + ": true") > 0, Vrai, "booléen conservé")
+	dbgVérifieEgalité(Position(sApres, "[") > 0, Vrai, "tableau conservé")
+	dbgVérifieEgalité(Droite(sApres, 1), Caract(10), "saut de ligne final")
+FIN
+
+// Texte inutilisable (pas du JSON, pas de version lisible) : vide, sans lever. On ne fabrique rien à partir d'un fichier abîmé.
+PROCEDURE scenario_remplacement_refuse_si_illisible()
+	sQ est une chaîne = Caract(34)
+	dbgVérifieEgalité(EbConfAvecVersion("", "0.2.0"), "", "vide")
+	dbgVérifieEgalité(EbConfAvecVersion("pas du json", "0.2.0"), "", "pas du JSON")
+	dbgVérifieEgalité(EbConfAvecVersion("{}", "0.2.0"), "", "sans version")
+	dbgVérifieEgalité(EbConfAvecVersion("{" + sQ + "ebony" + sQ + ": {" + sQ + "version" + sQ + ": 7}}", "0.2.0"), "", "version qui n'est pas une chaîne")
+FIN
+
+// ebony.conf déclare-t-il les modules du projet ? Un texte sans membre « modules » est celui d'un projet plus ancien.
+PROCEDURE scenario_conf_declare_des_modules()
+	dbgVérifieVrai(EbConfDeclareModules(`{"modules":["db","auth"]}`), "une liste")
+	dbgVérifieVrai(EbConfDeclareModules(`{"modules":[]}`), "une liste vide est une déclaration : le cœur seul")
+	dbgVérifieFaux(EbConfDeclareModules(`{"ebony":{"version":"0.1.0"}}`), "pas de membre : projet plus ancien")
+	dbgVérifieFaux(EbConfDeclareModules("pas du json"), "texte illisible")
+	dbgVérifieFaux(EbConfDeclareModules(""), "texte vide")
+FIN
+
+// Les modules lus : des chaînes seulement, dans l'ordre ; rien quand le membre manque.
+PROCEDURE scenario_modules_de_la_conf()
+	tabDeux est un tableau de chaînes = EbModulesDeLaConf(`{"modules":["db","auth"]}`)
+	dbgVérifieEgalité(tabDeux..Occurrence, 2, "deux modules")
+	dbgVérifieEgalité(tabDeux[1], "db", "le premier")
+	dbgVérifieEgalité(tabDeux[2], "auth", "le second")
+	dbgVérifieEgalité(EbModulesDeLaConf(`{"modules":[]}`)..Occurrence, 0, "liste vide")
+	dbgVérifieEgalité(EbModulesDeLaConf(`{"ebony":{}}`)..Occurrence, 0, "membre absent")
+	tabMelange est un tableau de chaînes = EbModulesDeLaConf(`{"modules":["db",7,"auth"]}`)
+	dbgVérifieEgalité(tabMelange..Occurrence, 2, "un nombre n'est pas un nom de module")
+FIN
+
+// Un projet a un module s'il le liste ; sans membre « modules » (projet plus ancien), il a tous ceux de l'installation ; le cœur est toujours là.
+PROCEDURE scenario_projet_a_le_module()
+	sApi    est une chaîne = `{"modules":["db","auth"]}`
+	sSlim   est une chaîne = `{"modules":[]}`
+	sAncien est une chaîne = `{"ebony":{"version":"0.1.0"}}`
+	dbgVérifieVrai(EbProjetALeModule(sApi, "db"), "api a db")
+	dbgVérifieVrai(EbProjetALeModule(sApi, "AUTH"), "la casse ne compte pas")
+	dbgVérifieFaux(EbProjetALeModule(sSlim, "db"), "slim n'a pas db")
+	dbgVérifieFaux(EbProjetALeModule(sSlim, "auth"), "slim n'a pas auth")
+	dbgVérifieVrai(EbProjetALeModule(sSlim, "core"), "le cœur est toujours là")
+	dbgVérifieVrai(EbProjetALeModule(sAncien, "db"), "un projet plus ancien est supposé tout avoir")
+FIN
+
+// La garde des commandes : un module absent du projet est refusé (53) en le nommant, avec la commande ; un module présent passe sans bruit.
+PROCEDURE scenario_garde_module_du_projet()
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		EbExigeModuleDuProjet(`{"modules":[]}`, "db", "ebony migrate")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "53|", "code 53 : " + sRes)
+	dbgVérifieVrai(Position(sRes, "« db »") > 0, "nomme le module : " + sRes)
+	dbgVérifieVrai(Position(sRes, "ebony migrate") > 0, "nomme la commande : " + sRes)
+	sOk est une chaîne = "(rien)"
+	QUAND EXCEPTION DANS
+		EbExigeModuleDuProjet(`{"modules":["db"]}`, "db", "ebony migrate")
+		EbExigeModuleDuProjet(`{"ebony":{}}`, "auth", "ebony token")
+	FAIRE
+		sOk = ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(sOk, "(rien)", "un module présent, ou un projet plus ancien, ne lève rien")
+FIN

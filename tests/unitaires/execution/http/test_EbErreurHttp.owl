@@ -1,0 +1,47 @@
+// Tests des erreurs d'une route : statut HTTP d'un code d'exception, corps JSON de l'erreur, et distinction erreur du client / erreur du serveur.
+
+// Le statut de chaque code connu, et 500 pour tout le reste.
+PROCEDURE scenario_statut_de_chaque_code()
+	dbgVérifieEgalité(EbStatutHttpDeCode("400"), httpRequêteIncorrecte, "400 : requête incorrecte")
+	dbgVérifieEgalité(EbStatutHttpDeCode("401"), httpNonAutorisé, "401 : non autorisé")
+	dbgVérifieEgalité(EbStatutHttpDeCode("404"), httpNonTrouvé, "404 : non trouvé")
+	dbgVérifieEgalité(EbStatutHttpDeCode("409"), httpConflit, "409 : conflit")
+	dbgVérifieEgalité(EbStatutHttpDeCode("503"), httpServiceIndisponible, "503 : service indisponible")
+	dbgVérifieEgalité(EbStatutHttpDeCode("500"), httpErreurServeur, "500 : erreur serveur")
+	dbgVérifieEgalité(EbStatutHttpDeCode(""), httpErreurServeur, "code vide : erreur serveur")
+	dbgVérifieEgalité(EbStatutHttpDeCode("12"), httpErreurServeur, "code inconnu : erreur serveur")
+FIN
+
+// Les erreurs du client rendent le message de l'exception, dans un objet JSON minifié { code, message }.
+PROCEDURE scenario_corps_des_erreurs_du_client()
+	dbgVérifieEgalité(EbCorpsErreurHttp("400", "Le champ « nom » est obligatoire."), `{"code":"invalide","message":"Le champ « nom » est obligatoire."}`, "400 : invalide, message de la route")
+	dbgVérifieEgalité(EbCorpsErreurHttp("404", "Client introuvable : 9"), `{"code":"introuvable","message":"Client introuvable : 9"}`, "404 : introuvable, message du repository")
+	dbgVérifieEgalité(EbCorpsErreurHttp("409", "Client déjà présent : 1"), `{"code":"conflit","message":"Client déjà présent : 1"}`, "409 : conflit, message du repository")
+FIN
+
+// 401 : message fixe, qui ne dit pas pourquoi le jeton est refusé (absent, inconnu, expiré ou révoqué se valent pour le client).
+PROCEDURE scenario_corps_du_refus_de_jeton()
+	sCorps est une chaîne = EbCorpsErreurHttp("401", "jeton révoqué le 2026-11-01")
+	dbgVérifieVrai(Position(sCorps, `"code":"non_autorise"`) > 0, "401 : code non_autorise")
+	dbgVérifieEgalité(Position(sCorps, "révoqué"), 0, "le motif du refus ne sort pas")
+FIN
+
+// Les erreurs du serveur ne laissent pas sortir le détail : message fixe, quel que soit le texte de l'exception.
+PROCEDURE scenario_corps_des_erreurs_du_serveur()
+	sBase est une chaîne = EbCorpsErreurHttp("503", "connection refused 127.0.0.1:5432 user=secret")
+	dbgVérifieEgalité(sBase, `{"code":"base_indisponible","message":"La base de données est indisponible."}`, "503 : message fixe")
+	sInterne est une chaîne = EbCorpsErreurHttp("500", "syntax error near SELECT * FROM clients")
+	dbgVérifieEgalité(sInterne, `{"code":"erreur_interne","message":"Une erreur interne est survenue."}`, "500 : message fixe")
+	dbgVérifieEgalité(Position(EbCorpsErreurHttp("", "détail"), "détail"), 0, "un code vide ne laisse pas sortir le détail")
+FIN
+
+// Seules les erreurs du serveur vont au journal : 400, 401, 404 et 409 sont des erreurs du client.
+PROCEDURE scenario_erreur_du_serveur_ou_du_client()
+	dbgVérifieFaux(EbEstErreurServeurHttp("400"), "400 : client")
+	dbgVérifieFaux(EbEstErreurServeurHttp("401"), "401 : client")
+	dbgVérifieFaux(EbEstErreurServeurHttp("404"), "404 : client")
+	dbgVérifieFaux(EbEstErreurServeurHttp("409"), "409 : client")
+	dbgVérifieVrai(EbEstErreurServeurHttp("503"), "503 : serveur")
+	dbgVérifieVrai(EbEstErreurServeurHttp("500"), "500 : serveur")
+	dbgVérifieVrai(EbEstErreurServeurHttp(""), "code vide : serveur")
+FIN

@@ -1,0 +1,3 @@
+// Point d'entrée de la commande « ebony » : lancé par bin/ebony.cmd (qui passe -racine= et -owl=).
+// Toute la logique est dans les Collections de src/ ; ce fichier se contente de la démarrer.
+EbPrincipalExecute()

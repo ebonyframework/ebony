@@ -1,0 +1,111 @@
+// Tests de l'autorisation par jeton : le réglage AUTH_ROUTES (protégé par défaut, seul « ouvertes » ouvre) et la décision sur un vrai jeton, avec une VRAIE base SQLite en mémoire
+// donnée à cEbJetons PAR la base résiliente (le chemin du service généré), et une horloge fictive.
+
+PROCEDURE EbTestConnexionAutorisation() : cEbConnexionSqlReelle
+	cnx est une sqlConnexion
+	cnx..Provider = sqlSqlite
+	cnx..Source   = ":memory:"
+	oConnexion est un cEbConnexionSqlReelle(cnx, "SELECT 1")
+	oConnexion.Ouvre()
+	RENVOYER oConnexion
+FIN
+
+gConnexionAutorisation est un cEbConnexionSqlReelle = EbTestConnexionAutorisation()
+gHorlogeAutorisation   est un cEbHorlogeFictive
+
+PROCEDURE avantChaqueTest()
+	gConnexionAutorisation = EbTestConnexionAutorisation()
+	gHorlogeAutorisation   = cEbHorlogeFictive()
+	gHorlogeAutorisation.Definit("2026-11-07T09:30:00Z")
+FIN
+
+PROCEDURE apresChaqueTest()
+	gConnexionAutorisation.Ferme()
+FIN
+
+// Crée la table comme le fait la migration du module auth (modules/auth/execution/modules/auth.json : même SQL, à tenir identique). Rend la cause de l'échec, « » si elle a abouti.
+PROCEDURE EbTestCreeTableAutorisation(oConnexion est un cEbConnexionSqlReelle) : chaîne
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = oConnexion.Envoie("CREATE TABLE eb_jetons (empreinte TEXT NOT NULL PRIMARY KEY, nom TEXT NOT NULL, cree_le TEXT NOT NULL, expire_le TEXT NOT NULL, revoque_le TEXT NOT NULL)", tabAucun)
+	SI oResultat.Succes() ALORS
+		RENVOYER ""
+	FIN
+	RENVOYER oResultat.Message()
+FIN
+
+// Des jetons posés sur la base RÉSILIENTE de la connexion du scénario, table créée.
+PROCEDURE EbTestJetonsAutorisation() : cEbJetons
+	oResiliente est un cEbBaseResiliente(gConnexionAutorisation)
+	oJetons     est un cEbJetons(oResiliente, gHorlogeAutorisation)
+	dbgVérifieEgalité(EbTestCreeTableAutorisation(gConnexionAutorisation), "", "la table se crée")
+	RENVOYER oJetons
+FIN
+
+// Seule la valeur « ouvertes » ouvre les routes, sans tenir compte des majuscules ni des espaces autour.
+PROCEDURE scenario_seul_ouvertes_ouvre_les_routes()
+	dbgVérifieVrai(EbRoutesOuvertes("ouvertes"), "ouvertes")
+	dbgVérifieVrai(EbRoutesOuvertes("Ouvertes"), "majuscule")
+	dbgVérifieVrai(EbRoutesOuvertes("  OUVERTES "), "espaces et capitales")
+FIN
+
+// Tout le reste protège : en cas de doute, on refuse.
+PROCEDURE scenario_tout_le_reste_protege()
+	dbgVérifieFaux(EbRoutesOuvertes(""), "absent ou vide")
+	dbgVérifieFaux(EbRoutesOuvertes("protegees"), "protegees")
+	dbgVérifieFaux(EbRoutesOuvertes("ouverte"), "faute de frappe : singulier")
+	dbgVérifieFaux(EbRoutesOuvertes("ouvertes, protegees"), "valeur multiple")
+	dbgVérifieFaux(EbRoutesOuvertes("true"), "true n'est pas une valeur du réglage")
+	dbgVérifieFaux(EbRoutesOuvertes("0"), "0")
+FIN
+
+// Un jeton actif : l'identité est son nom.
+PROCEDURE scenario_jeton_actif_donne_son_nom()
+	oJetons est un cEbJetons = EbTestJetonsAutorisation()
+	sSecret est une chaîne   = EbNouveauSecretJeton()
+	dbgVérifieEgalité(oJetons.Enregistre("robot de nuit", sSecret, ""), "", "enregistré")
+	dbgVérifieEgalité(EbIdentiteRequete("", sSecret, oJetons), "robot de nuit", "protégé : le nom du jeton")
+	dbgVérifieEgalité(EbIdentiteRequete("protegees", sSecret, oJetons), "robot de nuit", "protegees explicite : pareil")
+FIN
+
+// Refus : jeton absent, inconnu, expiré, révoqué ; table absente. Rien n'est jamais accepté par défaut.
+PROCEDURE scenario_refus()
+	oJetons  est un cEbJetons = EbTestJetonsAutorisation()
+	sBon     est une chaîne   = EbNouveauSecretJeton()
+	sPerime  est une chaîne   = EbNouveauSecretJeton()
+	sRevoque est une chaîne   = EbNouveauSecretJeton()
+	oJetons.Enregistre("bon", sBon, "")
+	oJetons.Enregistre("périmé", sPerime, "2026-11-06T23:59:59Z")
+	oJetons.Enregistre("révoqué", sRevoque, "")
+	tabListe est un tableau = oJetons.Enumere()
+	POUR TOUT tabLigne DE tabListe
+		SI tabLigne["nom"] = "révoqué" ALORS
+			oJetons.Revoque(tabLigne["identifiant"])
+		FIN
+	FIN
+	dbgVérifieEgalité(EbIdentiteRequete("", "", oJetons), "", "pas de jeton")
+	dbgVérifieEgalité(EbIdentiteRequete("", "eb_inconnu", oJetons), "", "jeton inconnu")
+	dbgVérifieEgalité(EbIdentiteRequete("", sPerime, oJetons), "", "jeton expiré")
+	dbgVérifieEgalité(EbIdentiteRequete("", sRevoque, oJetons), "", "jeton révoqué")
+	dbgVérifieEgalité(EbIdentiteRequete("", Majuscule(sBon), oJetons), "", "le secret est sensible à la casse")
+	dbgVérifieEgalité(EbIdentiteRequete("", sBon + " ", oJetons), "", "un caractère de trop")
+FIN
+
+// Les routes ouvertes laissent passer sans jeton, ou avec n'importe quel jeton : l'identité est « anonyme ».
+PROCEDURE scenario_routes_ouvertes()
+	oJetons est un cEbJetons = EbTestJetonsAutorisation()
+	dbgVérifieEgalité(EbIdentiteRequete("ouvertes", "", oJetons), "anonyme", "sans jeton")
+	dbgVérifieEgalité(EbIdentiteRequete("ouvertes", "n'importe quoi", oJetons), "anonyme", "avec un jeton quelconque")
+FIN
+
+// Sans la table « eb_jetons » (aucun « ebony token create » n'a eu lieu), tout est refusé, sans exception.
+PROCEDURE scenario_table_absente_refuse()
+	oResiliente est un cEbBaseResiliente(gConnexionAutorisation)
+	oJetons     est un cEbJetons(oResiliente, gHorlogeAutorisation)
+	dbgVérifieEgalité(EbIdentiteRequete("", EbNouveauSecretJeton(), oJetons), "", "table absente : refus")
+FIN
+
+// Sans application posée par FinInitialisation, la version « service lancé » refuse au lieu de planter ou d'accepter.
+PROCEDURE scenario_sans_application_refuse()
+	dbgVérifieEgalité(EbIdentiteDuJeton("eb_quelconque"), "", "pas d'application : refus")
+	dbgVérifieEgalité(EbIdentiteDuJeton(""), "", "pas de jeton non plus")
+FIN

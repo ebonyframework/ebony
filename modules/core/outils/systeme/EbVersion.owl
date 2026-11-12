@@ -1,0 +1,60 @@
+// Outils sur les numéros de version « majeur.mineur.correctif » (ex. 1.5.0) : fonctions pures, testées dans tests/unitaires/systeme/.
+EbVersion est une CollectionDeProcédures
+
+	// Vrai si le texte est exactement « nombre.nombre.nombre », chaque nombre n'ayant que des chiffres.
+	// À vérifier avant EbCompareVersions : Val("abc") vaut 0 sans erreur, donc une version illisible passerait pour 0.
+	PROCEDURE EbVersionValide(sVersion est une chaîne) : booléen
+		tabSegments est un tableau de chaînes = ChaîneDécoupe(sVersion, ".")
+		SI tabSegments..Occurrence <> 3 ALORS
+			RENVOYER Faux
+		FIN
+		POUR TOUT sSegment DE tabSegments
+			SI Taille(sSegment) = 0 ALORS
+				RENVOYER Faux
+			FIN
+			POUR i = 1 À Taille(sSegment)
+				nCode est un entier = Asc(Milieu(sSegment, i, 1))
+				SI nCode < 48 OU nCode > 57 ALORS
+					RENVOYER Faux
+				FIN
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// -1 si le premier numéro est plus ancien que le second, 0 s'ils sont égaux, 1 s'il est plus récent. Compare les nombres, pas les textes (1.10.0 > 1.9.0).
+	// Les deux numéros doivent être valides (EbVersionValide).
+	PROCEDURE EbCompareVersions(sPremier est une chaîne, sSecond est une chaîne) : entier
+		tabPremier est un tableau de chaînes = ChaîneDécoupe(sPremier, ".")
+		tabSecond  est un tableau de chaînes = ChaîneDécoupe(sSecond, ".")
+		POUR i = 1 À 3
+			nPremier est un entier = Val(tabPremier[i])
+			nSecond  est un entier = Val(tabSecond[i])
+			SI nPremier < nSecond ALORS
+				RENVOYER -1
+			FIN
+			SI nPremier > nSecond ALORS
+				RENVOYER 1
+			FIN
+		FIN
+		RENVOYER 0
+	FIN
+
+	// Vrai si une version installée répond à une version minimale demandée (règle du « ^ » de npm) : au moins aussi récente, ET de la même génération.
+	// Même génération = même majeur ; tant que le majeur est 0, même mineur aussi (une 0.x peut casser à chaque mineure). 0.1.3 satisfait 0.1.0 ; 0.2.0, 0.0.9 non ; 1.4.0 satisfait 1.2.0 ; 2.0.0 non.
+	// Les deux numéros doivent être valides (EbVersionValide).
+	PROCEDURE EbVersionSatisfait(sInstallee est une chaîne, sMinimum est une chaîne) : booléen
+		SI EbCompareVersions(sInstallee, sMinimum) < 0 ALORS
+			RENVOYER Faux
+		FIN
+		tabInstallee est un tableau de chaînes = ChaîneDécoupe(sInstallee, ".")
+		tabMinimum   est un tableau de chaînes = ChaîneDécoupe(sMinimum, ".")
+		SI Val(tabInstallee[1]) <> Val(tabMinimum[1]) ALORS
+			RENVOYER Faux
+		FIN
+		SI Val(tabMinimum[1]) = 0 ET Val(tabInstallee[2]) <> Val(tabMinimum[2]) ALORS
+			RENVOYER Faux
+		FIN
+		RENVOYER Vrai
+	FIN
+FIN

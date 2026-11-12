@@ -1,0 +1,62 @@
+// Adaptateur réel du port iEbConnexionSql : les connecteurs SQL d'OWL (sqlConnexion, SQLEnvoie), sur SQLite, PostgreSQL, HFSQL…
+// Constaté avec OWL 1.6.0 : Ouvre() rend un booléen et ne lève pas (PostgreSQL injoignable : Faux en ~2 s, la cause dans ErreurInfo()) ; après Ferme(), SQLEnvoie échoue « en douceur »
+// (Succès faux, message « connexion non ouverte ») et Ouvre() la rétablit sur la même variable ; ErreurInfo() N'EST PAS effacée après un succès : on ne la lit qu'après un échec.
+// L'appelant configure la sqlConnexion (Provider, Serveur, BaseDeDonnées, Utilisateur, MotDePasse…) et la remet ici, sans l'ouvrir.
+cEbConnexionSqlReelle est une Classe implemente iEbConnexionSql
+PRIVÉ
+	cnx      est une sqlConnexion
+	sSondage est une chaîne       = "SELECT 1"
+	sMessage est une chaîne       = ""
+
+	PROCEDURE Constructeur(connexion est une sqlConnexion, sondage est une chaîne)
+		:cnx = connexion
+		:sSondage = sondage
+	FIN
+
+	PROCEDURE PUBLIQUE Ouvre() : booléen
+		bOuverte est un booléen = :cnx.Ouvre()
+		SI bOuverte ALORS
+			:sMessage = ""
+		SINON
+			:sMessage = ErreurInfo()
+		FIN
+		RENVOYER bOuverte
+	FIN
+
+	PROCEDURE PUBLIQUE Ferme()
+		:cnx.Ferme()
+	FIN
+
+	PROCEDURE PUBLIQUE Envoie(code est une chaîne, parametres est un tableau associatif) : cEbResultatSql
+		req       est une sqlRequête
+		rep       est une sqlRéponse
+		tabVide   est un tableau
+		oResultat est un cEbResultatSql = cEbResultatSql(Faux, "", tabVide, 0, 0, Faux, Faux)
+		req..Code = code
+		// Boucler sur un tableau associatif donne la VALEUR puis le NOM (mesuré, owl 1.6.0).
+		POUR TOUT valeur, nom DE parametres
+			req..Paramètres[nom] = valeur
+		FIN
+		rep = SQLEnvoie(:cnx, req)
+		SI rep..Succès ALORS
+			:sMessage = ""
+			oResultat = cEbResultatSql(Vrai, "", rep..Lignes, rep..Occurrence, rep..LignesAffectées, Faux, Faux)
+		SINON
+			:sMessage = ErreurInfo()
+			oResultat = cEbResultatSql(Faux, :sMessage, tabVide, 0, 0, Faux, Faux)
+		FIN
+		RENVOYER oResultat
+	FIN
+
+	PROCEDURE PUBLIQUE Sonde() : booléen
+		req est une sqlRequête
+		rep est une sqlRéponse
+		req..Code = :sSondage
+		rep       = SQLEnvoie(:cnx, req)
+		RENVOYER rep..Succès
+	FIN
+
+	PROCEDURE PUBLIQUE DernierMessage() : chaîne
+		RENVOYER :sMessage
+	FIN
+FIN

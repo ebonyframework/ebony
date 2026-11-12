@@ -1,0 +1,111 @@
+// Tests de ce que « ebony token » affiche : états, texte et JSON de create, list et revoke. Le secret n'apparaît qu'à la création.
+
+// Trois jetons comme Enumere() les rend (du plus récent au plus ancien) : un actif, un expiré, un révoqué.
+PROCEDURE EbTestLignesToken() : tableau
+	tabLignes est un tableau
+	tabActif  est un tableau associatif
+	tabActif["identifiant"] = "aaaaaaaaaaaa"
+	tabActif["nom"] = "actif"
+	tabActif["cree_le"] = "2026-11-07T09:00:00Z"
+	tabActif["expire_le"] = ""
+	tabActif["revoque_le"] = ""
+	tabExpire est un tableau associatif
+	tabExpire["identifiant"] = "bbbbbbbbbbbb"
+	tabExpire["nom"] = "expiré"
+	tabExpire["cree_le"] = "2026-11-06T09:00:00Z"
+	tabExpire["expire_le"] = "2026-11-07T00:00:00Z"
+	tabExpire["revoque_le"] = ""
+	tabRevoque est un tableau associatif
+	tabRevoque["identifiant"] = "cccccccccccc"
+	tabRevoque["nom"] = "révoqué"
+	tabRevoque["cree_le"] = "2026-11-05T09:00:00Z"
+	tabRevoque["expire_le"] = "2027-01-01T00:00:00Z"
+	tabRevoque["revoque_le"] = "2026-11-06T12:00:00Z"
+	TableauAjoute(tabLignes, tabActif)
+	TableauAjoute(tabLignes, tabExpire)
+	TableauAjoute(tabLignes, tabRevoque)
+	RENVOYER tabLignes
+FIN
+
+// L'état : révoqué l'emporte sur tout, puis expiré, sinon actif.
+PROCEDURE scenario_statut_de_jeton()
+	dbgVérifieEgalité(EbStatutJeton("", "", "2026-11-07T10:00:00Z"), "active", "sans expiration")
+	dbgVérifieEgalité(EbStatutJeton("2026-12-01T00:00:00Z", "", "2026-11-07T10:00:00Z"), "active", "expire plus tard")
+	dbgVérifieEgalité(EbStatutJeton("2026-11-07T00:00:00Z", "", "2026-11-07T10:00:00Z"), "expired", "expiré")
+	dbgVérifieEgalité(EbStatutJeton("", "2026-11-06T00:00:00Z", "2026-11-07T10:00:00Z"), "revoked", "révoqué")
+	dbgVérifieEgalité(EbStatutJeton("2026-11-01T00:00:00Z", "2026-11-06T00:00:00Z", "2026-11-07T10:00:00Z"), "revoked", "révoqué ET expiré : révoqué")
+FIN
+
+// Les libellés en français.
+PROCEDURE scenario_libelles_de_statut()
+	dbgVérifieEgalité(EbLibelleStatutJeton("active"), "actif", "active")
+	dbgVérifieEgalité(EbLibelleStatutJeton("expired"), "expiré", "expired")
+	dbgVérifieEgalité(EbLibelleStatutJeton("revoked"), "révoqué", "revoked")
+FIN
+
+// Le texte de « create » montre le secret, l'identifiant, l'expiration et le rappel qu'il ne sera plus affiché.
+PROCEDURE scenario_texte_create()
+	sTexte est une chaîne = EbTexteTokenCree("ba7816bf8f01", "ci", "eb_secret1", "")
+	dbgVérifieVrai(Position(sTexte, "Jeton « ci » créé (identifiant ba7816bf8f01)") > 0, "nom et identifiant")
+	dbgVérifieVrai(Position(sTexte, "Il n'expire pas") > 0, "sans expiration")
+	dbgVérifieVrai(Position(sTexte, "eb_secret1") > 0, "le secret")
+	dbgVérifieVrai(Position(sTexte, "Authorization: Bearer eb_secret1") > 0, "comment l'utiliser")
+	dbgVérifieVrai(Position(sTexte, "qu'une fois") > 0, "avertissement : une seule fois")
+	sAvecDate est une chaîne = EbTexteTokenCree("ba7816bf8f01", "ci", "eb_secret1", "2027-03-31T23:59:59Z")
+	dbgVérifieVrai(Position(sAvecDate, "Il expire le 2027-03-31T23:59:59Z") > 0, "avec expiration")
+FIN
+
+// Le JSON de « create » : une ligne, avec le secret (seul endroit où il sort) et les notes.
+PROCEDURE scenario_json_create()
+	sJson est une chaîne = EbJsonTokenCree("ba7816bf8f01", "ci", "eb_secret1", "2027-03-31T23:59:59Z")
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	dbgVérifieVrai(Position(sJson, "{" + Caract(34) + "ok" + Caract(34) + ":true") = 1, "commence par ok:true")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "command" + Caract(34) + ":" + Caract(34) + "token create" + Caract(34)) > 0, "commande")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "id" + Caract(34) + ":" + Caract(34) + "ba7816bf8f01" + Caract(34)) > 0, "identifiant")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "name" + Caract(34) + ":" + Caract(34) + "ci" + Caract(34)) > 0, "nom")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "token" + Caract(34) + ":" + Caract(34) + "eb_secret1" + Caract(34)) > 0, "secret")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "expiresAt" + Caract(34) + ":" + Caract(34) + "2027-03-31T23:59:59Z" + Caract(34)) > 0, "expiration")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "notes" + Caract(34) + ":[") > 0, "notes")
+FIN
+
+// La liste en texte : un en-tête, une ligne par jeton avec son état, « jamais » pour l'absence d'expiration ; jamais de secret.
+PROCEDURE scenario_texte_liste()
+	sTexte est une chaîne = EbTexteTokenListe(EbTestLignesToken(), "2026-11-07T10:00:00Z")
+	dbgVérifieVrai(Position(sTexte, "3 jeton(s)") > 0, "le nombre")
+	dbgVérifieVrai(Position(sTexte, "identifiant") > 0, "en-tête")
+	dbgVérifieVrai(Position(sTexte, "aaaaaaaaaaaa") > 0, "identifiant du premier")
+	dbgVérifieVrai(Position(sTexte, "actif") > 0, "état actif")
+	dbgVérifieVrai(Position(sTexte, "expiré") > 0, "état expiré")
+	dbgVérifieVrai(Position(sTexte, "révoqué") > 0, "état révoqué")
+	dbgVérifieVrai(Position(sTexte, "jamais") > 0, "pas d'expiration")
+	dbgVérifieEgalité(Position(sTexte, "eb_"), 0, "aucun secret")
+FIN
+
+// Sans jeton, la liste dit comment en créer un.
+PROCEDURE scenario_texte_liste_vide()
+	tabAucun est un tableau
+	dbgVérifieVrai(Position(EbTexteTokenListe(tabAucun, "2026-11-07T10:00:00Z"), "Aucun jeton") > 0, "aucun jeton")
+	dbgVérifieVrai(Position(EbTexteTokenListe(tabAucun, "2026-11-07T10:00:00Z"), "ebony token create") > 0, "indique la commande")
+FIN
+
+// Le JSON de la liste : un objet par jeton, avec son état calculé à l'instant donné.
+PROCEDURE scenario_json_liste()
+	sJson est une chaîne = EbJsonTokenListe(EbTestLignesToken(), "2026-11-07T10:00:00Z")
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "command" + Caract(34) + ":" + Caract(34) + "token list" + Caract(34)) > 0, "commande")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "active" + Caract(34)) > 0, "un actif")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "expired" + Caract(34)) > 0, "un expiré")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "revoked" + Caract(34)) > 0, "un révoqué")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "revokedAt" + Caract(34) + ":" + Caract(34) + "2026-11-06T12:00:00Z" + Caract(34)) > 0, "date de révocation")
+	dbgVérifieEgalité(Position(sJson, Caract(34) + "token" + Caract(34)), 0, "jamais de secret dans la liste")
+	tabAucun est un tableau
+	dbgVérifieVrai(Position(EbJsonTokenListe(tabAucun, "2026-11-07T10:00:00Z"), Caract(34) + "tokens" + Caract(34) + ":[]") > 0, "liste vide : tableau vide")
+FIN
+
+// revoke : le texte et le JSON disent l'identifiant révoqué.
+PROCEDURE scenario_revoke_texte_et_json()
+	dbgVérifieVrai(Position(EbTexteTokenRevoque("ba7816bf8f01"), "ba7816bf8f01 révoqué") > 0, "texte")
+	sJson est une chaîne = EbJsonTokenRevoque("ba7816bf8f01")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "revoked" + Caract(34) + ":true") > 0, "revoked:true")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "id" + Caract(34) + ":" + Caract(34) + "ba7816bf8f01" + Caract(34)) > 0, "identifiant")
+FIN

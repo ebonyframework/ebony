@@ -1,0 +1,87 @@
+// « ebony restore » : restaure le dossier ebony/ (la bibliothèque d'exécution, ignorée par git) du projet du dossier COURANT, d'après la version MINIMALE notée dans ebony.conf.
+// Typiquement après un « git clone », où ebony/ n'existe pas. Règles décidées le 2026-10-25 :
+//   - il faut un ebony.conf dans le dossier courant (pas de remontée vers les dossiers parents) ;
+//   - ebony.version est un minimum (comme « ^1.2.0 » dans un package.json) : l'ebony installé doit être au moins aussi récent ET de la même génération (EbVersionSatisfait),
+//     sinon REFUS avec explication. ebony n'a qu'une version de la bibliothèque, celle de son installation : c'est elle qui est copiée ;
+//   - ebony/ absent ou vide : copie de execution/ ; ebony/ présent dont VERSION satisfait le minimum : « déjà à jour », rien n'est écrit ;
+//     ebony/ présent mais qui ne le satisfait pas, ou sans VERSION : erreur, ebony ne supprime JAMAIS rien (OWL n'a pas de suppression récursive : à faire à la main).
+// Limites assumées : « déjà à jour » ne compare que le fichier VERSION, pas chaque fichier de la bibliothèque ; ebony/ étant ignoré par git, deux machines peuvent avoir deux versions
+// compatibles (pas de fichier de verrouillage pour l'instant).
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 30 OWL mal placé, 31 pas un projet ebony, 32 ebony.conf sans version valide, 22 installation d'ebony illisible, 33 versions différentes, 34 ebony/ existant inadapté, 35 copie interrompue.
+cEbRestaurationBibliotheque est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbBibliothequeRestauree
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(30, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+
+		sConf est une chaîne = EbJointChemin(sLancement, "ebony.conf")
+		SI PAS :oSysteme.FichierExiste(sConf) ALORS
+			ExceptionDéclenche(31, "Ce dossier n'est pas un projet ebony : ebony.conf est introuvable dans " + sLancement + ". Placez-vous dans le dossier d'un projet, ou créez-en un avec « ebony new <nom> ».")
+		FIN
+		sTexteConf est une chaîne = :oSysteme.LitTexte(sConf)
+		sMinimum   est une chaîne = EbVersionDeLaConf(sTexteConf)
+		SI sMinimum = "" OU PAS EbVersionValide(sMinimum) ALORS
+			ExceptionDéclenche(32, "ebony.conf ne donne pas une version valide de la bibliothèque (ebony.version, entre guillemets, par exemple 0.1.0) : « " + sMinimum + " ». Fichier : " + sConf)
+		FIN
+
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		// Un projet qui note ses modules ne reçoit que ceux-là ; un ebony.conf plus ancien, sans ce membre, reçoit tous ceux de l'installation.
+		SI EbConfDeclareModules(sTexteConf) ALORS
+			oInstallee.Choisit(EbModulesDeLaConf(sTexteConf))
+		FIN
+		oInstallee.Verifie()
+		sInstallee est une chaîne = oInstallee.Version()
+		SI PAS EbVersionSatisfait(sInstallee, sMinimum) ALORS
+			// Plus récent mais d'une autre génération : « ebony upgrade » aligne le projet. Plus ancien : upgrade refuserait aussi (il ne rétrograde jamais), il faut un ebony plus récent.
+			sConseil est une chaîne = "Alignez le projet sur la version installée avec « ebony upgrade »."
+			SI EbCompareVersions(sInstallee, sMinimum) < 0 ALORS
+				sConseil = "Installez un ebony d'au moins la version " + sMinimum + " (« ebony upgrade » ne rétrograde jamais un projet)."
+			FIN
+			ExceptionDéclenche(33, "Ce projet demande une bibliothèque d'au moins la version " + sMinimum + " (et de la même génération : même majeur, et même mineur tant que le majeur est 0), mais l'ebony installé fournit la version " + sInstallee + ". " + sConseil)
+		FIN
+
+		sDestination est une chaîne = EbJointChemin(sLancement, "ebony")
+		SI :oSysteme.FichierExiste(sDestination) ALORS
+			ExceptionDéclenche(34, "Un fichier nommé « ebony » occupe la place du dossier de la bibliothèque dans " + sLancement + " : supprimez-le, puis relancez « ebony restore ».")
+		FIN
+		SI :oSysteme.DossierExiste(sDestination) ET PAS :oSysteme.DossierEstVide(sDestination) ALORS
+			sFichierVersion est une chaîne = EbJointChemin(sDestination, "VERSION")
+			sLocale         est une chaîne = ""
+			SI :oSysteme.FichierExiste(sFichierVersion) ALORS
+				sLocale = SansEspace(Remplace(Remplace(:oSysteme.LitTexte(sFichierVersion), Caract(13), ""), Caract(10), ""))
+			FIN
+			// Deux SI imbriqués et non « ET » : OWL évalue les deux côtés de ET / OU (pas de court-circuit), et EbVersionSatisfait exige une version valide.
+			SI EbVersionValide(sLocale) ALORS
+				SI EbVersionSatisfait(sLocale, sMinimum) ALORS
+					oAJour est un cEbBibliothequeRestauree(sLocale, sDestination, Vrai)
+					RENVOYER oAJour
+				FIN
+			FIN
+			sTrouvee est une chaîne = "aucun fichier VERSION"
+			SI sLocale <> "" ALORS
+				sTrouvee = "version " + sLocale
+			FIN
+			ExceptionDéclenche(34, "Le dossier " + sDestination + " existe déjà mais n'est pas une bibliothèque qui satisfait la version minimale " + sMinimum + " demandée par ebony.conf (" + sTrouvee + "). ebony ne supprime rien : supprimez ce dossier, puis relancez « ebony restore ».")
+		FIN
+
+		QUAND EXCEPTION DANS
+			oInstallee.Copie(:oEcriture, sDestination)
+		FAIRE
+			ExceptionDéclenche(35, "Restauration interrompue : " + ExceptionInfo(errMessage) + ". Le dossier " + sDestination + " a pu être laissé incomplet : supprimez-le, puis relancez « ebony restore ».")
+		FIN
+
+		oRestauree est un cEbBibliothequeRestauree(sInstallee, sDestination, Faux)
+		RENVOYER oRestauree
+	FIN
+FIN

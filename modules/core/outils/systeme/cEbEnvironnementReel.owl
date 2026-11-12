@@ -1,0 +1,7 @@
+// Adaptateur de l'environnement réel : ce que le lanceur transmet à ebony.
+cEbEnvironnementReel est une Classe implemente iEbEnvironnement
+	// Le lanceur passe -owl=, lu dans la sortie de « owl --version ». Sans lui (tests, owl lancé à la main), la valeur est vide.
+	PROCEDURE VersionOwl() : chaîne
+		RENVOYER LigneCommande("owl", "")
+	FIN
+FIN

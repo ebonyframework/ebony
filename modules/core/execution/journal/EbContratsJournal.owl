@@ -1,0 +1,15 @@
+// Contrats (ports) du journal. Une interface doit être déclarée dans une Collection pour être reconnue.
+EbContratsJournal est une CollectionDeProcédures
+
+	// Où part une ligne de journal. Adaptateurs : cEbSortieJournalConsole (la sortie standard, que l'hébergeur collecte), cEbSortieJournalFictive (tests : garde les lignes).
+	iEbSortieJournal est une Interface
+		// Écrit UNE ligne (sans saut de ligne final : l'adaptateur l'ajoute).
+		PROCEDURE PUBLIQUE Ecrit(ligne est une chaîne)
+	FIN
+
+	// L'heure d'un événement. Adaptateurs : cEbHorlogeSysteme (l'heure du poste, en UTC), cEbHorlogeFictive (tests : une heure fixe).
+	iEbHorloge est une Interface
+		// L'instant courant au format AAAA-MM-JJTHH:MM:SSZ (UTC, précision d'une seconde : DateHeureSys d'OWL n'a pas de fraction).
+		PROCEDURE PUBLIQUE Maintenant() : chaîne
+	FIN
+FIN

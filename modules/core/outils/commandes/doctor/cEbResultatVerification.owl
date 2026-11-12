@@ -1,0 +1,40 @@
+// Résultat d'une vérification : un statut, ce qui a été constaté et, si besoin, quoi faire.
+// Objet valeur : créé une fois par le constructeur, jamais modifié ensuite ; les champs sont privés, on les lit par les accesseurs.
+cEbResultatVerification est une Classe
+PRIVÉ
+	sNom        est une chaîne
+	nStatut     est un entier
+	sMessage    est une chaîne
+	sCorrection est une chaîne
+
+	PROCEDURE Constructeur(Nom est une chaîne, Statut est un entier, Message est une chaîne, Correction est une chaîne)
+		:sNom = Nom
+		:nStatut = Statut
+		:sMessage = Message
+		:sCorrection = Correction
+	FIN
+
+	// Nom de la vérification qui a produit ce résultat.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Une valeur de eEbStatut (reussi, avertissement, erreur).
+	PROCEDURE PUBLIQUE Statut() : entier
+		RENVOYER :nStatut
+	FIN
+
+	// Ce qui a été constaté.
+	PROCEDURE PUBLIQUE Message() : chaîne
+		RENVOYER :sMessage
+	FIN
+
+	// Quoi faire pour corriger ; vide quand il n'y a rien à corriger.
+	PROCEDURE PUBLIQUE Correction() : chaîne
+		RENVOYER :sCorrection
+	FIN
+
+	PROCEDURE PUBLIQUE EstBloquant() : booléen
+		RENVOYER :nStatut = eEbStatut.erreur
+	FIN
+FIN

@@ -1,0 +1,29 @@
+// L'application unique (cEbApplication) d'un service REST généré, tenue hors du bloc du service.
+// Pourquoi : dans un projet qui a un ServiceREST, une variable de bloc d'une classe du projet (oApplication est un cEbApplication(...)) fait planter « owl test » (« Variable inconnue »,
+// constaté avec OWL 1.6.0 et 1.7.0). Un membre GLOBAL d'une classe n'a pas ce défaut (constaté avec OWL 1.7.0 : « owl test » passe et « owl serve » répond, état partagé entre FinInitialisation et les requêtes).
+// Le service l'affecte dans FinInitialisation (Definit), puis ses routes la lisent (Application).
+cEbServiceApplication est une Classe
+PRIVÉ
+	GLOBAL
+	oApplication est un cEbApplication
+	bDefinie     est un booléen        = Faux
+
+	// Pose l'application du service (appelé une fois, dans FinInitialisation).
+	PROCEDURE PUBLIQUE GLOBALE Definit(oNouvelle est un cEbApplication)
+		cEbServiceApplication.oApplication = oNouvelle
+		cEbServiceApplication.bDefinie     = Vrai
+	FIN
+
+	// Arrête l'application posée. Sans effet si Definit n'a pas été appelé : « owl projet.owl » exécute Fermeture() sans avoir exécuté FinInitialisation (constaté avec OWL 1.7.0).
+	PROCEDURE PUBLIQUE GLOBALE Arrête()
+		SI PAS cEbServiceApplication.bDefinie ALORS
+			RENVOYER
+		FIN
+		cEbServiceApplication.oApplication.Arrête()
+	FIN
+
+	// L'application posée par Definit.
+	PROCEDURE PUBLIQUE GLOBALE Application() : cEbApplication
+		RENVOYER cEbServiceApplication.oApplication
+	FIN
+FIN

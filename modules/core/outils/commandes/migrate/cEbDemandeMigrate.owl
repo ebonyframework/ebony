@@ -1,0 +1,29 @@
+// Ce que l'utilisateur a demandé à « ebony migrate » : la sous-commande (« » pour appliquer, « status », « rollback »), le nombre de migrations à défaire et le mode aperçu.
+// Objet valeur immuable, rempli par le constructeur (voir EbAnalyseArgumentsMigrate).
+cEbDemandeMigrate est une Classe
+PRIVÉ
+	sSousCommande est une chaîne = ""
+	nPas          est un entier  = 1
+	bSimulation   est un booléen = Faux
+
+	PROCEDURE Constructeur(SousCommande est une chaîne, NbPas est un entier, Simulation est un booléen)
+		:sSousCommande = SousCommande
+		:nPas = NbPas
+		:bSimulation = Simulation
+	FIN
+
+	// « » (appliquer les migrations en attente), « status » ou « rollback ».
+	PROCEDURE PUBLIQUE SousCommande() : chaîne
+		RENVOYER :sSousCommande
+	FIN
+
+	// Pour « rollback » : combien de migrations défaire (1 par défaut).
+	PROCEDURE PUBLIQUE NbPas() : entier
+		RENVOYER :nPas
+	FIN
+
+	// Vrai pour --dry-run : dire ce qui serait fait, sans rien envoyer à la base.
+	PROCEDURE PUBLIQUE Simulation() : booléen
+		RENVOYER :bSimulation
+	FIN
+FIN

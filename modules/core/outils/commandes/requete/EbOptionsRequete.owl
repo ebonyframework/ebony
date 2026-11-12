@@ -1,0 +1,207 @@
+// Lecture des arguments de « ebony request <METHODE> <chemin> [--header "Nom: valeur"]... [--body texte] [--url http://hote:port | --port N] [--json] » : fonctions pures,
+// testées dans tests/unitaires/commandes/requete/. Les options avec valeur s'écrivent « --port 9000 » ou « --port=9000 » ; --header peut être répété.
+// Ici SEULS les arguments commençant par « -- » sont des options : le chemin commence par « / » et reste donc un argument (EbAnalyseArgumentsNew, lui, ignore « / »).
+// Toute erreur est une exception de code 25 (usage incorrect, code de sortie 2).
+EbOptionsRequete est une CollectionDeProcédures
+
+	// Service joint par défaut : celui d'« owl serve » sans option (mesuré : 127.0.0.1:8080).
+	PROCEDURE EbUrlBaseParDefaut() : chaîne
+		RENVOYER "http://127.0.0.1:8080"
+	FIN
+
+	// Les méthodes que le client HTTP d'OWL sait envoyer (pas OPTIONS : OWL n'a pas de constante httpOptions).
+	PROCEDURE EbMethodesHttp() : chaîne
+		RENVOYER "GET|POST|PUT|DELETE|PATCH|HEAD"
+	FIN
+
+	// Vrai si le texte ne contient ni caractère de commande (code inférieur à 32) ni code 127 : pas de saut de ligne qui permettrait d'injecter un en-tête.
+	PROCEDURE EbSansCaractereDeCommande(sTexte est une chaîne) : booléen
+		POUR i = 1 À Taille(sTexte)
+			nCode est un entier = Asc(Milieu(sTexte, i, 1))
+			SI nCode < 32 OU nCode = 127 ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Vrai si le nom d'en-tête n'a que des lettres, chiffres et tirets (« Accept », « X-Request-Id »).
+	PROCEDURE EbNomEnteteValide(sNom est une chaîne) : booléen
+		SI sNom = "" ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sNom)
+			nCode est un entier = Asc(Milieu(sNom, i, 1))
+			SI PAS ((nCode >= 48 ET nCode <= 57) OU (nCode >= 65 ET nCode <= 90) OU (nCode >= 97 ET nCode <= 122) OU nCode = 45) ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+
+	// Vrai si un des noms (comparaison sans tenir compte des majuscules) est celui-ci.
+	PROCEDURE EbNomPresent(tabNoms est un tableau de chaînes, sNom est une chaîne) : booléen
+		POUR TOUT sExistant DE tabNoms
+			SI Minuscule(sExistant) = Minuscule(sNom) ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// L'URL de base à partir de --url et --port (au plus un des deux), sans barre finale.
+	PROCEDURE EbUrlBase(sUrl est une chaîne, sPort est une chaîne) : chaîne
+		SI sUrl <> "" ET sPort <> "" ALORS
+			ExceptionDéclenche(25, "Donnez --url OU --port, pas les deux.")
+		FIN
+		SI sPort <> "" ALORS
+			SI PAS EstNumérique(sPort) ALORS
+				ExceptionDéclenche(25, "Valeur refusée pour --port : « " + sPort + " ». Un numéro de port entre 1 et 65535, par exemple --port 8080.")
+			FIN
+			nPort est un entier = sPort
+			SI nPort < 1 OU nPort > 65535 OU Position(sPort, ".") > 0 OU Position(sPort, ",") > 0 OU Position(sPort, "-") > 0 ALORS
+				ExceptionDéclenche(25, "Valeur refusée pour --port : « " + sPort + " ». Un numéro de port entre 1 et 65535, par exemple --port 8080.")
+			FIN
+			RENVOYER "http://127.0.0.1:" + nPort
+		FIN
+		SI sUrl <> "" ALORS
+			SI Gauche(sUrl, 7) <> "http://" ET Gauche(sUrl, 8) <> "https://" ALORS
+				ExceptionDéclenche(25, "Valeur refusée pour --url : « " + sUrl + " ». Une adresse qui commence par http:// ou https://, par exemple --url http://127.0.0.1:8080.")
+			FIN
+			SI PAS EbSansCaractereDeCommande(sUrl) OU Position(sUrl, " ") > 0 ALORS
+				ExceptionDéclenche(25, "Valeur refusée pour --url : l'adresse contient une espace ou un caractère de commande.")
+			FIN
+			sBase est une chaîne = sUrl
+			TANTQUE Droite(sBase, 1) = "/"
+				sBase = Gauche(sBase, Taille(sBase) - 1)
+			FIN
+			RENVOYER sBase
+		FIN
+		RENVOYER EbUrlBaseParDefaut()
+	FIN
+
+	// Lit les arguments qui suivent « request » et rend la requête à envoyer. Avec un corps et sans en-tête Content-Type, le type est application/json (l'API d'ebony est une API JSON).
+	PROCEDURE EbAnalyseArgumentsRequete(tabArgs est un tableau de chaînes) : cEbDemandeHttp
+		sMethode      est une chaîne            = ""
+		sChemin       est une chaîne            = ""
+		sCorps        est une chaîne            = ""
+		sUrl          est une chaîne            = ""
+		sPort         est une chaîne            = ""
+		tabNoms       est un tableau de chaînes
+		tabValeurs    est un tableau de chaînes
+		nPositionnels est un entier             = 0
+		bSaute        est un booléen            = Faux
+		bCorps        est un booléen            = Faux
+		// Déclarées ici et non dans la branche « --header » : OWL 1.6.0 corrompt les variables locales quand une variable est déclarée dans un CAS non exécuté (repros-owl/selon-declaration-dans-branche-non-executee).
+		nDeuxPoints   est un entier  = 0
+		sNomEntete    est une chaîne = ""
+		sValeurEntete est une chaîne = ""
+		nNb           est un entier  = tabArgs..Occurrence
+		POUR i = 1 À nNb
+			SI bSaute ALORS
+				// Cet argument était la valeur de l'option précédente.
+				bSaute = Faux
+				CONTINUER
+			FIN
+			sArg est une chaîne = tabArgs[i]
+			SI Gauche(sArg, 2) <> "--" ALORS
+				nPositionnels++
+				SELON nPositionnels
+					CAS 1
+					sMethode = Majuscule(sArg)
+					CAS 2
+					sChemin = sArg
+					AUTRE CAS
+					ExceptionDéclenche(25, "Argument en trop : « " + sArg + " ». Utilisation : ebony request <METHODE> <chemin> [options]. Mettez un en-tête ou un corps entre guillemets.")
+				FIN
+				CONTINUER
+			FIN
+			sOption       est une chaîne = sArg
+			sValeur       est une chaîne = ""
+			bValeurDonnee est un booléen = Faux
+			nEgal         est un entier  = Position(sArg, "=")
+			SI nEgal > 0 ALORS
+				sOption       = Gauche(sArg, nEgal - 1)
+				sValeur       = Milieu(sArg, nEgal + 1)
+				bValeurDonnee = Vrai
+			FIN
+			SELON sOption
+				CAS "--json"
+				// Le format de sortie (--json) est lu par la commande (EbOptionPresente) : rien à retenir ici.
+				CAS "--header", "--body", "--url", "--port"
+				SI PAS bValeurDonnee ALORS
+					// La valeur est l'argument suivant, qui ne doit pas être une autre option longue.
+					SI i < nNb ALORS
+						SI Gauche(tabArgs[i + 1], 2) <> "--" ALORS
+							sValeur       = tabArgs[i + 1]
+							bValeurDonnee = Vrai
+							bSaute        = Vrai
+						FIN
+					FIN
+				FIN
+				SI PAS bValeurDonnee ALORS
+					ExceptionDéclenche(25, "Il manque la valeur de " + sOption + ". Exemple : " + EbExempleOptionRequete(sOption))
+				FIN
+				SELON sOption
+					CAS "--header"
+					nDeuxPoints = Position(sValeur, ":")
+					SI nDeuxPoints < 2 ALORS
+						ExceptionDéclenche(25, "En-tête refusé : « " + sValeur + " ». Écrivez --header " + Caract(34) + "Nom: valeur" + Caract(34) + ".")
+					FIN
+					sNomEntete    = SansEspace(Gauche(sValeur, nDeuxPoints - 1))
+					sValeurEntete = SansEspace(Milieu(sValeur, nDeuxPoints + 1))
+					SI PAS EbNomEnteteValide(sNomEntete) ALORS
+						ExceptionDéclenche(25, "Nom d'en-tête refusé : « " + sNomEntete + " ». Seuls les lettres, les chiffres et le tiret sont permis.")
+					FIN
+					SI PAS EbSansCaractereDeCommande(sValeurEntete) ALORS
+						ExceptionDéclenche(25, "Valeur refusée pour l'en-tête " + sNomEntete + " : elle contient un saut de ligne ou un caractère de commande.")
+					FIN
+					TableauAjoute(tabNoms, sNomEntete)
+					TableauAjoute(tabValeurs, sValeurEntete)
+					CAS "--body"
+					sCorps = sValeur
+					bCorps = Vrai
+					CAS "--url"
+					sUrl = sValeur
+					AUTRE CAS
+					sPort = sValeur
+				FIN
+				AUTRE CAS
+				ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Options de « request » : --header, --body, --url, --port, --json.")
+			FIN
+		FIN
+		SI sMethode = "" OU sChemin = "" ALORS
+			ExceptionDéclenche(25, "Il manque la méthode ou le chemin. Exemple : ebony request GET /clients/42")
+		FIN
+		SI PAS EbValeurDansListe(sMethode, EbMethodesHttp()) ALORS
+			ExceptionDéclenche(25, "Méthode refusée : « " + sMethode + " ». Méthodes possibles : " + Remplace(EbMethodesHttp(), "|", ", ") + ".")
+		FIN
+		SI Gauche(sChemin, 1) <> "/" ALORS
+			ExceptionDéclenche(25, "Le chemin doit commencer par « / » : « " + sChemin + " ». Exemple : ebony request GET /clients/42")
+		FIN
+		SI Position(sChemin, " ") > 0 OU PAS EbSansCaractereDeCommande(sChemin) ALORS
+			ExceptionDéclenche(25, "Le chemin ne doit contenir ni espace ni caractère de commande : « " + sChemin + " ». Encodez les espaces (%20).")
+		FIN
+		sBase est une chaîne = EbUrlBase(sUrl, sPort)
+		SI bCorps ET sCorps <> "" ET PAS EbNomPresent(tabNoms, "Content-Type") ALORS
+			TableauAjoute(tabNoms, "Content-Type")
+			TableauAjoute(tabValeurs, "application/json")
+		FIN
+		oDemande est un cEbDemandeHttp(sMethode, sBase + sChemin, tabNoms, tabValeurs, sCorps)
+		RENVOYER oDemande
+	FIN
+
+	// Un exemple pour le message « il manque la valeur ».
+	PROCEDURE EbExempleOptionRequete(sOption est une chaîne) : chaîne
+		SELON sOption
+			CAS "--header"
+			RENVOYER "--header " + Caract(34) + "Accept: application/json" + Caract(34)
+			CAS "--body"
+			RENVOYER "--body " + Caract(34) + "texte à envoyer" + Caract(34)
+			CAS "--url"
+			RENVOYER "--url http://127.0.0.1:8080"
+			AUTRE CAS
+			RENVOYER "--port 8080"
+		FIN
+	FIN
+FIN

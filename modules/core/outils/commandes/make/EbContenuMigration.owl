@@ -1,0 +1,159 @@
+// Contenu des fichiers de « ebony make migration » : fonctions pures (aucun accès au disque), testées dans tests/unitaires/commandes/make/.
+// Une migration « CreeClients » donne database/migrations/M202611021015_CreeClients.owl : une classe cM202611021015_CreeClients qui implémente iEbMigration (Nom, Monte, Descend). Monte() rend les instructions
+// SQL qui créent la table, Descend() celle qui la supprime. « ebony migrate » les applique en LISANT le fichier (voir EbLectureMigration). Sur SQLite, un test (tests/integration/migrations/) applique Monte() puis Descend()
+// sur une base en mémoire. L'horodatage est celui de l'horloge d'ebony (UTC, à la minute) : les migrations se trient par ordre de création. Dialectes : sqlite et postgresql ; HFSQL est refusé (EbSqlMake).
+EbContenuMigration est une CollectionDeProcédures
+
+	// L'horodatage d'un instant « AAAA-MM-JJTHH:MM:SSZ » : AAAAMMJJHHMM (202611021015). Vide si l'instant n'a pas cette forme.
+	PROCEDURE EbHorodatageMigration(sInstant est une chaîne) : chaîne
+		SI Taille(sInstant) < 16 ALORS
+			RENVOYER ""
+		FIN
+		SI Milieu(sInstant, 11, 1) <> "T" ALORS
+			RENVOYER ""
+		FIN
+		sHorodatage est une chaîne = Milieu(sInstant, 1, 4) + Milieu(sInstant, 6, 2) + Milieu(sInstant, 9, 2) + Milieu(sInstant, 12, 2) + Milieu(sInstant, 15, 2)
+		POUR i = 1 À Taille(sHorodatage)
+			nCode est un entier = Asc(Milieu(sHorodatage, i, 1))
+			SI nCode < 48 OU nCode > 57 ALORS
+				RENVOYER ""
+			FIN
+		FIN
+		RENVOYER sHorodatage
+	FIN
+
+	// Le nom d'une migration : « M » + horodatage + « _ » + intention (M202611021015_CreeClients).
+	PROCEDURE EbNomMigration(sHorodatage est une chaîne, oDemande est un cEbDemandeMake) : chaîne
+		RENVOYER "M" + sHorodatage + "_" + oDemande.Pascal()
+	FIN
+
+	// Les chemins relatifs : la migration, et son test quand la base est SQLite (un test PostgreSQL exigerait un serveur).
+	PROCEDURE EbFichiersMigration(oDemande est un cEbDemandeMake, sHorodatage est une chaîne, sBase est une chaîne) : tableau de chaînes
+		sNom        est une chaîne            = EbNomMigration(sHorodatage, oDemande)
+		tabFichiers est un tableau de chaînes
+		TableauAjoute(tabFichiers, "database/migrations/" + sNom + ".owl")
+		SI sBase = "sqlite" ALORS
+			TableauAjoute(tabFichiers, "tests/integration/migrations/test_" + sNom + ".owl")
+		FIN
+		RENVOYER tabFichiers
+	FIN
+
+	// Le contenu du fichier de rang nRang (voir EbFichiersMigration).
+	PROCEDURE EbContenuFichierMigration(oDemande est un cEbDemandeMake, sHorodatage est une chaîne, sBase est une chaîne, nRang est un entier) : chaîne
+		SI nRang = 1 ALORS
+			RENVOYER EbContenuMigration(oDemande, sHorodatage, sBase)
+		FIN
+		RENVOYER EbContenuTestMigration(oDemande, sHorodatage)
+	FIN
+
+	// La classe de la migration.
+	PROCEDURE EbContenuMigration(oDemande est un cEbDemandeMake, sHorodatage est une chaîne, sBase est une chaîne) : chaîne
+		sNom   est une chaîne      = EbNomMigration(sHorodatage, oDemande)
+		oTexte est un cEbTexteCode
+		oTexte.Ligne(0, "// Migration " + sNom + ", générée par « ebony make migration » : crée la table « " + EbNomPourCode(oDemande.NomTable()) + " » (SQL " + sBase + ").")
+		oTexte.Ligne(0, "// Le fichier est à vous. « ebony migrate » l'applique en LISANT ce fichier (il ne l'exécute pas) : gardez la forme (une instruction par TableauAjoute(tabSql, texte), puis RENVOYER tabSql) ; une migration qui calcule son SQL est refusée. Monte() : les instructions à envoyer dans l'ordre, Descend() : celles qui la défont.")
+		oTexte.Ligne(0, "c" + sNom + " est une Classe implemente iEbMigration")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Nom() : chaîne")
+		oTexte.Ligne(2, "RENVOYER " + EbGuillemets(sNom))
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Monte() : tableau de chaînes")
+		oTexte.Ligne(2, "tabSql est un tableau de chaînes")
+		tabLignes est un tableau de chaînes = EbSqlCreeTable(oDemande, sBase)
+		nNb       est un entier             = tabLignes..Occurrence
+		POUR i = 1 À nNb
+			sLigne est une chaîne = tabLignes[i]
+			SI i = 1 ALORS
+				oTexte.Ligne(2, "TableauAjoute(tabSql, " + Caract(96) + sLigne)
+			SINON
+				SI i = nNb ALORS
+					oTexte.Ligne(2, sLigne + Caract(96) + ")")
+				SINON
+					oTexte.Ligne(3, sLigne)
+				FIN
+			FIN
+		FIN
+		oTexte.Ligne(2, "RENVOYER tabSql")
+		oTexte.Ligne(1, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(1, "PROCEDURE PUBLIQUE Descend() : tableau de chaînes")
+		oTexte.Ligne(2, "tabSql est un tableau de chaînes")
+		oTexte.Ligne(2, "TableauAjoute(tabSql, " + EbChaineSql(EbSqlSupprimeTable(oDemande)) + ")")
+		oTexte.Ligne(2, "RENVOYER tabSql")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+
+	// Le test de la migration sur SQLite en mémoire : Monte() crée la table, Descend() la supprime. Il applique le SQL SQLite (la migration d'une base SQLite).
+	PROCEDURE EbContenuTestMigration(oDemande est un cEbDemandeMake, sHorodatage est une chaîne) : chaîne
+		sNom      est une chaîne      = EbNomMigration(sHorodatage, oDemande)
+		sBase     est une chaîne      = "gBase" + sNom
+		sFonction est une chaîne      = "BaseVideDeTest" + sNom
+		sSelect   est une chaîne      = EbChaineSql("SELECT 1 FROM " + EbSqlTable(oDemande.NomTable()))
+		oTexte    est un cEbTexteCode
+		oTexte.Ligne(0, "// Tests de la migration " + sNom + " sur SQLite en mémoire (généré par « ebony make migration »). Un scénario = un comportement.")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Une base SQLite en mémoire, ouverte et vide.")
+		oTexte.Ligne(0, "PROCEDURE " + sFonction + "() : cEbBaseResiliente")
+		oTexte.Ligne(1, "cnx est une sqlConnexion")
+		oTexte.Ligne(1, "cnx..Provider = sqlSqlite")
+		oTexte.Ligne(1, "cnx..Source   = " + EbGuillemets(":memory:"))
+		oTexte.Ligne(1, "oConnexion est un cEbConnexionSqlReelle(cnx, " + EbGuillemets("SELECT 1") + ")")
+		oTexte.Ligne(1, "oBase est un cEbBaseResiliente(oConnexion)")
+		oTexte.Ligne(1, "oBase.Ouvre()")
+		SI EbSchemaTable(oDemande.NomTable()) <> "" ALORS
+			oTexte.Ligne(1, "tabAucun est un tableau associatif")
+			oTexte.Ligne(1, "oBase.Execute(" + EbChaineSql("ATTACH DATABASE ':memory:' AS " + EbSqlNom(EbSchemaTable(oDemande.NomTable()))) + ", tabAucun)")
+		FIN
+		oTexte.Ligne(1, "RENVOYER oBase")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Envoie toutes les instructions de la liste, dans l'ordre ; rend Faux dès que l'une échoue.")
+		oTexte.Ligne(0, "PROCEDURE Applique" + sNom + "(base est un cEbBaseResiliente, instructions est un tableau de chaînes) : booléen")
+		oTexte.Ligne(1, "tabAucun est un tableau associatif")
+		oTexte.Ligne(1, "POUR TOUT sSql DE instructions")
+		oTexte.Ligne(2, "SI PAS base.Execute(sSql, tabAucun).Succes() ALORS")
+		oTexte.Ligne(3, "RENVOYER Faux")
+		oTexte.Ligne(2, "FIN")
+		oTexte.Ligne(1, "FIN")
+		oTexte.Ligne(1, "RENVOYER Vrai")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// La base du scénario en cours : neuve avant chaque scénario, fermée après chacun.")
+		oTexte.Ligne(0, sBase + " est un cEbBaseResiliente = " + sFonction + "()")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "PROCEDURE avantChaqueTest()")
+		oTexte.Ligne(1, sBase + " = " + sFonction + "()")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "PROCEDURE apresChaqueTest()")
+		oTexte.Ligne(1, sBase + ".Ferme()")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Monte() crée la table : elle peut ensuite être lue.")
+		oTexte.Ligne(0, "PROCEDURE scenario_monte_cree_la_table()")
+		oTexte.Ligne(1, "oMigration est un c" + sNom)
+		oTexte.Ligne(1, "tabAucun est un tableau associatif")
+		oTexte.Ligne(1, "dbgVérifieVrai(Applique" + sNom + "(" + sBase + ", oMigration.Monte()), " + EbGuillemets("Monte() réussit") + ")")
+		oTexte.Ligne(1, "dbgVérifieVrai(" + sBase + ".Execute(" + sSelect + ", tabAucun).Succes(), " + EbGuillemets("la table existe") + ")")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Descend() supprime la table : elle ne peut plus être lue.")
+		oTexte.Ligne(0, "PROCEDURE scenario_descend_supprime_la_table()")
+		oTexte.Ligne(1, "oMigration est un c" + sNom)
+		oTexte.Ligne(1, "tabAucun est un tableau associatif")
+		oTexte.Ligne(1, "Applique" + sNom + "(" + sBase + ", oMigration.Monte())")
+		oTexte.Ligne(1, "dbgVérifieVrai(Applique" + sNom + "(" + sBase + ", oMigration.Descend()), " + EbGuillemets("Descend() réussit") + ")")
+		oTexte.Ligne(1, "dbgVérifieFaux(" + sBase + ".Execute(" + sSelect + ", tabAucun).Succes(), " + EbGuillemets("la table n'existe plus") + ")")
+		oTexte.Ligne(0, "FIN")
+		oTexte.LigneVide()
+		oTexte.Ligne(0, "// Le nom de la migration est celui du fichier.")
+		oTexte.Ligne(0, "PROCEDURE scenario_nom_de_la_migration()")
+		oTexte.Ligne(1, "oMigration est un c" + sNom)
+		oTexte.Ligne(1, "dbgVérifieEgalité(oMigration.Nom(), " + EbGuillemets(sNom) + ", " + EbGuillemets("nom") + ")")
+		oTexte.Ligne(0, "FIN")
+		RENVOYER oTexte.Texte()
+	FIN
+FIN

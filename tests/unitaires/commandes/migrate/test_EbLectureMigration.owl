@@ -1,0 +1,160 @@
+// Tests de la lecture d'une migration (EbLectureMigration) : le SQL qu'écrit « ebony make migration » est relu à l'identique, une forme inconnue est refusée (code 44), jamais lue à moitié.
+
+// La demande « make migration » lue dans des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeLecture(sListe est une chaîne) : cEbDemandeMake
+	tabArgs  est un tableau de chaînes = ChaîneDécoupe(sListe, ";")
+	oDemande est un cEbDemandeMake     = EbAnalyseArgumentsMake(tabArgs)
+	RENVOYER oDemande
+FIN
+
+// Le texte sans espace, tabulation ni retour à la ligne : le SQL est le même, la mise en page du fichier généré (tabulations) ne compte pas.
+PROCEDURE EbTestSansBlancsLecture(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = Remplace(sTexte, " ", "")
+	sRes = Remplace(sRes, Caract(9), "")
+	sRes = Remplace(sRes, Caract(10), "")
+	sRes = Remplace(sRes, Caract(13), "")
+	RENVOYER sRes
+FIN
+
+// Lit un texte et rend « » s'il est reconnu, ou « code|message » s'il est refusé.
+PROCEDURE EbTestRefusLecture(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oLue est un cEbMigrationLue = EbExtraitMigration("M202611021015_Essai.owl", sTexte)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Une migration écrite à la main, avec la forme acceptée : les deux sortes de texte, plusieurs instructions, des commentaires et des lignes vides.
+PROCEDURE EbTestMigrationSimpleLecture() : chaîne
+	sTexte est une chaîne = "// une migration" + Caract(10)
+	sTexte += "cM202611021015_Essai est une Classe implemente iEbMigration" + Caract(10)
+	sTexte += Caract(10)
+	sTexte += Caract(9) + "PROCEDURE PUBLIQUE Nom() : chaîne" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "RENVOYER " + Caract(34) + "M202611021015_Essai" + Caract(34) + Caract(10)
+	sTexte += Caract(9) + "FIN" + Caract(10)
+	sTexte += Caract(10)
+	sTexte += Caract(9) + "PROCEDURE PUBLIQUE Monte() : tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "tabSql est un tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "// la table" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(34) + "CREATE TABLE a (id INTEGER)" + Caract(34) + ")" + Caract(10)
+	sTexte += Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(96) + "CREATE INDEX " + Caract(34) + "ia" + Caract(34) + Caract(10)
+	sTexte += Caract(9) + Caract(9) + Caract(9) + "ON a (id)" + Caract(96) + ")" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "RENVOYER tabSql" + Caract(10)
+	sTexte += Caract(9) + "FIN" + Caract(10)
+	sTexte += Caract(10)
+	sTexte += Caract(9) + "PROCEDURE PUBLIQUE Descend() : tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "tabSql est un tableau de chaînes" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "TableauAjoute(tabSql, " + Caract(34) + "DROP TABLE a" + Caract(34) + ")" + Caract(10)
+	sTexte += Caract(9) + Caract(9) + "RENVOYER tabSql" + Caract(10)
+	sTexte += Caract(9) + "FIN" + Caract(10)
+	sTexte += "FIN" + Caract(10)
+	RENVOYER sTexte
+FIN
+
+// Le même texte avec une instruction de Monte() remplacée par sLigne (pour fabriquer les refus).
+PROCEDURE EbTestMigrationAvecLecture(sLigne est une chaîne) : chaîne
+	sTexte est une chaîne = EbTestMigrationSimpleLecture()
+	RENVOYER Remplace(sTexte, "TableauAjoute(tabSql, " + Caract(34) + "CREATE TABLE a (id INTEGER)" + Caract(34) + ")", sLigne)
+FIN
+
+// Une migration écrite à la main : les instructions sont lues dans l'ordre, les deux formes de texte, et le nom vient du fichier.
+PROCEDURE scenario_migration_ecrite_a_la_main()
+	oLue est un cEbMigrationLue = EbExtraitMigration("M202611021015_Essai.owl", EbTestMigrationSimpleLecture())
+	dbgVérifieEgalité(oLue.Nom(), "M202611021015_Essai", "le nom est celui du fichier, sans extension")
+	dbgVérifieEgalité(oLue.Monte()..Occurrence, 2, "deux instructions pour Monte()")
+	dbgVérifieEgalité(oLue.Monte()[1], "CREATE TABLE a (id INTEGER)", "texte entre guillemets, repris tel quel")
+	dbgVérifieEgalité(EbTestSansBlancsLecture(oLue.Monte()[2]), EbTestSansBlancsLecture("CREATE INDEX " + Caract(34) + "ia" + Caract(34) + " ON a (id)"), "texte sur deux lignes entre accents graves")
+	dbgVérifieVrai(Position(oLue.Monte()[2], Caract(10)) > 0, "le retour à la ligne du texte est conservé")
+	dbgVérifieEgalité(oLue.Descend()..Occurrence, 1, "une instruction pour Descend()")
+	dbgVérifieEgalité(oLue.Descend()[1], "DROP TABLE a", "Descend() lu")
+FIN
+
+// Un fichier écrit avec des fins de ligne Windows donne le même résultat.
+PROCEDURE scenario_fins_de_ligne_windows()
+	sWindows est une chaîne         = Remplace(EbTestMigrationSimpleLecture(), Caract(10), Caract(13) + Caract(10))
+	oLue     est un cEbMigrationLue = EbExtraitMigration("M202611021015_Essai.owl", sWindows)
+	dbgVérifieEgalité(oLue.Monte()..Occurrence, 2, "deux instructions")
+	dbgVérifieEgalité(Position(oLue.Monte()[2], Caract(13)), 0, "aucun retour chariot dans le SQL lu")
+	dbgVérifieEgalité(oLue.Descend()[1], "DROP TABLE a", "Descend() lu")
+FIN
+
+// Ce que « ebony make migration » écrit est relu : même SQL (à la mise en page près), pour SQLite et PostgreSQL, avec clé étrangère.
+PROCEDURE scenario_relit_ce_que_make_ecrit()
+	tabBases est un tableau de chaînes = ChaîneDécoupe("sqlite;postgresql", ";")
+	POUR TOUT sBase DE tabBases
+		oDemande est un cEbDemandeMake  = EbTestDemandeLecture("migration;CreeClients;--champs;id:entier*,nom:texte,email:texte?,pays_id:entier@pays,actif:booleen,solde:reel,cree:dateheure")
+		sTexte   est une chaîne         = EbContenuMigration(oDemande, "202611021015", sBase)
+		oLue     est un cEbMigrationLue = EbExtraitMigration("M202611021015_CreeClients.owl", sTexte)
+		sAttendu est une chaîne         = ""
+		POUR TOUT sLigne DE EbSqlCreeTable(oDemande, sBase)
+			sAttendu += sLigne
+		FIN
+		dbgVérifieEgalité(oLue.Nom(), "M202611021015_CreeClients", sBase + " : le nom")
+		dbgVérifieEgalité(oLue.Monte()..Occurrence, 1, sBase + " : un CREATE TABLE")
+		dbgVérifieEgalité(EbTestSansBlancsLecture(oLue.Monte()[1]), EbTestSansBlancsLecture(sAttendu), sBase + " : le SQL de Monte() est celui que le générateur calcule")
+		dbgVérifieEgalité(oLue.Descend()..Occurrence, 1, sBase + " : un DROP TABLE")
+		dbgVérifieEgalité(oLue.Descend()[1], EbSqlSupprimeTable(oDemande), sBase + " : le SQL de Descend() est celui que le générateur calcule")
+	FIN
+FIN
+
+// Même chose avec une table d'un schéma, et après le formatage que subit un fichier généré.
+PROCEDURE scenario_relit_apres_formatage_et_avec_schema()
+	oDemande est un cEbDemandeMake  = EbTestDemandeLecture("migration;CreeClients;--table;crm.Clients;--champs;id:entier*,nom:texte")
+	sTexte   est une chaîne         = EbAligneSiOwl("C:\x\M202611021015_CreeClients.owl", EbContenuMigration(oDemande, "202611021015", "postgresql"))
+	oLue     est un cEbMigrationLue = EbExtraitMigration("M202611021015_CreeClients.owl", sTexte)
+	sAttendu est une chaîne         = ""
+	POUR TOUT sLigne DE EbSqlCreeTable(oDemande, "postgresql")
+		sAttendu += sLigne
+	FIN
+	dbgVérifieEgalité(EbTestSansBlancsLecture(oLue.Monte()[1]), EbTestSansBlancsLecture(sAttendu), "le SQL relu après formatage")
+	dbgVérifieEgalité(oLue.Descend()[1], EbSqlSupprimeTable(oDemande), "Descend() relu après formatage")
+FIN
+
+// Une forme inconnue est refusée avec le code 44 : un calcul, un appel, une condition, une liste jamais renvoyée, une méthode absente, une liste vide.
+PROCEDURE scenario_formes_refusees()
+	sOk est une chaîne = EbTestRefusLecture(EbTestMigrationSimpleLecture())
+	dbgVérifieEgalité(sOk, "", "la forme correcte est reconnue")
+	sCalcul est une chaîne = EbTestRefusLecture(EbTestMigrationAvecLecture("TableauAjoute(tabSql, " + Caract(34) + "CREATE TABLE " + Caract(34) + " + sNom)"))
+	dbgVérifieEgalité(Gauche(sCalcul, 3), "44|", "un texte calculé est refusé")
+	dbgVérifieVrai(Position(sCalcul, "ligne 11") > 0, "le message dit la ligne")
+	dbgVérifieVrai(Position(sCalcul, "M202611021015_Essai.owl") > 0, "le message dit le fichier")
+	sAppel est une chaîne = EbTestRefusLecture(EbTestMigrationAvecLecture("EnvoieQuelqueChose(tabSql)"))
+	dbgVérifieEgalité(Gauche(sAppel, 3), "44|", "un appel inconnu est refusé")
+	sCondition est une chaîne = EbTestRefusLecture(EbTestMigrationAvecLecture("SI Vrai ALORS"))
+	dbgVérifieEgalité(Gauche(sCondition, 3), "44|", "une condition est refusée")
+	sSuite est une chaîne = EbTestRefusLecture(EbTestMigrationAvecLecture("TableauAjoute(tabSql, " + Caract(34) + "SELECT 1" + Caract(34) + ") + 1"))
+	dbgVérifieEgalité(Gauche(sSuite, 3), "44|", "du texte après la parenthèse est refusé")
+	sOuvert est une chaîne = EbTestRefusLecture(EbTestMigrationAvecLecture("TableauAjoute(tabSql, " + Caract(96) + "SELECT 1"))
+	dbgVérifieEgalité(Gauche(sOuvert, 3), "44|", "un texte entre accents graves jamais fermé est refusé")
+FIN
+
+// Une méthode absente, une liste jamais renvoyée ou vide sont refusées.
+PROCEDURE scenario_methode_absente_ou_vide()
+	sSansDescend est une chaîne = Remplace(EbTestMigrationSimpleLecture(), "Descend()", "Autre()")
+	sRes         est une chaîne = EbTestRefusLecture(sSansDescend)
+	dbgVérifieEgalité(Gauche(sRes, 3), "44|", "Descend() absente")
+	dbgVérifieVrai(Position(sRes, "Descend()") > 0, "le message nomme la méthode")
+	sSansRenvoi est une chaîne = Remplace(EbTestMigrationSimpleLecture(), "RENVOYER tabSql", "// rien")
+	dbgVérifieEgalité(Gauche(EbTestRefusLecture(sSansRenvoi), 3), "44|", "liste jamais renvoyée")
+	sVide est une chaîne = EbTestMigrationAvecLecture("// rien")
+	sVide = Remplace(sVide, "TableauAjoute(tabSql, " + Caract(96) + "CREATE INDEX " + Caract(34) + "ia" + Caract(34), "// rien")
+	sVide = Remplace(sVide, Caract(9) + Caract(9) + Caract(9) + "ON a (id)" + Caract(96) + ")", "// rien")
+	dbgVérifieEgalité(Gauche(EbTestRefusLecture(sVide), 3), "44|", "Monte() qui n'envoie rien")
+	dbgVérifieEgalité(Gauche(EbTestRefusLecture(""), 3), "44|", "un fichier vide")
+FIN
+
+// Les noms de fichiers que ebony traite : M, douze chiffres, « _ », un nom, « .owl » ; rien d'autre (les tests, les fichiers de l'utilisateur).
+PROCEDURE scenario_noms_de_fichiers_de_migration()
+	dbgVérifieVrai(EbEstFichierMigration("M202611021015_CreeClients.owl"), "nom écrit par make")
+	dbgVérifieFaux(EbEstFichierMigration("test_M202611021015_CreeClients.owl"), "un fichier de test")
+	dbgVérifieFaux(EbEstFichierMigration("M20261102101_CreeClients.owl"), "onze chiffres")
+	dbgVérifieFaux(EbEstFichierMigration("M2026110210150_CreeClients.owl"), "treize chiffres")
+	dbgVérifieFaux(EbEstFichierMigration("M20261102101a_CreeClients.owl"), "une lettre dans l'horodatage")
+	dbgVérifieFaux(EbEstFichierMigration("M202611021015_CreeClients.txt"), "autre extension")
+	dbgVérifieFaux(EbEstFichierMigration("M202611021015_.owl"), "sans nom")
+	dbgVérifieFaux(EbEstFichierMigration(".gitkeep"), "un fichier caché")
+FIN

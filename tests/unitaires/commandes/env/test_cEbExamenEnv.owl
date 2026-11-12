@@ -1,0 +1,97 @@
+// Tests de cEbExamenEnv (« ebony env ») avec un faux disque : l'examen d'un projet sans le démarrer, ses deux refus (codes 30 et 31), et la preuve qu'il n'écrit rien.
+
+PROCEDURE EbTestSchemaExamen() : chaîne
+	sSchema est une chaîne = `{"variables":[`
+	sSchema += `{"cle":"DB_HOTE","type":"texte","obligatoire":true},`
+	sSchema += `{"cle":"DB_PORT","type":"port","defaut":"5432"},`
+	sSchema += `{"cle":"DB_MOT_DE_PASSE","type":"texte","secret":true,"obligatoire":true}`
+	sSchema += `]}`
+	RENVOYER sSchema
+FIN
+
+// Un disque où l'utilisateur est dans le projet ebony C:\Projets\mon-app, avec ou sans schéma.
+PROCEDURE EbTestDisqueEnv(bSchema est un booléen) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oDisque.AjouteFichier("C:\Projets\mon-app\ebony.conf", "{}")
+	SI bSchema ALORS
+		oDisque.AjouteFichier("C:\Projets\mon-app\config\env.json", EbTestSchemaExamen())
+	FIN
+	RENVOYER oDisque
+FIN
+
+PROCEDURE EbTestEchecExamen(oExamen est un cEbExamenEnv) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oEnv est un cEbEnv = oExamen.Execute()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Cas normal : le schéma, .env et .env.secrets du projet sont lus sous le dossier du projet, et les sources portent des noms lisibles.
+PROCEDURE scenario_examen_valide()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEnv(Vrai)
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env", "DB_HOTE=db.exemple.fr" + Caract(10))
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env.secrets", "DB_MOT_DE_PASSE=x" + Caract(10))
+	oExamen est un cEbExamenEnv(oDisque)
+	oEnv    est un cEbEnv                = oExamen.Execute()
+	dbgVérifieVrai(oEnv.Valide(), "valide")
+	dbgVérifieVrai(oEnv.SchemaPresent(), "schéma lu")
+	dbgVérifieEgalité(oEnv.LitTexte("DB_HOTE"), "db.exemple.fr", "valeur de .env")
+	dbgVérifieEgalité(oEnv.LitEntier("DB_PORT"), 5432, "défaut du schéma")
+	oHote est un cEbEtatVariableEnv = oEnv.Etats()[1]
+	dbgVérifieEgalité(oHote.Source(), ".env", "source lisible, pas un chemin complet")
+	oMdp est un cEbEtatVariableEnv = oEnv.Etats()[3]
+	dbgVérifieEgalité(oMdp.Source(), ".env.secrets", "source du secret")
+FIN
+
+PROCEDURE scenario_examen_invalide_ne_leve_pas()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEnv(Vrai)
+	oExamen est un cEbExamenEnv(oDisque)
+	oEnv    est un cEbEnv                   = oExamen.Execute()
+	dbgVérifieFaux(oEnv.Valide(), "invalide : c'est le résultat de l'examen")
+	dbgVérifieEgalité(oEnv.Erreurs()..Occurrence, 2, "DB_HOTE et DB_MOT_DE_PASSE manquent")
+FIN
+
+// Sans schéma : rien à contrôler, l'examen le dit.
+PROCEDURE scenario_examen_sans_schema()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEnv(Faux)
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env", "A=1" + Caract(10))
+	oExamen est un cEbExamenEnv(oDisque)
+	oEnv    est un cEbEnv                = oExamen.Execute()
+	dbgVérifieVrai(oEnv.Valide(), "valide")
+	dbgVérifieFaux(oEnv.SchemaPresent(), "pas de schéma")
+	dbgVérifieEgalité(oEnv.LitTexte("A"), "1", "les valeurs restent lisibles")
+FIN
+
+PROCEDURE scenario_pas_un_projet_ebony()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\vide")
+	oDisque.CreeDossier("C:\Projets\vide")
+	oExamen est un cEbExamenEnv(oDisque)
+	sRes    est une chaîne               = EbTestEchecExamen(oExamen)
+	dbgVérifieEgalité(Gauche(sRes, 3), "31|", "code 31 : " + sRes)
+	dbgVérifieVrai(Position(sRes, "ebony.conf est introuvable") > 0, "dit ce qui manque : " + sRes)
+FIN
+
+PROCEDURE scenario_owl_mal_place()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEnv(Vrai)
+	oDisque.DefinitActif("D:\ailleurs")
+	oExamen est un cEbExamenEnv(oDisque)
+	sRes    est une chaîne               = EbTestEchecExamen(oExamen)
+	dbgVérifieEgalité(Gauche(sRes, 3), "30|", "code 30 : " + sRes)
+FIN
+
+// L'examen ne lit que : le disque est identique avant et après.
+PROCEDURE scenario_rien_n_est_ecrit()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEnv(Vrai)
+	oDisque.AjouteFichier("C:\Projets\mon-app\.env", "DB_HOTE=h" + Caract(10))
+	nFichiers est un entier                = oDisque.NbFichiers()
+	nDossiers est un entier                = oDisque.NbDossiers()
+	oExamen   est un cEbExamenEnv(oDisque)
+	oEnv      est un cEbEnv                = oExamen.Execute()
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier créé")
+	dbgVérifieEgalité(oDisque.NbDossiers(), nDossiers, "aucun dossier créé")
+	dbgVérifieEgalité(oDisque.NbSuppressions(), 0, "rien supprimé")
+FIN

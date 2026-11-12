@@ -1,0 +1,154 @@
+// Tests de EbOptionsNouveau : la lecture des arguments de « ebony new » (nom, --kit, --base, --auth, --table, --json) et chaque refus avec son code 25.
+
+// Les arguments après « new », depuis une liste écrite avec des « ; ».
+PROCEDURE EbTestArgs(sListe est une chaîne) : tableau de chaînes
+	tabArgs est un tableau de chaînes
+	SI sListe <> "" ALORS
+		nDebut est un entier = 1
+		nFin   est un entier = Position(sListe, ";")
+		TANTQUE nFin > 0
+			TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+			nDebut = nFin + 1
+			nFin   = Position(sListe, ";", nDebut)
+		FIN
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	FIN
+	RENVOYER tabArgs
+FIN
+
+// Rend « code|message » si l'analyse lève, ou « » si elle réussit.
+PROCEDURE EbTestRefus(sListe est une chaîne) : chaîne
+	sRes    est une chaîne            = ""
+	tabArgs est un tableau de chaînes = EbTestArgs(sListe)
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(tabArgs)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Sans option : le projet d'aujourd'hui (API, SQLite, sans authentification), et le nom seul est lu.
+PROCEDURE scenario_nom_seul_choix_par_defaut()
+	oDemande est un cEbDemandeNew    = EbAnalyseArgumentsNew(EbTestArgs("mon-app"))
+	oOptions est un cEbOptionsProjet = oDemande.Options()
+	dbgVérifieEgalité(oDemande.Nom(), "mon-app", "nom")
+	dbgVérifieEgalité(oOptions.Kit(), "api", "kit par défaut")
+	dbgVérifieEgalité(oOptions.BaseDonnees(), "sqlite", "base par défaut")
+	dbgVérifieFaux(oOptions.Auth(), "pas d'authentification par défaut")
+	dbgVérifieEgalité(oOptions.TableUtilisateurs(), "", "pas de table")
+FIN
+
+// Aucun argument : un nom vide (EbPrincipal dit alors qu'il manque le nom) et pas d'erreur ici.
+PROCEDURE scenario_aucun_argument()
+	oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs(""))
+	dbgVérifieEgalité(oDemande.Nom(), "", "nom vide")
+FIN
+
+// Un nom en plusieurs mots est réuni avec des espaces, comme avant.
+PROCEDURE scenario_nom_en_plusieurs_mots()
+	oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("Cafe;de;la;Gare"))
+	dbgVérifieEgalité(oDemande.Nom(), "Cafe de la Gare", "mots réunis")
+FIN
+
+// La valeur d'une option n'entre pas dans le nom, que l'option soit avant, au milieu ou après le nom.
+PROCEDURE scenario_valeur_d_option_hors_du_nom()
+	oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("--base;postgresql;ma;boutique;--kit;api"))
+	dbgVérifieEgalité(oDemande.Nom(), "ma boutique", "nom sans les valeurs")
+	dbgVérifieEgalité(oDemande.Options().BaseDonnees(), "postgresql", "base")
+	dbgVérifieEgalité(oDemande.Options().Kit(), "api", "kit")
+FIN
+
+// « --base=hfsql » et « --base hfsql » sont équivalents ; la casse de la valeur est sans importance.
+PROCEDURE scenario_forme_avec_egal()
+	dbgVérifieEgalité(EbAnalyseArgumentsNew(EbTestArgs("x;--base=hfsql")).Options().BaseDonnees(), "hfsql", "--base=hfsql")
+	dbgVérifieEgalité(EbAnalyseArgumentsNew(EbTestArgs("x;--base;HFSQL")).Options().BaseDonnees(), "hfsql", "--base HFSQL")
+FIN
+
+// Les trois bases proposées à la création d'un projet.
+PROCEDURE scenario_trois_bases()
+	dbgVérifieEgalité(EbAnalyseArgumentsNew(EbTestArgs("x;--base;sqlite")).Options().BaseDonnees(), "sqlite", "sqlite")
+	dbgVérifieEgalité(EbAnalyseArgumentsNew(EbTestArgs("x;--base;postgresql")).Options().BaseDonnees(), "postgresql", "postgresql")
+	dbgVérifieEgalité(EbAnalyseArgumentsNew(EbTestArgs("x;--base;hfsql")).Options().BaseDonnees(), "hfsql", "hfsql")
+FIN
+
+// --auth seul : jetons d'accès, table « utilisateurs » par défaut. Avec --table users : « users ».
+PROCEDURE scenario_auth_et_table()
+	oSeul est un cEbOptionsProjet = EbAnalyseArgumentsNew(EbTestArgs("x;--auth")).Options()
+	dbgVérifieVrai(oSeul.Auth(), "--auth")
+	dbgVérifieEgalité(oSeul.TableUtilisateurs(), "utilisateurs", "table par défaut")
+	oUsers est un cEbOptionsProjet = EbAnalyseArgumentsNew(EbTestArgs("x;--auth;--table;users")).Options()
+	dbgVérifieVrai(oUsers.Auth(), "--auth --table")
+	dbgVérifieEgalité(oUsers.TableUtilisateurs(), "users", "table users")
+	oAvant est un cEbOptionsProjet = EbAnalyseArgumentsNew(EbTestArgs("x;--table=users;--auth")).Options()
+	dbgVérifieEgalité(oAvant.TableUtilisateurs(), "users", "--table avant --auth")
+FIN
+
+// --json est accepté partout et ne change ni le nom ni les choix ; une option à un seul tiret (celles du lanceur) est ignorée.
+PROCEDURE scenario_json_et_options_du_lanceur()
+	oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("--json;mon-app;-sortie=C:\x;/aide"))
+	dbgVérifieEgalité(oDemande.Nom(), "mon-app", "nom")
+	dbgVérifieEgalité(oDemande.Options().BaseDonnees(), "sqlite", "choix inchangés")
+FIN
+
+// Chaque refus est un usage incorrect (code 25) qui dit quoi corriger.
+PROCEDURE scenario_refus_option_inconnue()
+	sRes est une chaîne = EbTestRefus("x;--bas;sqlite")
+	dbgVérifieEgalité(Gauche(sRes, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRes, "Option inconnue : --bas") > 0, "nomme l'option : " + sRes)
+FIN
+
+PROCEDURE scenario_refus_valeur_inconnue()
+	sBase est une chaîne = EbTestRefus("x;--base;mysql")
+	dbgVérifieEgalité(Gauche(sBase, 3), "25|", "code 25 pour la base")
+	dbgVérifieVrai(Position(sBase, "sqlite, postgresql, hfsql") > 0, "liste les bases possibles : " + sBase)
+	sKit est une chaîne = EbTestRefus("x;--kit;web")
+	dbgVérifieEgalité(Gauche(sKit, 3), "25|", "code 25 pour le kit")
+	dbgVérifieVrai(Position(sKit, "api, slim") > 0, "liste les kits possibles : " + sKit)
+	dbgVérifieEgalité(Gauche(EbTestRefus("x;--auth;--table;comptes"), 3), "25|", "code 25 pour la table")
+FIN
+
+PROCEDURE scenario_refus_valeur_absente()
+	sFin est une chaîne = EbTestRefus("x;--base")
+	dbgVérifieEgalité(Gauche(sFin, 3), "25|", "code 25 en fin de ligne")
+	dbgVérifieVrai(Position(sFin, "Il manque la valeur de --base") > 0, "dit laquelle manque : " + sFin)
+	dbgVérifieEgalité(Gauche(EbTestRefus("x;--base;--auth"), 3), "25|", "code 25 quand une autre option suit")
+	dbgVérifieEgalité(Gauche(EbTestRefus("x;--base="), 3), "25|", "code 25 pour une valeur vide")
+FIN
+
+PROCEDURE scenario_refus_table_sans_auth()
+	sRes est une chaîne = EbTestRefus("x;--table;users")
+	dbgVérifieEgalité(Gauche(sRes, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRes, "--table") > 0 ET Position(sRes, "--auth") > 0, "explique le lien avec --auth : " + sRes)
+FIN
+
+PROCEDURE scenario_refus_auth_avec_valeur()
+	dbgVérifieEgalité(Gauche(EbTestRefus("x;--auth=oui"), 3), "25|", "code 25")
+FIN
+
+// Le kit slim est le cœur seul : pas de base (donc ni variables DB_* ni jetons), et un nom de kit s'écrit aussi « --kit=slim ».
+PROCEDURE scenario_kit_slim_sans_base()
+	oDemande est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("mon;appli;--kit;slim"))
+	dbgVérifieEgalité(oDemande.Nom(), "mon appli", "nom")
+	dbgVérifieEgalité(oDemande.Options().Kit(), "slim", "kit")
+	dbgVérifieEgalité(oDemande.Options().BaseDonnees(), "", "pas de base")
+	dbgVérifieFaux(oDemande.Options().ABase(), "ABase faux")
+	dbgVérifieFaux(oDemande.Options().Auth(), "pas de jetons")
+	oEgal est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("x;--kit=SLIM"))
+	dbgVérifieEgalité(oEgal.Options().Kit(), "slim", "forme --kit=slim, sans tenir compte de la casse")
+	oApi est un cEbDemandeNew = EbAnalyseArgumentsNew(EbTestArgs("x;--kit;api"))
+	dbgVérifieVrai(oApi.Options().ABase(), "le kit api a une base")
+	dbgVérifieEgalité(oApi.Options().BaseDonnees(), "sqlite", "SQLite par défaut")
+FIN
+
+// Le kit slim refuse --base et --auth au lieu de les ignorer en silence, quel que soit l'ordre des options ; le message dit quoi faire.
+PROCEDURE scenario_kit_slim_refuse_base_et_auth()
+	sBase est une chaîne = EbTestRefus("x;--kit;slim;--base;postgresql")
+	dbgVérifieEgalité(Gauche(sBase, 3), "25|", "code 25 pour --base avec slim")
+	dbgVérifieVrai(Position(sBase, "--kit api") > 0, "dit comment obtenir une base : " + sBase)
+	dbgVérifieEgalité(Gauche(EbTestRefus("x;--base;sqlite;--kit;slim"), 3), "25|", "même refus dans l'autre ordre, même avec la base par défaut écrite")
+	sAuth est une chaîne = EbTestRefus("x;--kit;slim;--auth")
+	dbgVérifieEgalité(Gauche(sAuth, 3), "25|", "code 25 pour --auth avec slim")
+	dbgVérifieVrai(Position(sAuth, "kit api") > 0, "dit où trouver l'authentification : " + sAuth)
+	dbgVérifieEgalité(EbTestRefus("x;--kit;api;--base;postgresql;--auth"), "", "le kit api accepte --base et --auth")
+FIN

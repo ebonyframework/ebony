@@ -1,0 +1,176 @@
+// Tests de cEbVerifEtatProjet : ebony.conf lisible, ebony/ présent et conforme au minimum demandé. Utilise un faux disque.
+
+// Un disque où l'utilisateur est dans le projet C:\Projets\mon-app (ebony.conf avec le minimum donné) et où l'ebony installé (D:\ebony) fournit la version 0.1.0.
+// ebony/ n'existe pas encore : chaque scénario le crée comme il l'entend.
+PROCEDURE EbTestDisqueEtat(sMinimum est une chaîne) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony.conf", EbContenuConf("mon-app", "mon-app", "AppMonApp", sMinimum))
+	RENVOYER oDisque
+FIN
+
+PROCEDURE EbTestAjouteBibliotheque(oDisque est un cEbSystemeFichiersFictif, sVersion est une chaîne)
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", sVersion)
+FIN
+
+// Hors d'un projet : sans objet, sans avertissement, même si un dossier PARENT a un ebony.conf (pas de remontée).
+PROCEDURE scenario_hors_projet()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\ailleurs")
+	oDisque.CreeDossier("C:\Projets\ailleurs")
+	oDisque.EcritTexte("C:\Projets\ebony.conf", EbContenuConf("parent", "parent", "AppParent", "0.1.0"))
+	oVerif est un cEbVerifEtatProjet(oDisque)
+	oRes   est un cEbResultatVerification     = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut : réussi, pas d'avertissement")
+	dbgVérifieVrai(Position(oRes.Message(), "sans objet") > 0, "dit que c'est sans objet")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+	dbgVérifieEgalité(oRes.Nom(), "État du projet", "nom")
+FIN
+
+// Cas normal : ebony.conf lisible et ebony/ à la version du minimum.
+PROCEDURE scenario_projet_conforme()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	EbTestAjouteBibliotheque(oDisque, "0.1.0" + Caract(10))
+	oVerif est un cEbVerifEtatProjet(oDisque)
+	oRes   est un cEbResultatVerification     = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "0.1.0") > 0, "cite la version présente")
+	dbgVérifieEgalité(oRes.Correction(), "", "aucune correction")
+FIN
+
+// ebony/ plus récent que le minimum mais de la même génération, avec des fins de ligne Windows : conforme.
+PROCEDURE scenario_bibliotheque_plus_recente_compatible()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	EbTestAjouteBibliotheque(oDisque, "0.1.4" + Caract(13) + Caract(10))
+	oVerif est un cEbVerifEtatProjet(oDisque)
+	oRes   est un cEbResultatVerification     = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.reussi, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "0.1.4") > 0 ET Position(oRes.Message(), "0.1.0") > 0, "cite la version présente et le minimum")
+FIN
+
+// Un ebony/ en règle suffit, même si l'ebony installé ne conviendrait pas pour une nouvelle installation : pas de bruit inutile.
+PROCEDURE scenario_conforme_meme_si_installation_incompatible()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.2.0")
+	EbTestAjouteBibliotheque(oDisque, "0.1.0")
+	oVerif est un cEbVerifEtatProjet(oDisque)
+	dbgVérifieEgalité(oVerif.Execute().Statut(), eEbStatut.reussi, "réussi")
+FIN
+
+// ebony/ absent (état normal après un git clone) : avertissement, non bloquant, avec la commande à lancer.
+PROCEDURE scenario_bibliotheque_absente()
+	oDisque   est un cEbSystemeFichiersFictif    = EbTestDisqueEtat("0.1.0")
+	nFichiers est un entier                      = oDisque.NbFichiers()
+	oVerif    est un cEbVerifEtatProjet(oDisque)
+	oRes      est un cEbResultatVerification     = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieFaux(oRes.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oRes.Message(), "git clone") > 0, "dit que c'est normal après un git clone")
+	dbgVérifieVrai(Position(oRes.Correction(), "ebony restore") > 0, "la correction est ebony restore")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "la vérification n'écrit rien")
+FIN
+
+// ebony/ existe mais est vide : même avertissement.
+PROCEDURE scenario_bibliotheque_vide()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony")
+	oVerif est un cEbVerifEtatProjet(oDisque)
+	oRes   est un cEbResultatVerification     = oVerif.Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "absent") > 0, "traité comme absent, pas comme « sans VERSION »")
+	dbgVérifieVrai(Position(oRes.Correction(), "ebony restore") > 0, "la correction est ebony restore")
+	dbgVérifieFaux(Position(oRes.Correction(), "Supprimez") > 0, "rien à supprimer : le dossier est vide")
+FIN
+
+// ebony.conf présent mais inutilisable (pas du JSON, pas de version, version invalide) : erreur bloquante, le fichier fautif est nommé.
+PROCEDURE scenario_conf_inutilisable()
+	oIni est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oIni.EcritTexte("C:\Projets\mon-app\ebony.conf", "version = 0.1.0")
+	oResIni est un cEbResultatVerification = (cEbVerifEtatProjet(oIni)).Execute()
+	dbgVérifieEgalité(oResIni.Statut(), eEbStatut.erreur, "pas du JSON : erreur")
+	dbgVérifieVrai(oResIni.EstBloquant(), "bloquant")
+	dbgVérifieVrai(Position(oResIni.Correction(), "ebony.conf") > 0, "la correction cite le fichier")
+	oSans est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oSans.EcritTexte("C:\Projets\mon-app\ebony.conf", "{}")
+	dbgVérifieEgalité((cEbVerifEtatProjet(oSans)).Execute().Statut(), eEbStatut.erreur, "pas de version : erreur")
+	oMauvaise    est un cEbSystemeFichiersFictif = EbTestDisqueEtat("pas-une-version")
+	oResMauvaise est un cEbResultatVerification  = (cEbVerifEtatProjet(oMauvaise)).Execute()
+	dbgVérifieEgalité(oResMauvaise.Statut(), eEbStatut.erreur, "version invalide : erreur")
+	dbgVérifieVrai(Position(oResMauvaise.Message(), "pas-une-version") > 0, "cite la valeur lue")
+FIN
+
+// Un FICHIER nommé ebony occupe la place du dossier : erreur (« ebony restore » échouerait).
+PROCEDURE scenario_ebony_est_un_fichier()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony", "je suis un fichier")
+	oRes est un cEbResultatVerification = (cEbVerifEtatProjet(oDisque)).Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.erreur, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "fichier") > 0, "nomme le problème")
+FIN
+
+// ebony/ non vide sans VERSION, ou avec un VERSION illisible : avertissement, avec la suppression à faire à la main.
+PROCEDURE scenario_bibliotheque_sans_version_lisible()
+	oSans est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oSans.CreeDossier("C:\Projets\mon-app\ebony")
+	oSans.EcritTexte("C:\Projets\mon-app\ebony\quelque-chose.txt", "x")
+	oResSans est un cEbResultatVerification = (cEbVerifEtatProjet(oSans)).Execute()
+	dbgVérifieEgalité(oResSans.Statut(), eEbStatut.avertissement, "sans VERSION : avertissement")
+	dbgVérifieVrai(Position(oResSans.Message(), "VERSION") > 0, "nomme VERSION")
+	dbgVérifieVrai(Position(oResSans.Correction(), "Supprimez") > 0 ET Position(oResSans.Correction(), "ebony restore") > 0, "supprimer puis ebony restore")
+	oIllisible est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	EbTestAjouteBibliotheque(oIllisible, "n'importe quoi")
+	oResIllisible est un cEbResultatVerification = (cEbVerifEtatProjet(oIllisible)).Execute()
+	dbgVérifieEgalité(oResIllisible.Statut(), eEbStatut.avertissement, "VERSION illisible : avertissement")
+	dbgVérifieVrai(Position(oResIllisible.Message(), "n'importe quoi") > 0, "cite ce qui a été lu")
+FIN
+
+// ebony/ ne satisfait pas le minimum (trop ancien, ou autre génération) : avertissement qui cite les deux versions.
+PROCEDURE scenario_bibliotheque_ne_satisfait_pas_le_minimum()
+	oAncienne est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	EbTestAjouteBibliotheque(oAncienne, "0.0.5")
+	oResAncienne est un cEbResultatVerification = (cEbVerifEtatProjet(oAncienne)).Execute()
+	dbgVérifieEgalité(oResAncienne.Statut(), eEbStatut.avertissement, "trop ancienne : avertissement")
+	dbgVérifieFaux(oResAncienne.EstBloquant(), "non bloquant")
+	dbgVérifieVrai(Position(oResAncienne.Message(), "0.0.5") > 0 ET Position(oResAncienne.Message(), "0.1.0") > 0, "cite la version présente et le minimum")
+	dbgVérifieVrai(Position(oResAncienne.Correction(), "Supprimez") > 0, "supprimer à la main")
+	oAutre est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	EbTestAjouteBibliotheque(oAutre, "0.2.0")
+	dbgVérifieEgalité((cEbVerifEtatProjet(oAutre)).Execute().Statut(), eEbStatut.avertissement, "autre génération (0.2.0 pour 0.1.0) : avertissement")
+FIN
+
+// Quand « ebony restore » serait nécessaire mais refuserait (l'ebony installé ne satisfait pas le minimum), l'avertissement le dit.
+PROCEDURE scenario_installation_refuserait()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.2.0")
+	oRes est un cEbResultatVerification = (cEbVerifEtatProjet(oDisque)).Execute()
+	dbgVérifieEgalité(oRes.Statut(), eEbStatut.avertissement, "statut")
+	dbgVérifieVrai(Position(oRes.Message(), "refuserait") > 0, "dit qu'ebony restore refuserait")
+	dbgVérifieVrai(Position(oRes.Message(), "0.2.0") > 0 ET Position(oRes.Message(), "0.1.0") > 0, "cite les deux versions")
+	dbgVérifieVrai(Position(oRes.Correction(), "Lancez « ebony upgrade »") > 0, "installé plus récent d'une autre génération : la correction est ebony upgrade")
+	oAncien    est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.2")
+	oResAncien est un cEbResultatVerification  = (cEbVerifEtatProjet(oAncien)).Execute()
+	dbgVérifieEgalité(oResAncien.Statut(), eEbStatut.avertissement, "installé plus ancien : avertissement")
+	dbgVérifieVrai(Position(oResAncien.Correction(), "Installez un ebony d'au moins la version 0.1.2") > 0, "installé plus ancien : il faut un ebony plus récent")
+	dbgVérifieFaux(Position(oResAncien.Correction(), "Lancez « ebony upgrade »") > 0, "ne conseille pas upgrade, qui refuserait")
+	oMauvais est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oMauvais.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.2.0")
+	EbTestAjouteBibliotheque(oMauvais, "0.0.5")
+	dbgVérifieVrai(Position((cEbVerifEtatProjet(oMauvais)).Execute().Message(), "refuserait") > 0, "ebony/ inadapté ET installation incompatible : même message")
+FIN
+
+// Installation d'ebony illisible : la vérification de l'installation s'en plaint déjà, ici on reste sur la correction habituelle et on ne plante pas.
+PROCEDURE scenario_installation_illisible_ne_plante_pas()
+	oInconnue est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oInconnue.DefinitInstallation("")
+	oResInconnue est un cEbResultatVerification = (cEbVerifEtatProjet(oInconnue)).Execute()
+	dbgVérifieEgalité(oResInconnue.Statut(), eEbStatut.avertissement, "installation inconnue : avertissement habituel")
+	dbgVérifieVrai(Position(oResInconnue.Correction(), "ebony restore") > 0, "ebony restore")
+	dbgVérifieFaux(Position(oResInconnue.Message(), "refuserait") > 0, "ne prétend rien sur l'installation")
+	oInvalide est un cEbSystemeFichiersFictif = EbTestDisqueEtat("0.1.0")
+	oInvalide.EcritTexte("D:\ebony\modules\core\execution\VERSION", "n'importe quoi")
+	dbgVérifieEgalité((cEbVerifEtatProjet(oInvalide)).Execute().Statut(), eEbStatut.avertissement, "VERSION installée invalide : avertissement habituel")
+FIN

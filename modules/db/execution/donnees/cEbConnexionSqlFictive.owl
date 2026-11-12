@@ -1,0 +1,116 @@
+// Adaptateur de test du port iEbConnexionSql : une « base » qu'on peut faire tomber et remonter, sans réseau ni SQL, qui compte ce qu'on lui demande.
+//   - Perdre() : la connexion est perdue (Envoie et Sonde échouent) jusqu'à la prochaine ouverture réussie ;
+//   - DefinitBaseArretee(vrai) : la base est arrêtée, Ouvre() échoue (cause : « connexion refusée ») ; DefinitBaseArretee(faux) : elle est remontée ;
+//   - RefuseRequete(code) : cette requête est toujours refusée par la base (SQL faux), alors que la connexion est saine ;
+//   - Remonter la base ne rétablit rien tout seul : c'est Ouvre() qui rétablit la connexion, comme sur une vraie base.
+// Une requête qui aboutit rend une ligne { "n": 1 } ; une requête d'écriture (code qui commence par « INSERT ») rend 1 ligne affectée.
+cEbConnexionSqlFictive est une Classe implemente iEbConnexionSql
+PRIVÉ
+	bOuverte             est un booléen = Faux
+	bPerdue              est un booléen = Faux
+	bBaseArretee         est un booléen = Faux
+	sRefusee             est une chaîne = ""
+	sMessage             est une chaîne = ""
+	nOuvertures          est un entier  = 0
+	nFermetures          est un entier  = 0
+	nEnvois              est un entier  = 0
+	nSondes              est un entier  = 0
+	nTentativesOuverture est un entier  = 0
+	nParametres          est un entier  = 0
+
+	PROCEDURE PUBLIQUE Perdre()
+		:bPerdue = Vrai
+	FIN
+
+	// Arrêter la base casse aussi la connexion déjà ouverte (comme un vrai arrêt) ; la remonter ne rétablit rien : il faut rouvrir.
+	PROCEDURE PUBLIQUE DefinitBaseArretee(arretee est un booléen)
+		:bBaseArretee = arretee
+		SI arretee ALORS
+			:bPerdue = Vrai
+		FIN
+	FIN
+
+	PROCEDURE PUBLIQUE RefuseRequete(code est une chaîne)
+		:sRefusee = code
+	FIN
+
+	// Combien de fois Ouvre() a RÉUSSI, Ferme() a été appelée, Envoie() et Sonde() ont été appelées, et combien de fois Ouvre() a été tentée (réussie ou non).
+	PROCEDURE PUBLIQUE NbOuvertures() : entier
+		RENVOYER :nOuvertures
+	FIN
+
+	PROCEDURE PUBLIQUE NbFermetures() : entier
+		RENVOYER :nFermetures
+	FIN
+
+	PROCEDURE PUBLIQUE NbEnvois() : entier
+		RENVOYER :nEnvois
+	FIN
+
+	PROCEDURE PUBLIQUE NbSondes() : entier
+		RENVOYER :nSondes
+	FIN
+
+	PROCEDURE PUBLIQUE NbTentativesOuverture() : entier
+		RENVOYER :nTentativesOuverture
+	FIN
+
+	// Le nombre de paramètres reçus par le DERNIER envoi (pour vérifier que le rejeu retransmet les paramètres).
+	PROCEDURE PUBLIQUE NbParametresRecus() : entier
+		RENVOYER :nParametres
+	FIN
+
+	PROCEDURE PUBLIQUE Ouvre() : booléen
+		:nTentativesOuverture = :nTentativesOuverture + 1
+		SI :bBaseArretee ALORS
+			:sMessage = "connexion refusée (la base est arrêtée)"
+			RENVOYER Faux
+		FIN
+		:bOuverte = Vrai
+		:bPerdue = Faux
+		:sMessage = ""
+		:nOuvertures = :nOuvertures + 1
+		RENVOYER Vrai
+	FIN
+
+	PROCEDURE PUBLIQUE Ferme()
+		:bOuverte = Faux
+		:nFermetures = :nFermetures + 1
+	FIN
+
+	PROCEDURE PUBLIQUE Envoie(code est une chaîne, parametres est un tableau associatif) : cEbResultatSql
+		tabVide    est un tableau
+		tabLignes  est un tableau
+		ligne      est un tableau associatif
+		oResultat  est un cEbResultatSql     = cEbResultatSql(Faux, "", tabVide, 0, 0, Faux, Faux)
+		nAffectees est un entier             = 0
+		:nEnvois = :nEnvois + 1
+		:nParametres = parametres..Occurrence
+		SI PAS :bOuverte OU :bPerdue ALORS
+			:sMessage = "connexion perdue"
+			oResultat = cEbResultatSql(Faux, :sMessage, tabVide, 0, 0, Faux, Faux)
+			RENVOYER oResultat
+		FIN
+		SI :sRefusee <> "" ET code = :sRefusee ALORS
+			:sMessage = "requête refusée par la base : " + code
+			oResultat = cEbResultatSql(Faux, :sMessage, tabVide, 0, 0, Faux, Faux)
+			RENVOYER oResultat
+		FIN
+		ligne["n"] = 1
+		TableauAjoute(tabLignes, ligne)
+		SI Gauche(code, 6) = "INSERT" ALORS
+			nAffectees = 1
+		FIN
+		oResultat = cEbResultatSql(Vrai, "", tabLignes, 1, nAffectees, Faux, Faux)
+		RENVOYER oResultat
+	FIN
+
+	PROCEDURE PUBLIQUE Sonde() : booléen
+		:nSondes = :nSondes + 1
+		RENVOYER :bOuverte ET PAS :bPerdue
+	FIN
+
+	PROCEDURE PUBLIQUE DernierMessage() : chaîne
+		RENVOYER :sMessage
+	FIN
+FIN

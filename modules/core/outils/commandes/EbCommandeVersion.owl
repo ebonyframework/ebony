@@ -1,0 +1,22 @@
+// Commande éversioné (ebony --version) et lecture de la version d'ebony, partagée avec édoctoré.
+EbCommandeVersion est une CollectionDeProcédures
+
+	// Version d'ebony, lue dans modules/core/execution/VERSION de l'installation ; vide si elle est illisible (le rapport de « doctor » le dit déjà par ailleurs).
+	PROCEDURE EbVersionEbony(oSysteme est un iEbSystemeFichiers) : chaîne
+		sVersion est une chaîne = ""
+		QUAND EXCEPTION DANS
+			oInstallee est un cEbBibliothequeInstallee(oSysteme)
+			sVersion = oInstallee.Version()
+		FAIRE
+			sVersion = ""
+		FIN
+		RENVOYER sVersion
+	FIN
+
+	// « ebony --version » : une ligne « ebony X.Y.Z ».
+	PROCEDURE EbExecuteVersion()
+		oSysteme   est un cEbSystemeFichiersReel
+		oInstallee est un cEbBibliothequeInstallee(oSysteme)
+		Trace("ebony " + oInstallee.Version())
+	FIN
+FIN

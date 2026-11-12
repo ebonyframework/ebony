@@ -1,0 +1,33 @@
+// L'état d'une variable après lecture de .env et .env.secrets : d'où vient sa valeur, est-elle valide, et sinon pourquoi. Objet valeur immuable.
+// Ne porte JAMAIS la valeur : un secret ne peut donc pas fuir par un objet d'état, une sortie JSON ou un message (Erreur() ne cite pas non plus la valeur d'un secret).
+// Source() : « .env », « .env.secrets », « defaut » (la valeur par défaut du schéma) ou « absente » (ni lue ni par défaut).
+cEbEtatVariableEnv est une Classe
+PRIVÉ
+	oVariable est un cEbVariableEnv
+	sSource   est une chaîne        = "absente"
+	bValide   est un booléen        = Vrai
+	sErreur   est une chaîne        = ""
+
+	PROCEDURE Constructeur(Variable est un cEbVariableEnv, Source est une chaîne, Valide est un booléen, Erreur est une chaîne)
+		:oVariable = Variable
+		:sSource = Source
+		:bValide = Valide
+		:sErreur = Erreur
+	FIN
+
+	PROCEDURE PUBLIQUE Variable() : cEbVariableEnv
+		RENVOYER :oVariable
+	FIN
+
+	PROCEDURE PUBLIQUE Source() : chaîne
+		RENVOYER :sSource
+	FIN
+
+	PROCEDURE PUBLIQUE Valide() : booléen
+		RENVOYER :bValide
+	FIN
+
+	PROCEDURE PUBLIQUE Erreur() : chaîne
+		RENVOYER :sErreur
+	FIN
+FIN

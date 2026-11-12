@@ -1,0 +1,27 @@
+// Tests de EbJointChemin : place un nom de fichier dans un dossier avec une seule barre entre les deux.
+
+// Cas ordinaire : le dossier n'a pas de barre finale.
+PROCEDURE scenario_dossier_ordinaire()
+	dbgVérifieEgalité(EbJointChemin("C:\Users\Jose", "a.tmp"), "C:\Users\Jose\a.tmp", "sans barre finale")
+FIN
+
+// Une barre finale n'est pas doublée.
+PROCEDURE scenario_barre_finale()
+	dbgVérifieEgalité(EbJointChemin("C:\Users\Jose\", "a.tmp"), "C:\Users\Jose\a.tmp", "avec barre finale")
+	dbgVérifieEgalité(EbJointChemin("C:/Users/Jose/", "a.tmp"), "C:\Users\Jose\a.tmp", "barres obliques")
+FIN
+
+// Une racine de disque, avec ou sans barre, donne « D:\a.tmp » et jamais « D:\\a.tmp ».
+PROCEDURE scenario_racine_de_disque()
+	dbgVérifieEgalité(EbJointChemin("D:\", "a.tmp"), "D:\a.tmp", "D:\")
+	dbgVérifieEgalité(EbJointChemin("D:/", "a.tmp"), "D:\a.tmp", "D:/")
+	dbgVérifieEgalité(EbJointChemin("D:", "a.tmp"), "D:\a.tmp", "D:")
+FIN
+
+// Un chemin Linux garde son style : séparateur « / », et les « \ » du nom (écrits à la Windows par les générateurs : « modules\core ») deviennent « / ».
+PROCEDURE scenario_chemin_linux()
+	dbgVérifieEgalité(EbJointChemin("/root/essai", "a.tmp"), "/root/essai/a.tmp", "sans barre finale")
+	dbgVérifieEgalité(EbJointChemin("/root/essai/", "a.tmp"), "/root/essai/a.tmp", "avec barre finale")
+	dbgVérifieEgalité(EbJointChemin("/", "a.tmp"), "/a.tmp", "la racine")
+	dbgVérifieEgalité(EbJointChemin("/root/ebony", "modules\core\execution"), "/root/ebony/modules/core/execution", "nom écrit avec des barres inverses")
+FIN

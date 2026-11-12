@@ -1,0 +1,78 @@
+// Tests de la sortie de « ebony migrate » : l'objet JSON (une ligne, clés stables, lues par les outils) et le texte, pour chaque commande, avec ou sans aperçu.
+
+// Un état à trois migrations : une appliquée, une en attente, une appliquée dont le fichier a disparu.
+PROCEDURE EbTestEtatSortieMigrate(sCommande est une chaîne, sBase est une chaîne, bSimulation est un booléen, tabFaites est un tableau de chaînes) : cEbEtatMigrations
+	tabNoms    est un tableau de chaînes = ChaîneDécoupe("M202611021015_CreeClients;M202611021020_CreePays;M202611010900_Ancienne", ";")
+	tabStatuts est un tableau de chaînes = ChaîneDécoupe("applied;pending;missing", ";")
+	tabDates   est un tableau de chaînes = ChaîneDécoupe("2026-11-07T09:30:00Z;;2026-11-01T10:00:00Z", ";")
+	oEtat      est un cEbEtatMigrations  = cEbEtatMigrations(sCommande, sBase, "C:\Projets\Mon App", bSimulation, tabNoms, tabStatuts, tabDates, tabFaites)
+	RENVOYER oEtat
+FIN
+
+// Un état sans aucune migration.
+PROCEDURE EbTestEtatVideSortieMigrate(sCommande est une chaîne) : cEbEtatMigrations
+	tabVide est un tableau de chaînes
+	oEtat   est un cEbEtatMigrations  = cEbEtatMigrations(sCommande, "sqlite", "C:\Projets\Mon App", Faux, tabVide, tabVide, tabVide, tabVide)
+	RENVOYER oEtat
+FIN
+
+// Le JSON : une seule ligne, les clés ok, command, base, dir, dryRun, done, migrations (name, status, appliedAt) et notes.
+PROCEDURE scenario_json()
+	tabFaites est un tableau de chaînes = ChaîneDécoupe("M202611021015_CreeClients", ";")
+	oEtat     est un cEbEtatMigrations  = EbTestEtatSortieMigrate("migrate", "sqlite", Faux, tabFaites)
+	sJson     est une chaîne            = EbJsonMigrate(oEtat)
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	dbgVérifieEgalité(Gauche(sJson, 30), "{" + Caract(34) + "ok" + Caract(34) + ":true," + Caract(34) + "command" + Caract(34) + ":" + Caract(34) + "migrate" + Caract(34), "commence par ok et command")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "base" + Caract(34) + ":" + Caract(34) + "sqlite" + Caract(34)) > 0, "base")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "dryRun" + Caract(34) + ":false") > 0, "dryRun")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "done" + Caract(34) + ":[" + Caract(34) + "M202611021015_CreeClients" + Caract(34) + "]") > 0, "done")
+	dbgVérifieVrai(Position(sJson, "{" + Caract(34) + "name" + Caract(34) + ":" + Caract(34) + "M202611021015_CreeClients" + Caract(34) + "," + Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "applied" + Caract(34) + "," + Caract(34) + "appliedAt" + Caract(34) + ":" + Caract(34) + "2026-11-07T09:30:00Z" + Caract(34) + "}") > 0, "une migration appliquée")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "pending" + Caract(34) + "," + Caract(34) + "appliedAt" + Caract(34) + ":" + Caract(34) + Caract(34) + "}") > 0, "une migration en attente : date vide")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "missing" + Caract(34)) > 0, "une migration sans fichier")
+	dbgVérifieEgalité(Droite(sJson, 1), "}", "fini par une accolade")
+	dbgVérifieVrai(JSONValide(sJson), "du JSON valide")
+FIN
+
+// Le JSON d'un état vide et celui d'un projet PostgreSQL (une note de prudence).
+PROCEDURE scenario_json_vide_et_postgresql()
+	sVide est une chaîne = EbJsonMigrate(EbTestEtatVideSortieMigrate("migrate status"))
+	dbgVérifieVrai(JSONValide(sVide), "JSON valide sans migration")
+	dbgVérifieVrai(Position(sVide, Caract(34) + "migrations" + Caract(34) + ":[]") > 0, "liste vide")
+	dbgVérifieVrai(Position(sVide, Caract(34) + "notes" + Caract(34) + ":[]") > 0, "pas de note")
+	tabAucune est un tableau de chaînes
+	sPostgres est une chaîne            = EbJsonMigrate(EbTestEtatSortieMigrate("migrate", "postgresql", Faux, tabAucune))
+	dbgVérifieVrai(JSONValide(sPostgres), "JSON valide avec PostgreSQL")
+	dbgVérifieVrai(Position(sPostgres, "PostgreSQL : vérifié sur la version 16") > 0, "la note PostgreSQL")
+	dbgVérifieVrai(Position(sPostgres, "M202611010900_Ancienne est appliquée mais son fichier") > 0, "la note du fichier absent")
+FIN
+
+// Le texte de « migrate » : ce qui a été appliqué, en aperçu, rien à appliquer, aucune migration.
+PROCEDURE scenario_texte_migrate()
+	tabFaites est un tableau de chaînes = ChaîneDécoupe("M202611021015_CreeClients;M202611021020_CreePays", ";")
+	sFait     est une chaîne            = EbTexteMigrate(EbTestEtatSortieMigrate("migrate", "sqlite", Faux, tabFaites))
+	dbgVérifieVrai(Position(sFait, "2 migration(s) appliquée(s) :") > 0, "le nombre")
+	dbgVérifieVrai(Position(sFait, "  M202611021015_CreeClients") > 0, "la première")
+	dbgVérifieVrai(Position(sFait, "À savoir :") > 0, "la note du fichier absent")
+	sApercu est une chaîne = EbTexteMigrate(EbTestEtatSortieMigrate("migrate", "sqlite", Vrai, tabFaites))
+	dbgVérifieVrai(Position(sApercu, "Aperçu (--dry-run), rien n'a été envoyé à la base. 2 migration(s) seraient appliquée(s) :") > 0, "l'aperçu")
+	tabAucune est un tableau de chaînes
+	sRien     est une chaîne            = EbTexteMigrate(EbTestEtatSortieMigrate("migrate", "sqlite", Faux, tabAucune))
+	dbgVérifieVrai(Position(sRien, "Rien à appliquer : aucune migration en attente.") > 0, "rien à appliquer")
+	sAucune est une chaîne = EbTexteMigrate(EbTestEtatVideSortieMigrate("migrate"))
+	dbgVérifieEgalité(sAucune, "Aucune migration dans database/migrations (« ebony make migration » en écrit une).", "aucun fichier")
+FIN
+
+// Le texte de « rollback » et de « status ».
+PROCEDURE scenario_texte_rollback_et_status()
+	tabFaites est un tableau de chaînes = ChaîneDécoupe("M202611021020_CreePays", ";")
+	sFait     est une chaîne            = EbTexteMigrate(EbTestEtatSortieMigrate("migrate rollback", "sqlite", Faux, tabFaites))
+	dbgVérifieVrai(Position(sFait, "1 migration(s) défaite(s) :") > 0, "rollback : le nombre")
+	tabAucune est un tableau de chaînes
+	sRien     est une chaîne            = EbTexteMigrate(EbTestEtatSortieMigrate("migrate rollback", "sqlite", Faux, tabAucune))
+	dbgVérifieVrai(Position(sRien, "Rien à défaire : aucune migration n'est appliquée.") > 0, "rollback : rien à défaire")
+	sStatus est une chaîne = EbTexteMigrate(EbTestEtatSortieMigrate("migrate status", "sqlite", Faux, tabAucune))
+	dbgVérifieVrai(Position(sStatus, "appliquée      2026-11-07T09:30:00Z  M202611021015_CreeClients") > 0, "status : une appliquée")
+	dbgVérifieVrai(Position(sStatus, "en attente                           M202611021020_CreePays") > 0, "status : une en attente")
+	dbgVérifieVrai(Position(sStatus, "fichier absent 2026-11-01T10:00:00Z  M202611010900_Ancienne") > 0, "status : une sans fichier")
+	dbgVérifieEgalité(EbTexteMigrate(EbTestEtatVideSortieMigrate("migrate status")), "Aucune migration dans database/migrations (« ebony make migration » en écrit une).", "status sans migration")
+FIN

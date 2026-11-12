@@ -1,0 +1,11 @@
+# Configuration de l'audit de secrets (gitleaks). On part des regles par defaut.
+title = "ebony"
+
+[extend]
+useDefault = true
+
+# Les tests de la configuration utilisent un faux mot de passe (« s3cret ») dans un faux fichier .env.secrets en memoire : ce n'est pas un secret.
+[[allowlists]]
+description = "faux mot de passe des tests de configuration"
+paths = ['''tests/unitaires/execution/config/test_cEbEnv\.owl''']
+regexes = ['''s3cret''']

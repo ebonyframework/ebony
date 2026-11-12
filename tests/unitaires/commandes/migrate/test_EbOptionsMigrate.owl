@@ -1,0 +1,87 @@
+// Tests de la lecture des arguments de « ebony migrate » : la forme sans sous-commande, status, rollback, --pas, --dry-run, et chaque refus (code 25).
+
+// Les arguments écrits avec des « ; ».
+PROCEDURE EbTestArgsMigrate(sListe est une chaîne) : tableau de chaînes
+	tabArgs est un tableau de chaînes
+	SI sListe <> "" ALORS
+		tabArgs = ChaîneDécoupe(sListe, ";")
+	FIN
+	RENVOYER tabArgs
+FIN
+
+// Lit les arguments et rend « » s'ils sont acceptés, ou « code|message » s'ils sont refusés.
+PROCEDURE EbTestRefusMigrate(sListe est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate(sListe))
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Sans argument : appliquer, un pas, pas d'aperçu.
+PROCEDURE scenario_sans_argument_applique()
+	oDemande est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate(""))
+	dbgVérifieEgalité(oDemande.SousCommande(), "", "pas de sous-commande")
+	dbgVérifieEgalité(oDemande.NbPas(), 1, "un pas par défaut")
+	dbgVérifieFaux(oDemande.Simulation(), "pas d'aperçu")
+FIN
+
+// --dry-run seul : appliquer en aperçu ; --json et les options du lanceur sont acceptés sans effet sur la demande.
+PROCEDURE scenario_apercu_json_et_options_du_lanceur()
+	oApercu est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("--dry-run"))
+	dbgVérifieVrai(oApercu.Simulation(), "--dry-run : aperçu")
+	dbgVérifieEgalité(oApercu.SousCommande(), "", "toujours « appliquer »")
+	oJson est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("--json"))
+	dbgVérifieEgalité(oJson.SousCommande(), "", "--json ne change pas la demande")
+	oLanceur est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("-racine=C:\ebony;status"))
+	dbgVérifieEgalité(oLanceur.SousCommande(), "status", "une option du lanceur est ignorée")
+FIN
+
+// status et rollback, avec ou sans --pas (« --pas 3 » et « --pas=3 »), et --dry-run avec rollback.
+PROCEDURE scenario_status_et_rollback()
+	oStatus est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("status"))
+	dbgVérifieEgalité(oStatus.SousCommande(), "status", "status")
+	oRollback est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("rollback"))
+	dbgVérifieEgalité(oRollback.SousCommande(), "rollback", "rollback")
+	dbgVérifieEgalité(oRollback.NbPas(), 1, "une migration par défaut")
+	oTrois est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("rollback;--pas;3"))
+	dbgVérifieEgalité(oTrois.NbPas(), 3, "--pas 3")
+	oEgal est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("rollback;--pas=12;--dry-run"))
+	dbgVérifieEgalité(oEgal.NbPas(), 12, "--pas=12")
+	dbgVérifieVrai(oEgal.Simulation(), "rollback en aperçu")
+	oAvant est un cEbDemandeMigrate = EbAnalyseArgumentsMigrate(EbTestArgsMigrate("--pas;2;rollback"))
+	dbgVérifieEgalité(oAvant.NbPas(), 2, "l'ordre des arguments est libre")
+	dbgVérifieEgalité(oAvant.SousCommande(), "rollback", "la sous-commande est trouvée après l'option")
+FIN
+
+// Le nombre de pas doit être un entier de 1 à 9999 en chiffres.
+PROCEDURE scenario_pas_invalide()
+	dbgVérifieEgalité(EbPasValide("3"), 3, "3")
+	dbgVérifieEgalité(EbPasValide("9999"), 9999, "9999")
+	dbgVérifieEgalité(EbPasValide("0"), 0, "zéro refusé")
+	dbgVérifieEgalité(EbPasValide("10000"), 0, "cinq chiffres refusés")
+	dbgVérifieEgalité(EbPasValide("-1"), 0, "négatif refusé")
+	dbgVérifieEgalité(EbPasValide("1,5"), 0, "décimal refusé")
+	dbgVérifieEgalité(EbPasValide("deux"), 0, "texte refusé")
+	dbgVérifieEgalité(EbPasValide(""), 0, "vide refusé")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("rollback;--pas;0"), 3), "25|", "--pas 0 : code 25")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("rollback;--pas;abc"), 3), "25|", "--pas abc : code 25")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("rollback;--pas"), 3), "25|", "--pas sans valeur : code 25")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("rollback;--pas;--dry-run"), 3), "25|", "--pas suivi d'une option : code 25")
+FIN
+
+// Les erreurs d'usage : sous-commande inconnue, argument en trop, option inconnue, option mal placée.
+PROCEDURE scenario_erreurs_d_usage()
+	sInconnue est une chaîne = EbTestRefusMigrate("monte")
+	dbgVérifieEgalité(Gauche(sInconnue, 3), "25|", "sous-commande inconnue")
+	dbgVérifieVrai(Position(sInconnue, "status, rollback") > 0, "le message liste les sous-commandes")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("status;rollback"), 3), "25|", "deux sous-commandes")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("--force"), 3), "25|", "option inconnue")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("--dry-run=oui"), 3), "25|", "--dry-run ne prend pas de valeur")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("--pas;2"), 3), "25|", "--pas sans rollback")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("status;--pas;2"), 3), "25|", "--pas avec status")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigrate("status;--dry-run"), 3), "25|", "--dry-run avec status")
+	dbgVérifieEgalité(EbTestRefusMigrate("rollback;--dry-run"), "", "--dry-run avec rollback : accepté")
+FIN

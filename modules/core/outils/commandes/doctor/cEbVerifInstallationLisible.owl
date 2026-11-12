@@ -1,0 +1,52 @@
+// Vérifie qu'ebony retrouve ses propres fichiers : la bibliothèque à copier de chaque module (modules/<nom>/execution/) dans son dossier d'installation.
+// Sans elle, aucune commande de génération ne peut fonctionner. Le dossier d'installation est transmis par le lanceur (-racine=).
+// Comme owl ne sait pas ouvrir un chemin contenant un caractère non ASCII (rapport 2026-10-chemins-non-ascii), un dossier d'installation
+// accentué n'est lisible que grâce au nom court 8.3 calculé par le lanceur ; sur un volume sans noms courts il échoue : on le dit.
+// Ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque.
+cEbVerifInstallationLisible est une Classe implemente iEbVerification
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "installation"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		sRacine est une chaîne = :oSysteme.DossierInstallation()
+		SI sRacine = "" ALORS
+			RENVOYER cEbResultatVerification("Installation d'ebony", eEbStatut.erreur, "ebony ne connaît pas son dossier d'installation", "Lancez ebony avec son lanceur (bin\ebony.cmd), pas directement avec owl.")
+		FIN
+		sRacine = EbNormaliseChemin(sRacine)
+		sManquants est une chaîne = ""
+		// La bibliothèque d'exécution de chaque module de l'installation (modules\<nom>\execution). Si le cœur manque, Modules() lève : on le nomme alors lui seul.
+		tabRequis  est un tableau de chaînes
+		tabModules est un tableau de chaînes
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		QUAND EXCEPTION DANS
+			tabModules = oInstallee.Modules()
+		FAIRE
+			TableauAjoute(tabModules, "core")
+		FIN
+		POUR TOUT sModule DE tabModules
+			TableauAjoute(tabRequis, "modules\" + sModule + "\execution")
+		FIN
+		POUR TOUT sNom DE tabRequis
+			SI PAS :oSysteme.DossierExiste(sRacine + "\" + sNom) ALORS
+				SI sManquants <> "" ALORS sManquants += ", "
+				sManquants += sNom
+			FIN
+		FIN
+		SI sManquants = "" ALORS
+			RENVOYER cEbResultatVerification("Installation d'ebony", eEbStatut.reussi, "la bibliothèque des modules est lisible dans " + EbNormaliseChemin(:oSysteme.DossierInstallationAffiche()), "")
+		FIN
+		SI EbContientNonAscii(sRacine) ALORS
+			RENVOYER cEbResultatVerification("Installation d'ebony", eEbStatut.erreur, "owl ne peut pas lire " + sManquants + " : le chemin d'installation contient un caractère non ASCII (accent…) : " + sRacine, "Installez ebony dans un dossier dont le chemin n'a ni accent ni caractère spécial (par exemple C:\ebony).")
+		FIN
+		RENVOYER cEbResultatVerification("Installation d'ebony", eEbStatut.erreur, "dossier introuvable dans " + EbNormaliseChemin(:oSysteme.DossierInstallationAffiche()) + " : " + sManquants, "Réinstallez ebony : son dossier d'installation est incomplet.")
+	FIN
+FIN

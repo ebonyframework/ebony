@@ -1,0 +1,262 @@
+// Tests de cEbBibliothequeInstallee : la bibliothèque d'exécution de l'ebony installé, faite de celle de chaque module de l'installation (modules/<nom>/execution/), dont le contenu reproduit l'arborescence de ebony/.
+// Faux disque. Que « ebony new », « init », « restore » et « upgrade » s'en servent est prouvé par leurs propres tests et par tests/integration/lanceur.ps1.
+
+// Un disque où ebony est installé dans D:\ebony avec ses deux modules : le cœur (VERSION 0.3.0, config\cEnv.owl) et auth (auth\EbJetons.owl).
+PROCEDURE EbTestDisqueBibliotheque() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution\config")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.3.0" + Caract(10))
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\config\cEnv.owl", "env")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\EbJetons.owl", "jetons")
+	RENVOYER oDisque
+FIN
+
+// Le chemin « de la bibliothèque » est celui du cœur, qui porte VERSION ; la version est lue dedans, fins de ligne retirées.
+PROCEDURE scenario_chemin_et_version_du_coeur()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(oInstallee.Chemin(), "D:\ebony\modules\core\execution", "le cœur")
+	dbgVérifieEgalité(oInstallee.Version(), "0.3.0", "la version du cœur")
+FIN
+
+// Les sources sont les dossiers d'exécution de TOUS les modules de l'installation, le cœur d'abord (c'est l'ordre de copie).
+PROCEDURE scenario_sources_dans_l_ordre()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabSources est un tableau de chaînes                = oInstallee.Sources()
+	dbgVérifieEgalité(tabSources..Occurrence, 2, "deux modules")
+	dbgVérifieEgalité(tabSources[1], "D:\ebony\modules\core\execution", "le cœur d'abord")
+	dbgVérifieEgalité(tabSources[2], "D:\ebony\modules\auth\execution", "puis auth")
+FIN
+
+// La racine d'installation écrite avec des « / » (le lanceur en met parfois) donne les mêmes dossiers.
+PROCEDURE scenario_racine_avec_barres_obliques()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.DefinitInstallation("D:/ebony")
+	tabSources est un tableau de chaînes = (cEbBibliothequeInstallee(oDisque)).Sources()
+	dbgVérifieEgalité(tabSources[1], "D:\ebony\modules\core\execution", "D:/ebony équivaut à D:\ebony")
+FIN
+
+// Copie() fusionne les modules dans le dossier ebony/ d'un projet : le contenu du cœur ET celui d'auth, à la place où le code les attend ; les sources restent intactes.
+PROCEDURE scenario_copie_fusionne_les_modules()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	oInstallee.Copie(oDisque, "C:\Projets\mon-app\ebony")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\VERSION"), "0.3.0" + Caract(10), "VERSION du cœur à la racine de ebony/")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\config\cEnv.owl"), "env", "dossier du cœur")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\auth\EbJetons.owl"), "jetons", "dossier d'auth, à côté de ceux du cœur")
+	dbgVérifieEgalité(oDisque.LitTexte("D:\ebony\modules\auth\execution\auth\EbJetons.owl"), "jetons", "la source est intacte")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\mon-app\ebony\modules"), "l'arborescence modules/ n'est pas recopiée dans le projet")
+FIN
+
+// Le cœur absent de l'installation : erreur 22 qui le NOMME, détectée par Verifie() AVANT toute écriture ; Copie() n'écrit rien non plus (même si un autre module est là).
+PROCEDURE scenario_coeur_absent_refuse_avant_d_ecrire()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\EbJetons.owl", "jetons")
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	nFichiers  est un entier                            = oDisque.NbFichiers()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	sVerifie   est une chaîne                           = ""
+	QUAND EXCEPTION DANS
+		oInstallee.Verifie()
+	FAIRE
+		sVerifie = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sVerifie, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sVerifie, "core") > 0, "le message nomme le module absent : " + sVerifie)
+	sCopie est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oInstallee.Copie(oDisque, "C:\Projets\mon-app\ebony")
+	FAIRE
+		sCopie = ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(sCopie, "22", "Copie() refuse aussi")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit, pas même celui d'auth")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\mon-app\ebony"), "ebony/ n'a pas été créé")
+FIN
+
+// Les modules sont découverts dans modules/ : le cœur d'abord, puis chaque dossier qui a un execution/, par ordre alphabétique. Un dossier sans execution/ (outils seuls) et un fichier ne sont pas des modules.
+PROCEDURE scenario_modules_decouverts()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.CreeDossier("D:\ebony\modules\zeta\execution")
+	oDisque.CreeDossier("D:\ebony\modules\outils-seuls\outils")
+	oDisque.EcritTexte("D:\ebony\modules\NOTES.md", "x")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabModules est un tableau de chaînes                = oInstallee.Modules()
+	dbgVérifieEgalité(tabModules..Occurrence, 3, "core, auth, zeta (ni outils-seuls ni le fichier)")
+	dbgVérifieEgalité(tabModules[1], "core", "le cœur d'abord")
+	dbgVérifieEgalité(tabModules[2], "auth", "puis par ordre alphabétique : auth")
+	dbgVérifieEgalité(tabModules[3], "zeta", "puis zeta")
+FIN
+
+// Une installation inconnue (le lanceur n'a pas transmis son dossier) : erreur 22 pour chaque question posée.
+PROCEDURE scenario_installation_inconnue()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.DefinitInstallation("")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	sChemin    est une chaîne                           = ""
+	sSources   est une chaîne                           = ""
+	sVerifie   est une chaîne                           = ""
+	QUAND EXCEPTION DANS
+		sChemin = oInstallee.Chemin()
+	FAIRE
+		sChemin = "levée:" + ExceptionInfo(errCode)
+	FIN
+	QUAND EXCEPTION DANS
+		tabAucune est un tableau de chaînes = oInstallee.Sources()
+	FAIRE
+		sSources = "levée:" + ExceptionInfo(errCode)
+	FIN
+	QUAND EXCEPTION DANS
+		oInstallee.Verifie()
+	FAIRE
+		sVerifie = "levée:" + ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(sChemin, "levée:22", "Chemin()")
+	dbgVérifieEgalité(sSources, "levée:22", "Sources()")
+	dbgVérifieEgalité(sVerifie, "levée:22", "Verifie()")
+FIN
+
+// Un manifeste de module (modules/<nom>/execution/modules/<nom>.json) : ses variables d'environnement sont lues ; un module sans manifeste n'en déclare aucune.
+PROCEDURE scenario_variables_des_manifestes()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité((oInstallee.VariablesModules())..Occurrence, 0, "aucun manifeste : aucune variable")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "environnement": [ { "cle": "AUTH_ROUTES", "type": "liste", "valeurs": ["protegees", "ouvertes"], "defaut": "protegees", "description": "Routes." } ] }`)
+	tabVariables est un tableau = oInstallee.VariablesModules()
+	dbgVérifieEgalité(tabVariables..Occurrence, 1, "une variable déclarée par auth")
+	oRoutes est un cEbVariableEnv = tabVariables[1]
+	dbgVérifieEgalité(oRoutes.Cle(), "AUTH_ROUTES", "la clé")
+	dbgVérifieEgalité(oRoutes.Defaut(), "protegees", "le défaut")
+FIN
+
+// Un manifeste illisible : erreur 22 (il faut réinstaller ebony), pas une variable ignorée en silence.
+PROCEDURE scenario_manifeste_illisible_refuse()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", "pas du json {")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	sRes       est une chaîne                           = ""
+	QUAND EXCEPTION DANS
+		tabAucune est un tableau = oInstallee.VariablesModules()
+	FAIRE
+		sRes = ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(sRes, "22", "code 22")
+FIN
+
+// Le manifeste est dans execution/ : il est donc copié avec la bibliothèque et le projet l'a dans ebony/modules/<nom>.json.
+PROCEDURE scenario_le_manifeste_est_copie_dans_le_projet()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", "manifeste")
+	oDisque.CreeDossier("C:\Projets\mon-app")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	oInstallee.Copie(oDisque, "C:\Projets\mon-app\ebony")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\modules\auth.json"), "manifeste", "ebony/modules/auth.json")
+FIN
+
+// Les migrations déclarées par les manifestes des modules sont lues (module du dossier, nom, SQL) ; sans manifeste, aucune.
+PROCEDURE scenario_migrations_des_manifestes()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité((oInstallee.MigrationsModules())..Occurrence, 0, "aucun manifeste : aucune migration")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEbJetons", "monte": ["CREATE TABLE eb_jetons (empreinte TEXT)"], "descend": ["DROP TABLE eb_jetons"] } ] }`)
+	tabMigrations est un tableau = oInstallee.MigrationsModules()
+	dbgVérifieEgalité(tabMigrations..Occurrence, 1, "une migration déclarée par auth")
+	oMigration est un cEbMigrationModule = tabMigrations[1]
+	dbgVérifieEgalité(oMigration.Nom(), "M202611100000_CreeEbJetons", "le nom")
+	dbgVérifieEgalité(oMigration.Module(), "auth", "le module est celui du dossier")
+FIN
+
+// Un disque où ebony est installé avec trois modules : le cœur, auth (avec son manifeste : une variable) et db. Sert aux scénarios du choix des modules d'un projet.
+PROCEDURE EbTestDisqueKitsBibliotheque() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueBibliotheque()
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\donnees")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\donnees\cEbServiceBase.owl", "base")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{"nom":"auth","environnement":[{"cle":"AUTH_ROUTES","type":"liste","valeurs":["protegees","ouvertes"],"defaut":"protegees","description":"x"}]}`)
+	RENVOYER oDisque
+FIN
+
+// Sans Choisit(), tous les modules de l'installation sont retenus : le cœur, puis les autres par ordre alphabétique (comportement d'un projet dont ebony.conf ne liste pas ses modules).
+PROCEDURE scenario_sans_choix_tous_les_modules()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabModules est un tableau de chaînes                = oInstallee.Modules()
+	dbgVérifieEgalité(EbListeVirgules(tabModules), "core, auth, db", "tous, le cœur d'abord")
+	dbgVérifieEgalité(oInstallee.VariablesModules()..Occurrence, 1, "le manifeste d'auth est lu")
+FIN
+
+// Une liste vide : le cœur seul. Ni les sources, ni les variables, ni les migrations des autres modules.
+PROCEDURE scenario_choix_vide_coeur_seul()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabAucun   est un tableau de chaînes
+	oInstallee.Choisit(tabAucun)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.Modules()), "core", "le cœur seul")
+	dbgVérifieEgalité(oInstallee.Sources()..Occurrence, 1, "une seule source")
+	dbgVérifieEgalité(oInstallee.VariablesModules()..Occurrence, 0, "le manifeste d'auth n'est pas lu")
+	dbgVérifieEgalité(oInstallee.MigrationsModules()..Occurrence, 0, "aucune migration")
+FIN
+
+// Un module choisi : lui et le cœur, rien d'autre ; la casse du nom ne compte pas.
+PROCEDURE scenario_choix_d_un_module()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabChoix   est un tableau de chaînes
+	TableauAjoute(tabChoix, "DB")
+	oInstallee.Choisit(tabChoix)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.Modules()), "core, db", "le cœur et db, pas auth")
+	dbgVérifieEgalité(oInstallee.VariablesModules()..Occurrence, 0, "auth n'est pas choisi : son manifeste n'est pas lu")
+FIN
+
+// Le manifeste d'un module choisi est lu.
+PROCEDURE scenario_choix_d_auth_lit_son_manifeste()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabChoix   est un tableau de chaînes
+	TableauAjoute(tabChoix, "auth")
+	oInstallee.Choisit(tabChoix)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.Modules()), "core, auth", "le cœur et auth")
+	dbgVérifieEgalité(oInstallee.VariablesModules()..Occurrence, 1, "AUTH_ROUTES")
+FIN
+
+// Un module que le projet demande mais que l'installation n'a pas : refusé (22) en le nommant, au lieu de copier une bibliothèque incomplète.
+PROCEDURE scenario_module_choisi_absent_de_l_installation()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabChoix   est un tableau de chaînes
+	TableauAjoute(tabChoix, "cache")
+	oInstallee.Choisit(tabChoix)
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oInstallee.Verifie()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22 : " + sRes)
+	dbgVérifieVrai(Position(sRes, "« cache »") > 0, "nomme le module : " + sRes)
+	dbgVérifieVrai(Position(sRes, "core") = 0 OU Position(sRes, "auth, db") > 0, "dit ce que l'installation a : " + sRes)
+FIN
+
+// Copie() ne copie que les modules choisis : avec db seul, ebony/donnees existe, ebony/auth non.
+PROCEDURE scenario_copie_limitee_aux_modules_choisis()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueKitsBibliotheque()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabChoix   est un tableau de chaînes
+	TableauAjoute(tabChoix, "db")
+	oInstallee.Choisit(tabChoix)
+	oDisque.CreeDossier("C:\Projets\essai")
+	oInstallee.Copie(oDisque, "C:\Projets\essai\ebony")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\essai\ebony\config\cEnv.owl"), "le cœur est copié")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\essai\ebony\donnees\cEbServiceBase.owl"), "db est copié")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\essai\ebony\auth\EbJetons.owl"), "auth n'est pas copié")
+FIN

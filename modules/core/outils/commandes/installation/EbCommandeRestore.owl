@@ -1,0 +1,14 @@
+EbCommandeRestore est une CollectionDeProcédures
+
+	// Racine de composition de « restore » : restaure ebony/ dans le projet du dossier courant. Une erreur est une exception (codes 22 et 30 à 35), donc code de sortie 1 (70 sans le lanceur).
+	PROCEDURE EbExecuteRestore()
+		oSysteme      est un cEbSystemeFichiersReel
+		oRestauration est un cEbRestaurationBibliotheque(oSysteme, oSysteme)
+		oRestauree    est un cEbBibliothequeRestauree                        = oRestauration.Execute()
+		SI oRestauree.DejaAJour() ALORS
+			Trace("La bibliothèque est déjà à jour : " + oRestauree.Chemin() + " (version " + oRestauree.Version() + "). Rien n'a été écrit.")
+		SINON
+			Trace("Bibliothèque restaurée : " + oRestauree.Chemin() + " (version " + oRestauree.Version() + ").")
+		FIN
+	FIN
+FIN

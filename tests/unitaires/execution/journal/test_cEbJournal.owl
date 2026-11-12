@@ -1,0 +1,127 @@
+// Tests de cEbJournal avec une sortie et une horloge fictives : le format exact d'une ligne, le seuil, les champs triés, les cas limites.
+
+// La sortie et l'horloge fictives de TOUS les scénarios ci-dessous : neuves avant chacun (voir avantChaqueTest). Les noms commencent par « g » : un nom de fichier de test est une globale du projet,
+// et OWL refuse qu'une variable locale d'un autre fichier porte le même nom (constaté avec OWL 1.6.0 : erreur de compilation dans EbPrincipal.owl).
+gSortie  est un cEbSortieJournalFictive
+gHorloge est un cEbHorlogeFictive
+
+// Fixture : une sortie vide et une horloge à l'heure fixe par défaut.
+PROCEDURE avantChaqueTest()
+	gSortie  = cEbSortieJournalFictive()
+	gHorloge = cEbHorlogeFictive()
+FIN
+
+PROCEDURE EbTestChamps() : tableau associatif
+	champsVides est un tableau associatif
+	RENVOYER champsVides
+FIN
+
+// La ligne exacte, avec l'heure fixe : c'est le format que l'hébergeur voit.
+PROCEDURE scenario_ligne_exacte()
+	oJournal est un cEbJournal(gSortie, gHorloge, "debug")
+	oJournal.Info("démarré")
+	dbgVérifieEgalité(gSortie.NbLignes(), 1, "une ligne")
+	dbgVérifieEgalité(gSortie.Ligne(1), `{"ts":"2026-01-02T03:04:05Z","niveau":"info","message":"démarré"}`, "ligne exacte")
+FIN
+
+PROCEDURE scenario_les_quatre_niveaux()
+	oJournal est un cEbJournal(gSortie, gHorloge, "debug")
+	oJournal.Debug("a")
+	oJournal.Info("b")
+	oJournal.Avertit("c")
+	oJournal.Erreur("d")
+	dbgVérifieEgalité(gSortie.NbLignes(), 4, "quatre lignes")
+	dbgVérifieVrai(Position(gSortie.Ligne(1), `"niveau":"debug"`) > 0, "debug")
+	dbgVérifieVrai(Position(gSortie.Ligne(2), `"niveau":"info"`) > 0, "info")
+	dbgVérifieVrai(Position(gSortie.Ligne(3), `"niveau":"warn"`) > 0, "warn")
+	dbgVérifieVrai(Position(gSortie.Ligne(4), `"niveau":"error"`) > 0, "error")
+FIN
+
+// En dessous du seuil, rien n'est écrit ; au seuil et au-dessus, si.
+PROCEDURE scenario_seuil()
+	oJournal est un cEbJournal(gSortie, gHorloge, "warn")
+	oJournal.Debug("a")
+	oJournal.Info("b")
+	dbgVérifieEgalité(gSortie.NbLignes(), 0, "debug et info ignorés sous le seuil warn")
+	oJournal.Avertit("c")
+	oJournal.Erreur("d")
+	dbgVérifieEgalité(gSortie.NbLignes(), 2, "warn et error écrits")
+FIN
+
+// Les champs viennent après le message, TRIÉS par nom, quel que soit l'ordre d'insertion.
+PROCEDURE scenario_champs_tries()
+	oJournal est un cEbJournal(gSortie, gHorloge, "info")
+	champs   est un tableau associatif
+	champs["route"] = "/api/clients"
+	champs["code"] = "200"
+	champs["duree_ms"] = "12"
+	oJournal.Ecrit("info", "requête", champs)
+	dbgVérifieEgalité(gSortie.Ligne(1), `{"ts":"2026-01-02T03:04:05Z","niveau":"info","message":"requête","code":"200","duree_ms":"12","route":"/api/clients"}`, "champs triés par nom")
+FIN
+
+// Un champ qui porte le nom d'une clé fixe est renommé : jamais deux fois la même clé dans une ligne.
+PROCEDURE scenario_champs_reserves_renommes()
+	oJournal est un cEbJournal(gSortie, gHorloge, "info")
+	champs   est un tableau associatif
+	champs["ts"] = "x"
+	champs["niveau"] = "y"
+	champs["message"] = "z"
+	oJournal.Ecrit("info", "m", champs)
+	dbgVérifieEgalité(gSortie.Ligne(1), `{"ts":"2026-01-02T03:04:05Z","niveau":"info","message":"m","_message":"z","_niveau":"y","_ts":"x"}`, "clés renommées")
+FIN
+
+// Une ligne = un événement : un message sur plusieurs lignes, des guillemets, des accents ne cassent ni la ligne ni le JSON.
+PROCEDURE scenario_une_seule_ligne()
+	oJournal est un cEbJournal(gSortie, gHorloge, "info")
+	champs   est un tableau associatif
+	champs["detail"] = "a" + Caract(10) + "b"
+	oJournal.Ecrit("error", "échec : " + Caract(34) + "boum" + Caract(34) + Caract(13) + Caract(10) + "suite", champs)
+	dbgVérifieEgalité(gSortie.NbLignes(), 1, "un événement, une ligne")
+	dbgVérifieEgalité(Position(gSortie.Ligne(1), Caract(10)), 0, "aucun saut de ligne")
+	dbgVérifieEgalité(Position(gSortie.Ligne(1), Caract(13)), 0, "aucun retour chariot")
+	dbgVérifieVrai(Position(gSortie.Ligne(1), "échec") > 0, "accents conservés")
+	j est un JSON = ChaîneVersJSON(gSortie.Ligne(1))
+	dbgVérifieEgalité(j.niveau, "error", "la ligne est du JSON valide : niveau")
+	dbgVérifieEgalité(j.detail, "a" + Caract(10) + "b", "et le champ revient intact")
+FIN
+
+// Un niveau inconnu à l'écriture est écrit « info » ; un niveau minimum inconnu vaut « info ». Le journal ne lève rien.
+PROCEDURE scenario_niveaux_inconnus()
+	oJournal est un cEbJournal(gSortie, gHorloge, "bavard")
+	oJournal.Debug("ignoré : le seuil inconnu vaut info")
+	dbgVérifieEgalité(gSortie.NbLignes(), 0, "seuil inconnu = info : debug ignoré")
+	oJournal.Ecrit("critique", "m", EbTestChamps())
+	dbgVérifieEgalité(gSortie.NbLignes(), 1, "niveau inconnu écrit")
+	dbgVérifieVrai(Position(gSortie.Ligne(1), `"niveau":"info"`) > 0, "comme info")
+FIN
+
+// L'horloge est consultée à chaque événement.
+PROCEDURE scenario_heure_a_chaque_evenement()
+	oJournal est un cEbJournal(gSortie, gHorloge, "info")
+	gHorloge.Definit("2026-03-04T05:06:07Z")
+	oJournal.Info("a")
+	gHorloge.Definit("2026-03-04T05:06:09Z")
+	oJournal.Info("b")
+	dbgVérifieVrai(Position(gSortie.Ligne(1), `"ts":"2026-03-04T05:06:07Z"`) > 0, "première heure")
+	dbgVérifieVrai(Position(gSortie.Ligne(2), `"ts":"2026-03-04T05:06:09Z"`) > 0, "seconde heure")
+FIN
+
+// Les adaptateurs réels : l'horloge rend un instant UTC bien formé ; la sortie console accepte une ligne sans lever.
+PROCEDURE scenario_horloge_systeme()
+	oHorloge est un cEbHorlogeSysteme
+	sInstant est une chaîne           = oHorloge.Maintenant()
+	dbgVérifieEgalité(Taille(sInstant), 20, "AAAA-MM-JJTHH:MM:SSZ : 20 caractères : " + sInstant)
+	dbgVérifieEgalité(Milieu(sInstant, 11, 1), "T", "séparateur T")
+	dbgVérifieEgalité(Droite(sInstant, 1), "Z", "Z final")
+	dbgVérifieEgalité(Milieu(sInstant, 5, 1), "-", "tiret")
+	dbgVérifieEgalité(Milieu(sInstant, 14, 1), ":", "deux-points")
+	dbgVérifieEgalité(Gauche(sInstant, 2), "20", "siècle")
+FIN
+
+PROCEDURE scenario_sortie_console()
+	oSortie  est un cEbSortieJournalConsole
+	oHorloge est un cEbHorlogeSysteme
+	oJournal est un cEbJournal(oSortie, oHorloge, "info")
+	oJournal.Info("journal de test : une ligne sur la sortie standard")
+	dbgVérifieVrai(Vrai, "aucune exception")
+FIN

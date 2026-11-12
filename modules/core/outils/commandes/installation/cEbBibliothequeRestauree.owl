@@ -1,0 +1,28 @@
+// Résultat de « ebony restore » : la bibliothèque du projet, restaurée ou déjà à jour. Objet valeur immuable, rempli par le constructeur.
+cEbBibliothequeRestauree est une Classe
+PRIVÉ
+	sVersion   est une chaîne = ""
+	sChemin    est une chaîne = ""
+	bDejaAJour est un booléen = Faux
+
+	PROCEDURE Constructeur(Version est une chaîne, Chemin est une chaîne, DejaAJour est un booléen)
+		:sVersion = Version
+		:sChemin = Chemin
+		:bDejaAJour = DejaAJour
+	FIN
+
+	// La version de la bibliothèque présente dans ebony/ (celle qui vient d'être copiée, ou celle qui s'y trouvait déjà) ; elle satisfait le minimum d'ebony.conf.
+	PROCEDURE PUBLIQUE Version() : chaîne
+		RENVOYER :sVersion
+	FIN
+
+	// Le chemin complet du dossier ebony/ du projet.
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Vrai si ebony/ était déjà la bonne version : rien n'a été écrit.
+	PROCEDURE PUBLIQUE DejaAJour() : booléen
+		RENVOYER :bDejaAJour
+	FIN
+FIN

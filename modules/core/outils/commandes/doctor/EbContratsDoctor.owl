@@ -1,0 +1,17 @@
+// Contrat et vocabulaire de « ebony doctor ».
+// Une interface et une énumération doivent être déclarées dans une Collection pour être reconnues (jamais seules dans leur fichier).
+EbContratsDoctor est une CollectionDeProcédures
+
+	// Issue d'une vérification.
+	eEbStatut est une Énumération
+		reussi        = 0
+		avertissement = 1
+		erreur        = 2
+	FIN
+
+	iEbVerification est une Interface
+		// Identifiant stable (minuscules, chiffres et tirets) : « ebony doctor --json » le publie, un outil peut réagir à une vérification précise.
+		PROCEDURE PUBLIQUE Id() : chaîne
+		PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+	FIN
+FIN

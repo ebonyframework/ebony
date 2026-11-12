@@ -1,0 +1,21 @@
+// Contrats (ports) entre l'application et ses COMPOSANTS. Un composant est ce que le cœur ne connaît pas : il vient d'un module (la base de données, par exemple). Une interface doit être déclarée dans une Collection pour être reconnue.
+// Le cœur ne sait que ceci : un composant se crée d'après la configuration et le journal, s'ouvre, se ferme, dit s'il répond et donne le nom de sa sonde. Sans composant, l'application démarre quand même.
+EbContratsApplication est une CollectionDeProcédures
+
+	// Un composant de l'application, créé puis ouvert au démarrage, fermé à l'arrêt, sondé par GET /api/health.
+	iEbComposant est une Interface
+		// Le nom de sa sonde, clé du rapport de santé (« base » donne {"statut":"ok","base":"ok"}).
+		PROCEDURE PUBLIQUE Nom() : chaîne
+		// Ouvre le composant. Ne doit pas lever quand il est injoignable : un composant en panne n'arrête pas le démarrage (il le journalise).
+		PROCEDURE PUBLIQUE Ouvre()
+		// Ferme le composant (sans effet s'il n'est pas ouvert).
+		PROCEDURE PUBLIQUE Ferme()
+		// Vrai si le composant répond. Rétablit ce qui peut l'être (une base rouvre sa connexion).
+		PROCEDURE PUBLIQUE Repond() : booléen
+	FIN
+
+	// Ce qui crée un composant au démarrage, quand la configuration est chargée et le journal ouvert (le service les crée dans FinInitialisation, avant qu'on les ait).
+	iEbFabriqueComposant est une Interface
+		PROCEDURE PUBLIQUE Cree(oEnv est un cEbEnv, oJournal est un cEbJournal) : iEbComposant
+	FIN
+FIN

@@ -1,0 +1,70 @@
+// Ce que « ebony migrate » rend : l'état de TOUTES les migrations après la commande, et celles que la commande a traitées. Objet valeur immuable, rempli par le constructeur.
+// Noms(), Statuts() et Dates() vont ensemble (même rang) : le nom (« M202611021015_CreeClients »), son statut, et la date d'application (« » si elle n'est pas appliquée) ;
+// le statut est « applied » (appliquée), « pending » (en attente) ou « missing » (appliquée, mais son fichier n'est plus dans le projet).
+// Faites() : les migrations appliquées (migrate) ou défaites (migrate rollback) par cette commande ; avec --dry-run, celles qui le seraient. Les statuts décrivent la base telle qu'elle est après la commande (avec --dry-run : inchangée).
+cEbEtatMigrations est une Classe
+PRIVÉ
+	sNomCommande est une chaîne            = ""
+	sFournisseur est une chaîne            = ""
+	sChemin      est une chaîne            = ""
+	bSimulation  est un booléen            = Faux
+	tabNoms      est un tableau de chaînes
+	tabStatuts   est un tableau de chaînes
+	tabDates     est un tableau de chaînes
+	tabFaites    est un tableau de chaînes
+
+	PROCEDURE Constructeur(NomCommande est une chaîne, Fournisseur est une chaîne, Chemin est une chaîne, Simulation est un booléen, Noms est un tableau de chaînes, Statuts est un tableau de chaînes, Dates est un tableau de chaînes, Faites est un tableau de chaînes)
+		:sNomCommande = NomCommande
+		:sFournisseur = Fournisseur
+		:sChemin = Chemin
+		:bSimulation = Simulation
+		POUR TOUT sNom DE Noms
+			TableauAjoute(:tabNoms, sNom)
+		FIN
+		POUR TOUT sStatut DE Statuts
+			TableauAjoute(:tabStatuts, sStatut)
+		FIN
+		POUR TOUT sDate DE Dates
+			TableauAjoute(:tabDates, sDate)
+		FIN
+		POUR TOUT sFaite DE Faites
+			TableauAjoute(:tabFaites, sFaite)
+		FIN
+	FIN
+
+	// « migrate », « migrate status » ou « migrate rollback ».
+	PROCEDURE PUBLIQUE NomCommande() : chaîne
+		RENVOYER :sNomCommande
+	FIN
+
+	// Le fournisseur de la base du projet (sqlite, postgresql).
+	PROCEDURE PUBLIQUE Fournisseur() : chaîne
+		RENVOYER :sFournisseur
+	FIN
+
+	// Le dossier du projet.
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Vrai pour --dry-run : rien n'a été envoyé à la base.
+	PROCEDURE PUBLIQUE Simulation() : booléen
+		RENVOYER :bSimulation
+	FIN
+
+	PROCEDURE PUBLIQUE Noms() : tableau de chaînes
+		RENVOYER :tabNoms
+	FIN
+
+	PROCEDURE PUBLIQUE Statuts() : tableau de chaînes
+		RENVOYER :tabStatuts
+	FIN
+
+	PROCEDURE PUBLIQUE Dates() : tableau de chaînes
+		RENVOYER :tabDates
+	FIN
+
+	PROCEDURE PUBLIQUE Faites() : tableau de chaînes
+		RENVOYER :tabFaites
+	FIN
+FIN

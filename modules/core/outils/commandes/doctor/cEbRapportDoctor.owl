@@ -1,0 +1,97 @@
+// Rapport de « ebony doctor » : rassemble les résultats des vérifications et les met en forme.
+cEbRapportDoctor est une Classe
+PRIVÉ
+	tabResultats est un tableau de cEbResultatVerification
+	// Un identifiant par résultat, dans le même ordre (vide quand le résultat a été ajouté sans identifiant).
+	tabIdentifiants est un tableau de chaînes
+
+	PROCEDURE PUBLIQUE Ajoute(resultat est un cEbResultatVerification)
+		:AjouteAvecId(resultat, "")
+	FIN
+
+	PROCEDURE PUBLIQUE AjouteAvecId(resultat est un cEbResultatVerification, identifiant est une chaîne)
+		TableauAjoute(:tabResultats, resultat)
+		TableauAjoute(:tabIdentifiants, identifiant)
+	FIN
+
+	PROCEDURE PUBLIQUE Nombre() : entier
+		RENVOYER :tabResultats..Occurrence
+	FIN
+
+	PROCEDURE PUBLIQUE NbErreurs() : entier
+		nTotal est un entier = 0
+		POUR TOUT oRes DE :tabResultats
+			SI oRes.Statut() = eEbStatut.erreur ALORS
+				nTotal++
+			FIN
+		FIN
+		RENVOYER nTotal
+	FIN
+
+	PROCEDURE PUBLIQUE NbAvertissements() : entier
+		nTotal est un entier = 0
+		POUR TOUT oRes DE :tabResultats
+			SI oRes.Statut() = eEbStatut.avertissement ALORS
+				nTotal++
+			FIN
+		FIN
+		RENVOYER nTotal
+	FIN
+
+	// Vrai si au moins une vérification est une erreur : la commande doit alors échouer.
+	PROCEDURE PUBLIQUE ABloquant() : booléen
+		RENVOYER :NbErreurs() > 0
+	FIN
+
+	PROCEDURE PRIVÉE Etiquette(statut est un entier) : chaîne
+		SI statut = eEbStatut.erreur ALORS
+			RENVOYER "[ERREUR]    "
+		FIN
+		SI statut = eEbStatut.avertissement ALORS
+			RENVOYER "[ATTENTION] "
+		FIN
+		RENVOYER "[OK]        "
+	FIN
+
+	// Une ligne par vérification (avec « À faire » sous les échecs), puis un bilan.
+	PROCEDURE PUBLIQUE Texte() : chaîne
+		sTexte est une chaîne = ""
+		POUR TOUT oRes DE :tabResultats
+			sTexte = sTexte + :Etiquette(oRes.Statut()) + oRes.Nom() + " : " + oRes.Message() + LF
+			SI oRes.Correction() <> "" ALORS
+				sTexte = sTexte + "            À faire : " + oRes.Correction() + LF
+			FIN
+		FIN
+		sTexte = sTexte + LF + "Bilan : " + :Nombre() + " vérification(s), " + :NbErreurs() + " erreur(s), " + :NbAvertissements() + " avertissement(s)."
+		RENVOYER sTexte
+	FIN
+
+	PROCEDURE PRIVÉE NomStatut(statut est un entier) : chaîne
+		SI statut = eEbStatut.erreur ALORS
+			RENVOYER "error"
+		FIN
+		SI statut = eEbStatut.avertissement ALORS
+			RENVOYER "warning"
+		FIN
+		RENVOYER "ok"
+	FIN
+
+	// Le rapport en JSON, sur une seule ligne : { "ok", "ebony", "owl", "checks": [ { "id", "status", "label", "message", "correction" } ], "errors", "warnings" }.
+	// « status » vaut ok, warning ou error ; « ok » est vrai quand il n'y a aucune erreur (un avertissement ne le met pas à faux).
+	PROCEDURE PUBLIQUE EnJson(versionEbony est une chaîne, versionOwl est une chaîne) : chaîne
+		sChecks est une chaîne = ""
+		POUR i = 1 À :tabResultats..Occurrence
+			oRes est un cEbResultatVerification = :tabResultats[i]
+			SI sChecks <> "" ALORS
+				sChecks += ","
+			FIN
+			sChecks += "{" + EbJsonChaine("id") + ":" + EbJsonChaine(:tabIdentifiants[i]) + "," + EbJsonChaine("status") + ":" + EbJsonChaine(:NomStatut(oRes.Statut()))
+			sChecks += "," + EbJsonChaine("label") + ":" + EbJsonChaine(oRes.Nom()) + "," + EbJsonChaine("message") + ":" + EbJsonChaine(oRes.Message())
+			sChecks += "," + EbJsonChaine("correction") + ":" + EbJsonChaine(oRes.Correction()) + "}"
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":" + EbJsonBooleen(PAS :ABloquant()) + "," + EbJsonChaine("ebony") + ":" + EbJsonChaine(versionEbony)
+		sJson += "," + EbJsonChaine("owl") + ":" + EbJsonChaine(versionOwl) + "," + EbJsonChaine("checks") + ":[" + sChecks + "]"
+		sJson += "," + EbJsonChaine("errors") + ":" + :NbErreurs() + "," + EbJsonChaine("warnings") + ":" + :NbAvertissements() + "}"
+		RENVOYER sJson
+	FIN
+FIN

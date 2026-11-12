@@ -1,0 +1,117 @@
+// Application EbonyCore : assemble la configuration, le journal et ses COMPOSANTS (la base de données en est un), et fixe l'ordre de démarrage et d'arrêt. Un service généré en possède un seul.
+// Démarre dans FinInitialisation du service (une seule fois, avant la première requête) ; la double exécution du code au sommet sous « owl serve » ne l'atteint donc pas, mais Démarre() et
+// Arrête() sont idempotents quand même.
+// Démarrage : charge config/env.json, .env et .env.secrets (ExigeValide() arrête le démarrage en listant TOUTES les erreurs : exception 60), crée le journal, puis crée et ouvre chaque composant ajouté par Ajoute(), dans l'ordre.
+// UN COMPOSANT vient d'un module : le cœur ne connaît que le contrat iEbComposant (EbContratsApplication), jamais la base ni le SQL. Sans composant, l'application démarre quand même (un projet sans base).
+// Un composant injoignable N'arrête PAS le démarrage : c'est à lui de le gérer (la base journalise un avertissement, le service démarre, /health répond 503 et la première requête rétablit la connexion).
+// Variable facultative LOG_NIVEAU (debug, info, warn, error ; « info » par défaut) : le schéma ne la déclare pas encore, elle est lue si le .env la contient.
+// Ne connaît que les ports iEbLectureEnv, iEbSortieJournal, iEbHorloge (voir EbContratsEnv et EbContratsJournal) et iEbComposant : Démarre() se teste avec des fictifs.
+cEbApplication est une Classe
+PRIVÉ
+	oLecture      est un iEbLectureEnv
+	oSortie       est un iEbSortieJournal
+	oHorloge      est un iEbHorloge
+	oEnv          est un cEbEnv
+	oJournal      est un cEbJournal
+	tabFabriques  est un tableau
+	tabComposants est un tableau
+	bDemarree     est un booléen          = Faux
+	bArretee      est un booléen          = Faux
+
+	PROCEDURE Constructeur(lecture est un iEbLectureEnv, sortie est un iEbSortieJournal, horloge est un iEbHorloge)
+		:oLecture = lecture
+		:oSortie = sortie
+		:oHorloge = horloge
+	FIN
+
+	// Ajoute un composant (la fabrique qui le créera au démarrage). À faire AVANT Démarre() : sans effet une fois l'application démarrée. Les composants s'ouvrent dans l'ordre d'ajout et se ferment dans l'ordre inverse.
+	PROCEDURE PUBLIQUE Ajoute(oFabrique est un iEbFabriqueComposant)
+		SI :bDemarree ALORS
+			RENVOYER
+		FIN
+		TableauAjoute(:tabFabriques, oFabrique)
+	FIN
+
+	// Charge la configuration, ouvre la journalisation puis les composants. Lève l'exception 60 si la configuration est invalide ; ne lève rien si un composant est injoignable. Sans effet au deuxième appel.
+	PROCEDURE PUBLIQUE Démarre()
+		SI :bDemarree ALORS
+			RENVOYER
+		FIN
+		// Objets construits dans des variables locales puis rangés dans les champs : construire dans un champ avant d'appeler une méthode du champ donne parfois un faux message « super-call by-name » du compilateur d'OWL.
+		oEnv est un cEbEnv(:oLecture)
+		oEnv.Charge("config/env.json", ".env", ".env.secrets")
+		oEnv.ExigeValide()
+		sNiveau est une chaîne = "info"
+		SI oEnv.ADeValeur("LOG_NIVEAU") ALORS
+			sNiveau = oEnv.LitTexte("LOG_NIVEAU")
+		FIN
+		oJournal    est un cEbJournal(:oSortie, :oHorloge, sNiveau)
+		tabNouveaux est un tableau
+		POUR TOUT oFabrique DE :tabFabriques
+			oComposant est un iEbComposant = oFabrique.Cree(oEnv, oJournal)
+			TableauAjoute(tabNouveaux, oComposant)
+		FIN
+		:oEnv = oEnv
+		:oJournal = oJournal
+		:tabComposants = tabNouveaux
+		:bDemarree = Vrai
+		:bArretee = Faux
+
+		POUR TOUT oOuvert DE tabNouveaux
+			oOuvert.Ouvre()
+		FIN
+		oJournal.Info("Application démarrée")
+	FIN
+
+	// Ferme les composants, le dernier ouvert d'abord. Sans effet si l'application n'a pas démarré ou est déjà arrêtée.
+	PROCEDURE PUBLIQUE Arrête()
+		SI PAS :bDemarree OU :bArretee ALORS
+			RENVOYER
+		FIN
+		:bArretee = Vrai
+		nRang est un entier = :tabComposants..Occurrence
+		TANTQUE nRang >= 1
+			oFerme est un iEbComposant = :tabComposants[nRang]
+			oFerme.Ferme()
+			nRang = nRang - 1
+		FIN
+		:oJournal.Info("Application arrêtée")
+	FIN
+
+	PROCEDURE PUBLIQUE EstDemarree() : booléen
+		RENVOYER :bDemarree ET PAS :bArretee
+	FIN
+
+	// La configuration chargée. À n'appeler qu'après Démarre().
+	PROCEDURE PUBLIQUE Env() : cEbEnv
+		RENVOYER :oEnv
+	FIN
+
+	PROCEDURE PUBLIQUE Journal() : cEbJournal
+		RENVOYER :oJournal
+	FIN
+
+	// L'état de santé : sonde chaque composant UNE fois (une sonde de base coûte une requête) et rend l'état avec le corps JSON de GET /api/health. Sans composant, une application démarrée est saine ; avant le démarrage, elle ne l'est pas.
+	PROCEDURE PUBLIQUE Sante() : cEbSante
+		sGuillemet est une chaîne = Caract(34)
+		bSaine     est un booléen = :EstDemarree()
+		sSondes    est une chaîne = ""
+		SI bSaine ALORS
+			POUR TOUT oSonde DE :tabComposants
+				sEtat est une chaîne = "ok"
+				SI PAS oSonde.Repond() ALORS
+					bSaine = Faux
+					sEtat  = "indisponible"
+				FIN
+				sSondes += "," + sGuillemet + oSonde.Nom() + sGuillemet + ":" + sGuillemet + sEtat + sGuillemet
+			FIN
+		FIN
+		sStatut est une chaîne = "degrade"
+		SI bSaine ALORS
+			sStatut = "ok"
+		FIN
+		sCorps est une chaîne                  = "{" + sGuillemet + "statut" + sGuillemet + ":" + sGuillemet + sStatut + sGuillemet + sSondes + "}"
+		oSante est un cEbSante(bSaine, sCorps)
+		RENVOYER oSante
+	FIN
+FIN

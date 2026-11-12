@@ -1,0 +1,86 @@
+// Les jetons d'accès d'une application, dans la table « eb_jetons » (empreinte, nom, cree_le, expire_le, revoque_le). Sert « ebony token » (créer, lister, révoquer) et, plus tard, le contrôle d'un jeton reçu.
+// La table est créée par une MIGRATION que le module auth déclare dans son manifeste (modules/auth/execution/modules/auth.json) et que « ebony new » copie dans database/migrations/ : cette classe ne la crée pas (comme AdonisJS, dont le fournisseur de jetons suppose la table de sa migration).
+// Colonnes toutes en texte et NOT NULL (« » = jamais expiré, pas révoqué) : même SQL sur SQLite et PostgreSQL, et pas de NULL à lire (une valeur NULL lue dans une variable chaîne typée reste Null en OWL, ni égale à « » ni convertie).
+// Les valeurs passent par des paramètres {nom}, jamais dans le texte SQL. Aucune méthode ne lève : une écriture rend la cause de l'échec (« » si elle a abouti), à l'appelant d'en faire une erreur.
+// Ne connaît que les ports iEbConnexionSql et iEbHorloge : se teste avec une base SQLite en mémoire et une horloge fictive.
+cEbJetons est une Classe
+PRIVÉ
+	oConnexion est un iEbConnexionSql
+	oHorloge   est un iEbHorloge
+
+	PROCEDURE Constructeur(connexion est un iEbConnexionSql, horloge est un iEbHorloge)
+		:oConnexion = connexion
+		:oHorloge = horloge
+	FIN
+
+	// Rend « » si la requête a abouti, sinon la cause donnée par la base.
+	PROCEDURE PRIVÉE Cause(oResultat est un cEbResultatSql) : chaîne
+		SI oResultat.Succes() ALORS
+			RENVOYER ""
+		FIN
+		SI oResultat.Message() = "" ALORS
+			RENVOYER "refusée par la base"
+		FIN
+		RENVOYER oResultat.Message()
+	FIN
+
+	// Enregistre un jeton : seule l'empreinte du secret est écrite. sExpireLe : « » (jamais) ou un instant AAAA-MM-JJTHH:MM:SSZ. Rend « » ou la cause de l'échec.
+	PROCEDURE PUBLIQUE Enregistre(sNom est une chaîne, sSecret est une chaîne, sExpireLe est une chaîne) : chaîne
+		g         est une chaîne            = Caract(34)
+		tabValeur est un tableau associatif
+		tabValeur["empreinte"] = EbEmpreinteJeton(sSecret)
+		tabValeur["nom"] = sNom
+		tabValeur["cree"] = :oHorloge.Maintenant()
+		tabValeur["expire"] = sExpireLe
+		sSql      est une chaîne        = "INSERT INTO " + g + "eb_jetons" + g + " (" + g + "empreinte" + g + ", " + g + "nom" + g + ", " + g + "cree_le" + g + ", " + g + "expire_le" + g + ", " + g + "revoque_le" + g + ") VALUES ({empreinte}, {nom}, {cree}, {expire}, '')"
+		oResultat est un cEbResultatSql = :oConnexion.Envoie(sSql, tabValeur)
+		RENVOYER :Cause(oResultat)
+	FIN
+
+	// Le nom du jeton si le secret est connu, non révoqué et non expiré ; « » sinon (secret inconnu, révoqué, expiré, ou table absente : dans tous les cas on refuse).
+	PROCEDURE PUBLIQUE Identifie(sSecret est une chaîne) : chaîne
+		g         est une chaîne            = Caract(34)
+		tabValeur est un tableau associatif
+		tabValeur["empreinte"] = EbEmpreinteJeton(sSecret)
+		sSql      est une chaîne            = "SELECT " + g + "nom" + g + ", " + g + "expire_le" + g + ", " + g + "revoque_le" + g + " FROM " + g + "eb_jetons" + g + " WHERE " + g + "empreinte" + g + " = {empreinte}"
+		oResultat est un cEbResultatSql     = :oConnexion.Envoie(sSql, tabValeur)
+		sNom      est une chaîne            = ""
+		tabLigne  est un tableau associatif
+		SI oResultat.Succes() ET oResultat.NbLignes() > 0 ALORS
+			tabLigne = oResultat.Lignes()[1]
+			SI EbJetonActif(tabLigne["expire_le"], tabLigne["revoque_le"], :oHorloge.Maintenant()) ALORS
+				sNom = tabLigne["nom"]
+			FIN
+		FIN
+		RENVOYER sNom
+	FIN
+
+	// Les jetons, du plus récent au plus ancien : des lignes « identifiant », « nom », « cree_le », « expire_le », « revoque_le ». Jamais l'empreinte entière ni le secret. Vide si la table n'existe pas encore.
+	PROCEDURE PUBLIQUE Enumere() : tableau
+		g         est une chaîne            = Caract(34)
+		tabAucun  est un tableau associatif
+		tabRes    est un tableau
+		sSql      est une chaîne            = "SELECT substr(" + g + "empreinte" + g + ", 1, 12) AS " + g + "identifiant" + g + ", " + g + "nom" + g + ", " + g + "cree_le" + g + ", " + g + "expire_le" + g + ", " + g + "revoque_le" + g + " FROM " + g + "eb_jetons" + g + " ORDER BY " + g + "cree_le" + g + " DESC, " + g + "empreinte" + g
+		oResultat est un cEbResultatSql     = :oConnexion.Envoie(sSql, tabAucun)
+		SI oResultat.Succes() ALORS
+			POUR TOUT ligne DE oResultat.Lignes()
+				TableauAjoute(tabRes, ligne)
+			FIN
+		FIN
+		RENVOYER tabRes
+	FIN
+
+	// Révoque le jeton dont l'identifiant (voir Enumere) est donné. Rend le nombre de jetons révoqués : 0 si aucun jeton actif n'a cet identifiant (ou si la base a refusé : les deux se voient dans Enumere).
+	PROCEDURE PUBLIQUE Revoque(sIdentifiant est une chaîne) : entier
+		g         est une chaîne            = Caract(34)
+		tabValeur est un tableau associatif
+		tabValeur["id"] = sIdentifiant
+		tabValeur["quand"] = :oHorloge.Maintenant()
+		sSql      est une chaîne        = "UPDATE " + g + "eb_jetons" + g + " SET " + g + "revoque_le" + g + " = {quand} WHERE substr(" + g + "empreinte" + g + ", 1, 12) = {id} AND " + g + "revoque_le" + g + " = ''"
+		oResultat est un cEbResultatSql = :oConnexion.Envoie(sSql, tabValeur)
+		SI PAS oResultat.Succes() ALORS
+			RENVOYER 0
+		FIN
+		RENVOYER oResultat.LignesAffectees()
+	FIN
+FIN

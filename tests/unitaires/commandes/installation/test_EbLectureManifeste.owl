@@ -1,0 +1,206 @@
+// Tests de EbLectureManifeste : les variables d'environnement qu'un module déclare dans son manifeste (modules/<nom>/execution/modules/<nom>.json), lues comme des DONNÉES.
+// Aucun disque : le texte du manifeste est passé en argument. Une entrée invalide est une exception de code 22 qui la nomme.
+
+// Un manifeste valide avec une variable de type liste et une variable secrète sans défaut.
+PROCEDURE EbTestManifesteDeuxVariables() : chaîne
+	RENVOYER `{
+	"nom": "essai",
+	"environnement": [
+		{ "cle": "ESSAI_MODE", "type": "liste", "valeurs": ["a", "b"], "defaut": "a", "description": "Le mode." },
+		{ "cle": "ESSAI_CLE", "type": "texte", "secret": true, "description": "Une clé." }
+	]
+}`
+FIN
+
+// Lance la lecture et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusManifeste(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabVariables est un tableau = EbVariablesDuManifeste(sTexte, "essai.json")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Les entrées sont lues dans l'ordre du fichier, avec leur type, leurs valeurs permises, leur défaut, leur description et leur caractère secret.
+PROCEDURE scenario_lit_les_variables_dans_l_ordre()
+	tabVariables est un tableau = EbVariablesDuManifeste(EbTestManifesteDeuxVariables(), "essai.json")
+	dbgVérifieEgalité(tabVariables..Occurrence, 2, "deux variables")
+	oMode est un cEbVariableEnv = tabVariables[1]
+	oCle  est un cEbVariableEnv = tabVariables[2]
+	dbgVérifieEgalité(oMode.Cle(), "ESSAI_MODE", "clé de la première")
+	dbgVérifieEgalité(oMode.Nature(), "liste", "type de la première")
+	dbgVérifieEgalité(oMode.Valeurs()..Occurrence, 2, "valeurs permises")
+	dbgVérifieVrai(oMode.ADefaut(), "a un défaut")
+	dbgVérifieEgalité(oMode.Defaut(), "a", "le défaut")
+	dbgVérifieFaux(oMode.Secret(), "pas secrète")
+	dbgVérifieEgalité(oMode.Description(), "Le mode.", "description")
+	dbgVérifieEgalité(oCle.Cle(), "ESSAI_CLE", "clé de la seconde")
+	dbgVérifieVrai(oCle.Secret(), "secrète")
+	dbgVérifieFaux(oCle.ADefaut(), "sans défaut")
+FIN
+
+// Un manifeste sans « environnement » (ou avec une liste vide) ne déclare aucune variable, sans erreur.
+PROCEDURE scenario_sans_environnement_aucune_variable()
+	dbgVérifieEgalité((EbVariablesDuManifeste(`{ "nom": "essai" }`, "essai.json"))..Occurrence, 0, "pas d'environnement")
+	dbgVérifieEgalité((EbVariablesDuManifeste(`{ "environnement": [] }`, "essai.json"))..Occurrence, 0, "environnement vide")
+FIN
+
+// Un texte qui n'est pas du JSON est refusé (22), le chemin du manifeste est dans le message.
+PROCEDURE scenario_json_invalide_refuse()
+	sRes est une chaîne = EbTestRefusManifeste("pas du json {")
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sRes, "essai.json") > 0, "le manifeste est nommé")
+FIN
+
+// Chaque défaut d'une entrée est refusé (22) en nommant l'entrée : clé invalide, type inconnu, liste sans valeurs, défaut hors liste, défaut non textuel.
+PROCEDURE scenario_entrees_invalides_refusees()
+	sRes est une chaîne = EbTestRefusManifeste(`{ "environnement": [ { "cle": "1MAUVAISE", "type": "texte" } ] }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "clé invalide : code 22")
+	dbgVérifieVrai(Position(sRes, "environnement[1]") > 0, "clé invalide : l'entrée est nommée")
+	sRes = EbTestRefusManifeste(`{ "environnement": [ { "cle": "ESSAI", "type": "inconnu" } ] }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "type inconnu")
+	sRes = EbTestRefusManifeste(`{ "environnement": [ { "cle": "ESSAI", "type": "liste" } ] }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "liste sans valeurs")
+	sRes = EbTestRefusManifeste(`{ "environnement": [ { "cle": "ESSAI", "type": "liste", "valeurs": ["a"], "defaut": "z" } ] }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "défaut hors de la liste")
+	sRes = EbTestRefusManifeste(`{ "environnement": [ { "cle": "ESSAI", "type": "texte", "defaut": 12 } ] }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "défaut non textuel")
+	sRes = EbTestRefusManifeste(`{ "environnement": [ { "cle": "OK", "type": "texte" }, { "type": "texte" } ] }`)
+	dbgVérifieVrai(Position(sRes, "environnement[2]") > 0, "la seconde entrée est la fautive")
+FIN
+
+// Un manifeste avec une migration : horodatage, nom, instructions à monter et à défaire sont lus ; le module est celui du dossier.
+PROCEDURE scenario_lit_les_migrations()
+	sTexte        est une chaîne = `{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEssai", "monte": ["CREATE TABLE essai (id TEXT)"], "descend": ["DROP TABLE essai"] } ] }`
+	tabMigrations est un tableau = EbMigrationsDuManifeste(sTexte, "essai.json", "essai")
+	dbgVérifieEgalité(tabMigrations..Occurrence, 1, "une migration")
+	oMigration est un cEbMigrationModule = tabMigrations[1]
+	dbgVérifieEgalité(oMigration.Nom(), "M202611100000_CreeEssai", "nom")
+	dbgVérifieEgalité(oMigration.Module(), "essai", "module du dossier")
+	dbgVérifieEgalité(oMigration.Monte()[1], "CREATE TABLE essai (id TEXT)", "monte")
+	dbgVérifieEgalité(oMigration.Descend()[1], "DROP TABLE essai", "descend")
+	dbgVérifieEgalité((EbMigrationsDuManifeste(`{ "nom": "essai" }`, "essai.json", "essai"))..Occurrence, 0, "sans migrations : aucune")
+FIN
+
+// Une migration invalide est refusée (22) en nommant l'entrée : horodatage, nom, instructions absentes, accent grave dans le SQL.
+PROCEDURE scenario_migrations_invalides_refusees()
+	sBon est une chaîne = `"monte": ["CREATE TABLE essai (id TEXT)"], "descend": ["DROP TABLE essai"]`
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { "horodatage": "2026", "nom": "CreeEssai", ` + sBon + ` } ] }`), 3), "22|", "horodatage trop court")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { "horodatage": "20261110000a", "nom": "CreeEssai", ` + sBon + ` } ] }`), 3), "22|", "horodatage non numérique")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { "horodatage": "202611100000", "nom": "cree essai", ` + sBon + ` } ] }`), 3), "22|", "nom avec espace")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEssai", "descend": ["DROP TABLE essai"] } ] }`), 3), "22|", "monte absent")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEssai", "monte": ["CREATE TABLE essai (id TEXT)"] } ] }`), 3), "22|", "descend absent")
+	sAccent est une chaîne = EbTestRefusMigration(`{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEssai", "monte": ["SELECT ` + Caract(96) + `"], "descend": ["DROP TABLE essai"] } ] }`)
+	dbgVérifieEgalité(Gauche(sAccent, 3), "22|", "accent grave dans le SQL")
+	dbgVérifieVrai(Position(sAccent, "migrations[1]") > 0, "l'entrée est nommée")
+FIN
+
+// Lance la lecture des migrations et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusMigration(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabMigrations est un tableau = EbMigrationsDuManifeste(sTexte, "essai.json", "essai")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// L'option d'une migration et le jeton {table_utilisateurs} : « auth » est la seule option ; le jeton n'est permis qu'avec elle ; toute autre accolade est refusée (22).
+PROCEDURE scenario_option_auth_et_table_des_utilisateurs()
+	sCorps  est une chaîne            = `"horodatage": "202611100001", "nom": "CreeUtilisateurs"`
+	sBon    est une chaîne            = `{ "migrations": [ { ` + sCorps + `, "option": "auth", "monte": ["CREATE TABLE {table_utilisateurs} (id TEXT)"], "descend": ["DROP TABLE {table_utilisateurs}"] } ] }`
+	tabLues est un tableau            = EbMigrationsDuManifeste(sBon, "essai.json", "essai")
+	oLue    est un cEbMigrationModule = tabLues[1]
+	dbgVérifieEgalité(oLue.Option(), "auth", "l'option est lue")
+	dbgVérifieEgalité(oLue.Monte()[1], "CREATE TABLE {table_utilisateurs} (id TEXT)", "le jeton reste dans le SQL lu")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { ` + sCorps + `, "option": "autre", "monte": ["CREATE TABLE t (id TEXT)"], "descend": ["DROP TABLE t"] } ] }`), 3), "22|", "option inconnue")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { ` + sCorps + `, "monte": ["CREATE TABLE {table_utilisateurs} (id TEXT)"], "descend": ["DROP TABLE t"] } ] }`), 3), "22|", "jeton sans l'option auth")
+	dbgVérifieEgalité(Gauche(EbTestRefusMigration(`{ "migrations": [ { ` + sCorps + `, "option": "auth", "monte": ["CREATE TABLE {autre} (id TEXT)"], "descend": ["DROP TABLE t"] } ] }`), 3), "22|", "autre accolade")
+	dbgVérifieEgalité(EbTestRefusMigration(`{ "migrations": [ { ` + sCorps + `, "monte": ["CREATE TABLE t (id TEXT)"], "descend": ["DROP TABLE t"] } ] }`), "", "sans option : valide")
+FIN
+
+// Le garde des routes : le membre « routes » donne des lignes de code (propriétés et procédures) ; \t devient une tabulation, une ligne vide reste vide ; sans « routes », le garde est vide.
+PROCEDURE scenario_lit_le_garde_des_routes()
+	sTexte est une chaîne        = `{ "routes": { "proprietes": [ "Authentification = httpAuthBearer" ], "procedures": [ "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen", "\tRENVOYER Vrai", "", "FIN" ] } }`
+	oGarde est un cEbGardeRoutes = EbGardeDuManifeste(sTexte, "essai.json")
+	dbgVérifieVrai(oGarde.Presente(), "un garde est fourni")
+	dbgVérifieEgalité(oGarde.LignesProprietes()..Occurrence, 1, "une propriété")
+	dbgVérifieEgalité(oGarde.LignesProprietes()[1], "Authentification = httpAuthBearer", "la propriété")
+	dbgVérifieEgalité(oGarde.LignesProcedures()..Occurrence, 4, "quatre lignes de procédure, la vide comprise")
+	dbgVérifieEgalité(oGarde.LignesProcedures()[2], Caract(9) + "RENVOYER Vrai", "\t est une tabulation")
+	dbgVérifieEgalité(oGarde.LignesProcedures()[3], "", "la ligne vide est gardée")
+	oSans est un cEbGardeRoutes = EbGardeDuManifeste(`{ "nom": "essai" }`, "essai.json")
+	dbgVérifieFaux(oSans.Presente(), "sans « routes » : pas de garde")
+FIN
+
+// Deux gardes l'un après l'autre : les lignes de l'autre suivent les nôtres, sans modifier ni l'un ni l'autre.
+PROCEDURE scenario_garde_suivi()
+	oUn   est un cEbGardeRoutes = EbGardeDuManifeste(`{ "routes": { "proprietes": [ "A" ], "procedures": [ "P1" ] } }`, "un.json")
+	oDeux est un cEbGardeRoutes = EbGardeDuManifeste(`{ "routes": { "proprietes": [ "B" ], "procedures": [ "P2" ] } }`, "deux.json")
+	oLes2 est un cEbGardeRoutes = oUn.Suivi(oDeux)
+	dbgVérifieEgalité(oLes2.LignesProprietes()[1] + oLes2.LignesProprietes()[2], "AB", "propriétés dans l'ordre")
+	dbgVérifieEgalité(oLes2.LignesProcedures()[1] + oLes2.LignesProcedures()[2], "P1P2", "procédures dans l'ordre")
+	dbgVérifieEgalité(oUn.LignesProprietes()..Occurrence, 1, "le premier n'a pas changé")
+FIN
+
+// Un membre « routes » mal formé (un élément qui n'est pas du texte) ou un JSON illisible est refusé (22).
+PROCEDURE scenario_garde_invalide_refuse()
+	dbgVérifieEgalité(Gauche(EbTestRefusGarde(`{ "routes": { "procedures": [ 12 ] } }`), 3), "22|", "une ligne qui n'est pas du texte")
+	dbgVérifieEgalité(Gauche(EbTestRefusGarde("pas du json {"), 3), "22|", "JSON illisible")
+	dbgVérifieEgalité(EbTestRefusGarde(`{ "routes": { } }`), "", "routes vide : valide, sans garde")
+FIN
+
+// Lance la lecture du garde et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusGarde(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oGarde est un cEbGardeRoutes = EbGardeDuManifeste(sTexte, "essai.json")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Un fichier déclaré par un manifeste : chemin dans config/, option, lignes (\t pour une tabulation) ; le contenu est les lignes séparées par LF, avec un LF final.
+PROCEDURE scenario_lit_les_fichiers()
+	sTexte      est une chaîne = `{ "fichiers": [ { "chemin": "config/Auth.owl", "option": "auth", "lignes": [ "cConfigAuth est une Classe", "\tPROCEDURE PUBLIQUE T() : chaîne", "", "FIN" ] } ] }`
+	tabFichiers est un tableau = EbFichiersDuManifeste(sTexte, "essai.json", "essai")
+	dbgVérifieEgalité(tabFichiers..Occurrence, 1, "un fichier")
+	oFichier est un cEbFichierModule = tabFichiers[1]
+	dbgVérifieEgalité(oFichier.Chemin(), "config/Auth.owl", "chemin")
+	dbgVérifieEgalité(oFichier.Option(), "auth", "option")
+	dbgVérifieEgalité(oFichier.Module(), "essai", "module du dossier")
+	dbgVérifieEgalité(oFichier.Contenu(), "cConfigAuth est une Classe" + Caract(10) + Caract(9) + "PROCEDURE PUBLIQUE T() : chaîne" + Caract(10) + Caract(10) + "FIN" + Caract(10), "contenu : LF, tabulation, ligne vide, LF final")
+	dbgVérifieEgalité((EbFichiersDuManifeste(`{ "nom": "essai" }`, "essai.json", "essai"))..Occurrence, 0, "sans fichiers : aucun")
+FIN
+
+// Un fichier de manifeste ne peut être écrit que dans config/ : tout autre chemin (ailleurs, « .. », chemin absolu, « \ », « : », nom vide) est refusé (22), de même qu'une option inconnue, des lignes absentes, un jeton sans l'option auth et une autre accolade.
+PROCEDURE scenario_fichiers_invalides_refuses()
+	sBon est une chaîne = `"lignes": [ "X" ]`
+	dbgVérifieEgalité(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", ` + sBon + ` } ] }`), "", "config/Auth.owl : valide")
+	dbgVérifieEgalité(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/sous/Autre.owl", ` + sBon + ` } ] }`), "", "un sous-dossier de config : valide")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "app/Auth.owl", ` + sBon + ` } ] }`), 3), "22|", "hors de config/")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/../projet.owl", ` + sBon + ` } ] }`), 3), "22|", "remonte avec ..")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "/config/Auth.owl", ` + sBon + ` } ] }`), 3), "22|", "chemin absolu")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config\\Auth.owl", ` + sBon + ` } ] }`), 3), "22|", "antislash")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/", ` + sBon + ` } ] }`), 3), "22|", "nom vide")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", "option": "autre", ` + sBon + ` } ] }`), 3), "22|", "option inconnue")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", "lignes": [] } ] }`), 3), "22|", "aucune ligne")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", "lignes": [ "A {table_utilisateurs}" ] } ] }`), 3), "22|", "jeton sans l'option auth")
+	dbgVérifieEgalité(Gauche(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", "option": "auth", "lignes": [ "A {autre}" ] } ] }`), 3), "22|", "autre accolade")
+	dbgVérifieEgalité(EbTestRefusFichier(`{ "fichiers": [ { "chemin": "config/Auth.owl", "option": "auth", "lignes": [ "A {table_utilisateurs}" ] } ] }`), "", "jeton avec l'option auth : valide")
+FIN
+
+// Lance la lecture des fichiers et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusFichier(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabFichiers est un tableau = EbFichiersDuManifeste(sTexte, "essai.json", "essai")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN

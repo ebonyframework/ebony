@@ -1,0 +1,99 @@
+// « ebony upgrade » : aligne le projet du dossier COURANT sur l'ebony installé. Après l'opération, ebony/ contient la bibliothèque de l'ebony installé et
+// ebony.version (le minimum, comme « ^1.2.0 » dans un package.json) de ebony.conf vaut la version de cet ebony. Sert quand « ebony restore » refuse (voir cEbRestaurationBibliotheque),
+// ou pour adopter volontairement une bibliothèque plus récente. Règles décidées le 2026-10-25 :
+//   - il faut un ebony.conf dans le dossier courant (pas de remontée vers les dossiers parents) ;
+//   - upgrade ne RÉTROGRADE jamais : si l'ebony installé est plus ancien que le minimum du projet, refus (installer un ebony plus récent) ;
+//   - ebony ne supprime JAMAIS rien (OWL n'a pas de suppression récursive) : ebony/ absent ou vide → copie ; ebony/ déjà à la version de l'ebony installé → laissé tel quel ;
+//     ebony/ d'une autre version, ou sans VERSION lisible → refus, à supprimer à la main puis relancer ;
+//   - ebony.conf n'est modifié que sur ebony.version (le reste du fichier est conservé) et seulement si ce minimum diffère de la version installée ;
+//   - tout est vérifié AVANT d'écrire. Ordre des écritures : la bibliothèque d'abord, ebony.conf ensuite ; si la seconde échoue, relancer upgrade termine le travail (ebony/ est alors déjà à jour).
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 30 OWL mal placé, 31 pas un projet ebony, 32 ebony.conf sans version valide, 22 installation d'ebony illisible, 34 ebony/ inadapté, 35 copie interrompue,
+// 36 l'ebony installé est plus ancien que le minimum du projet, 37 ebony.conf non modifié.
+cEbMiseAJourBibliotheque est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbBibliothequeMiseAJour
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(30, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+
+		sConf est une chaîne = EbJointChemin(sLancement, "ebony.conf")
+		SI PAS :oSysteme.FichierExiste(sConf) ALORS
+			ExceptionDéclenche(31, "Ce dossier n'est pas un projet ebony : ebony.conf est introuvable dans " + sLancement + ". Placez-vous dans le dossier d'un projet, ou créez-en un avec « ebony new <nom> ».")
+		FIN
+		sTexteConf est une chaîne = :oSysteme.LitTexte(sConf)
+		sMinimum   est une chaîne = EbVersionDeLaConf(sTexteConf)
+		SI sMinimum = "" OU PAS EbVersionValide(sMinimum) ALORS
+			ExceptionDéclenche(32, "ebony.conf ne donne pas une version valide de la bibliothèque (ebony.version, entre guillemets, par exemple 0.1.0) : « " + sMinimum + " ». Fichier : " + sConf)
+		FIN
+
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		// Un projet qui note ses modules ne reçoit que ceux-là ; un ebony.conf plus ancien, sans ce membre, reçoit tous ceux de l'installation.
+		SI EbConfDeclareModules(sTexteConf) ALORS
+			oInstallee.Choisit(EbModulesDeLaConf(sTexteConf))
+		FIN
+		oInstallee.Verifie()
+		sInstallee est une chaîne = oInstallee.Version()
+		SI EbCompareVersions(sInstallee, sMinimum) < 0 ALORS
+			ExceptionDéclenche(36, "Ce projet demande une bibliothèque d'au moins la version " + sMinimum + ", mais l'ebony installé fournit la version " + sInstallee + " : « ebony upgrade » ne rétrograde jamais un projet. Installez un ebony d'au moins cette version.")
+		FIN
+
+		sDestination est une chaîne = EbJointChemin(sLancement, "ebony")
+		SI :oSysteme.FichierExiste(sDestination) ALORS
+			ExceptionDéclenche(34, "Un fichier nommé « ebony » occupe la place du dossier de la bibliothèque dans " + sLancement + " : supprimez-le, puis relancez « ebony upgrade ».")
+		FIN
+		bACopier est un booléen = Vrai
+		SI :oSysteme.DossierExiste(sDestination) ET PAS :oSysteme.DossierEstVide(sDestination) ALORS
+			sFichierVersion est une chaîne = EbJointChemin(sDestination, "VERSION")
+			sLocale         est une chaîne = ""
+			SI :oSysteme.FichierExiste(sFichierVersion) ALORS
+				sLocale = SansEspace(Remplace(Remplace(:oSysteme.LitTexte(sFichierVersion), Caract(13), ""), Caract(10), ""))
+			FIN
+			SI sLocale <> sInstallee ALORS
+				sTrouvee est une chaîne = "aucun fichier VERSION"
+				SI sLocale <> "" ALORS
+					sTrouvee = "version " + sLocale
+				FIN
+				ExceptionDéclenche(34, "Le dossier " + sDestination + " existe déjà mais n'est pas la bibliothèque de l'ebony installé, version " + sInstallee + " (" + sTrouvee + "). ebony ne supprime rien : supprimez ce dossier, puis relancez « ebony upgrade ».")
+			FIN
+			bACopier = Faux
+		FIN
+
+		// Le nouveau texte d'ebony.conf est préparé avant toute écriture : s'il est impossible, rien n'a été touché.
+		bConfAChanger est un booléen = (sMinimum <> sInstallee)
+		sNouvelleConf est une chaîne = ""
+		SI bConfAChanger ALORS
+			sNouvelleConf = EbConfAvecVersion(sTexteConf, sInstallee)
+			SI sNouvelleConf = "" ALORS
+				ExceptionDéclenche(32, "ebony.conf n'a pas pu être relu pour changer ebony.version : le fichier est inchangé. Fichier : " + sConf)
+			FIN
+		FIN
+
+		SI bACopier ALORS
+			QUAND EXCEPTION DANS
+				oInstallee.Copie(:oEcriture, sDestination)
+			FAIRE
+				ExceptionDéclenche(35, "Mise à jour interrompue : " + ExceptionInfo(errMessage) + ". Le dossier " + sDestination + " a pu être laissé incomplet et ebony.conf n'a pas été modifié : supprimez ce dossier, puis relancez « ebony upgrade ».")
+			FIN
+		FIN
+		SI bConfAChanger ALORS
+			QUAND EXCEPTION DANS
+				:oEcriture.EcritTexte(sConf, sNouvelleConf)
+			FAIRE
+				ExceptionDéclenche(37, "Mise à jour interrompue : " + ExceptionInfo(errMessage) + ". La bibliothèque ebony/ est à jour mais ebony.conf demande toujours au moins la version " + sMinimum + " : vérifiez le fichier " + sConf + ", puis relancez « ebony upgrade ».")
+			FIN
+		FIN
+
+		oMiseAJour est un cEbBibliothequeMiseAJour(sInstallee, sDestination, bACopier, bConfAChanger)
+		RENVOYER oMiseAJour
+	FIN
+FIN

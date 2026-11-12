@@ -1,0 +1,68 @@
+// La connexion SQL réelle d'une application, configurée d'après le type de base du projet (sqlite, postgresql, hfsql) et les variables de l'environnement chargé (voir cEbApplication).
+EbConnexionApplication est une CollectionDeProcédures
+
+	// Le niveau TLS d'OWL pour la valeur de DB_TLS : verifie (défaut d'OWL : certificat et nom vérifiés), ca (chaîne vérifiée, pas le nom), accepte (chiffré, certificat non vérifié), desactive (aucun TLS).
+	// Une valeur inconnue donne le niveau le plus strict, jamais un niveau plus faible (le schéma de config/env.json refuse déjà toute autre valeur).
+	PROCEDURE EbModeTlsDeConfig(sValeur est une chaîne) : entier
+		SELON sValeur
+			CAS "desactive"
+			RENVOYER tlsDesactive
+			CAS "accepte"
+			RENVOYER tlsAccepteTout
+			CAS "ca"
+			RENVOYER tlsVerifieCA
+			AUTRE CAS
+			RENVOYER tlsVerifieComplet
+		FIN
+	FIN
+
+	// sqlite : DB_FICHIER ; postgresql et hfsql : DB_HOTE, DB_PORT, DB_NOM, DB_UTILISATEUR, DB_MOT_DE_PASSE ; postgresql aussi, si elles sont données : DB_TLS, DB_CERTIFICAT_CA. La connexion n'est pas ouverte.
+	PROCEDURE EbConnexionApplication(sBase est une chaîne, oEnv est un cEbEnv, oJournal est un cEbJournal) : cEbConnexionSqlReelle
+		cnx est une sqlConnexion
+		SELON sBase
+			CAS "sqlite"
+			cnx..Provider = sqlSqlite
+			cnx..Source   = oEnv.LitTexte("DB_FICHIER")
+			EbCreeDossierDeFichier(oEnv.LitTexte("DB_FICHIER"), oJournal)
+			CAS "postgresql"
+			cnx..Provider = sqlPostgres
+			AUTRE CAS
+			cnx..Provider = sqlHFSQL
+		FIN
+		SI sBase <> "sqlite" ALORS
+			cnx..Serveur       = oEnv.LitTexte("DB_HOTE") + ":" + oEnv.LitEntier("DB_PORT")
+			cnx..BaseDeDonnées = oEnv.LitTexte("DB_NOM")
+			cnx..Utilisateur   = oEnv.LitTexte("DB_UTILISATEUR")
+			cnx..MotDePasse    = oEnv.LitTexte("DB_MOT_DE_PASSE")
+		FIN
+		// Absentes (projet d'avant DB_TLS) : le TLS vérifié, défaut d'OWL, reste en vigueur.
+		SI sBase = "postgresql" ALORS
+			SI oEnv.ADeValeur("DB_TLS") ALORS
+				cnx..ModeTLS = EbModeTlsDeConfig(oEnv.LitTexte("DB_TLS"))
+			FIN
+			SI oEnv.ADeValeur("DB_CERTIFICAT_CA") ALORS
+				cnx..CertificatCA = oEnv.LitTexte("DB_CERTIFICAT_CA")
+			FIN
+		FIN
+		oReelle est un cEbConnexionSqlReelle(cnx, "SELECT 1")
+		RENVOYER oReelle
+	FIN
+
+	// Crée le dossier qui doit contenir un fichier (storage/ pour storage/app.db), sans quoi l'ouverture de SQLite échoue. Un échec est journalisé, pas levé : la base sera « injoignable », avec sa cause.
+	PROCEDURE EbCreeDossierDeFichier(sFichier est une chaîne, oJournal est un cEbJournal)
+		nFin est un entier = 0
+		POUR nPos = 1 À Taille(sFichier)
+			SI Milieu(sFichier, nPos, 1) = "/" OU Milieu(sFichier, nPos, 1) = "\" ALORS
+				nFin = nPos
+			FIN
+		FIN
+		SI nFin > 1 ALORS
+			sDossier est une chaîne = Gauche(sFichier, nFin - 1)
+			SI PAS fRepExiste(sDossier) ALORS
+				SI PAS fRepCree(sDossier) ALORS
+					oJournal.Avertit("Dossier de la base non créé : " + sDossier + " (" + ErreurInfo() + ")")
+				FIN
+			FIN
+		FIN
+	FIN
+FIN

@@ -1,0 +1,260 @@
+// Tests de EbContenuRoutes : le contrôleur d'une ressource (propriétés du texte généré, colonnes qui empêchent les routes, clé générée ou non).
+// Que ce texte COMPILE et que ses routes RÉPONDENT est prouvé par tests/integration/lanceur.ps1 (groupe « make », vrai owl serve) et par tests/integration/postgresql.ps1.
+
+// Le garde que fournirait le manifeste d'un module (même contenu que le membre « routes » de modules/auth/execution/modules/auth.json : à tenir identique ; le test d'intégration de make vérifie le vrai, avec un vrai jeton).
+// Il passe par le vrai lecteur de manifeste : les \t du JSON deviennent des tabulations.
+PROCEDURE EbTestGarde() : cEbGardeRoutes
+	sJson  est une chaîne        = `{ "routes": { "proprietes": [ "Authentification = httpAuthBearer" ], "procedures": [ "// PROTÉGÉ PAR DÉFAUT : toute route de ce fichier exige un jeton d'accès.", "// Pour OUVRIR les routes sans jeton, mettez AUTH_ROUTES=ouvertes dans .env.", "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen", "\tsIdentite est une chaîne = EbIdentiteDuJeton(sJeton)", "\tSI sIdentite = \"\" ALORS", "\t\tMoiMême..Réponse..CodeÉtat    = httpNonAutorisé", "\t\tMoiMême..Réponse..TypeContenu = \"application/json\"", "\t\tMoiMême..Réponse..Corps       = EbCorpsErreurHttp(\"401\", \"\")", "\t\tRENVOYER Faux", "\tFIN", "\tMoiMême..Requête..Identité = sIdentite", "\tRENVOYER Vrai", "FIN" ] } }`
+	oGarde est un cEbGardeRoutes = EbGardeDuManifeste(sJson, "essai.json")
+	RENVOYER oGarde
+FIN
+
+// La demande lue dans des arguments écrits avec des « ; ».
+PROCEDURE EbTestDemandeRoutes(sListe est une chaîne) : cEbDemandeMake
+	tabArgs est un tableau de chaînes
+	nDebut  est un entier             = 1
+	nFin    est un entier             = Position(sListe, ";")
+	TANTQUE nFin > 0
+		TableauAjoute(tabArgs, Milieu(sListe, nDebut, nFin - nDebut))
+		nDebut = nFin + 1
+		nFin   = Position(sListe, ";", nDebut)
+	FIN
+	TableauAjoute(tabArgs, Milieu(sListe, nDebut))
+	oDemande  est un cEbDemandeMake = EbAnalyseArgumentsMake(tabArgs)
+	oProtegee est un cEbDemandeMake = oDemande.AvecGarde(EbTestGarde())
+	RENVOYER oProtegee
+FIN
+
+// Les 58 mots mesurés sont tous refusés comme membre ; un nom ordinaire, un nom à plusieurs mots et un nom accentué en base (slug sans accent) ne le sont pas.
+PROCEDURE scenario_mots_refuses_comme_membre()
+	tabMots est un tableau de chaînes = ChaîneDécoupe(EbMotsReservesOwl(), "|")
+	dbgVérifieEgalité(tabMots..Occurrence, 58, "58 mots mesurés")
+	POUR TOUT sMot DE tabMots
+		dbgVérifieVrai(EbMembreCorpsRefuse(sMot), "refusé : " + sMot)
+	FIN
+	dbgVérifieFaux(EbMembreCorpsRefuse("nom"), "nom")
+	dbgVérifieFaux(EbMembreCorpsRefuse("date_naissance"), "plusieurs mots")
+	dbgVérifieFaux(EbMembreCorpsRefuse("liste_prix"), "un mot réservé n'interdit pas les noms qui le contiennent")
+	dbgVérifieFaux(EbMembreCorpsRefuse("actif"), "actif")
+FIN
+
+// Un slug vide ou qui ne commence pas par une lettre minuscule sans accent est refusé.
+PROCEDURE scenario_membre_illisible_refuse()
+	dbgVérifieVrai(EbMembreCorpsRefuse(""), "vide")
+	dbgVérifieVrai(EbMembreCorpsRefuse("_x"), "souligné au début")
+	dbgVérifieVrai(EbMembreCorpsRefuse("1er"), "chiffre au début")
+	dbgVérifieVrai(EbMembreCorpsRefuse("Nom"), "majuscule au début : le slug est en minuscules")
+FIN
+
+// Le membre de la structure : le slug avec une majuscule initiale ; le segment d'adresse : la dernière partie de la table en minuscules ; le chemin du fichier.
+PROCEDURE scenario_noms_des_routes()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Bon de commande;--champs;id:entier*,date_naissance:date,nom:texte")
+	dbgVérifieEgalité(EbMembreCorps(oDemande.Champs()[2]), "Date_naissance", "membre à plusieurs mots")
+	dbgVérifieEgalité(EbMembreCorps(oDemande.Champs()[3]), "Nom", "membre simple")
+	dbgVérifieEgalité(EbSegmentRoutes(oDemande), "bon_de_commandes", "segment : la table au pluriel naïf")
+	dbgVérifieEgalité(EbCheminRoutes(oDemande), "app/http/bon-de-commande/ControleurBonDeCommande.owl", "chemin du fichier")
+	oSchema est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--table;CRM.Clients;--champs;id:entier*,nom:texte")
+	dbgVérifieEgalité(EbSegmentRoutes(oSchema), "clients", "segment : sans le schéma, en minuscules")
+FIN
+
+// Une clé entière est générée par la base : elle n'est pas dans le corps ; une clé texte y est.
+PROCEDURE scenario_champs_du_corps()
+	oEntier est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,actif:booleen")
+	oTexte  est un cEbDemandeMake = EbTestDemandeRoutes("resource;Pays;--champs;code:texte*,nom:texte")
+	dbgVérifieEgalité(EbTestNbChampsCorps(oEntier), 2, "clé générée : nom et actif seulement")
+	dbgVérifieEgalité(EbChampsCorps(oEntier)[1].Slug(), "nom", "premier champ du corps")
+	dbgVérifieEgalité(EbTestNbChampsCorps(oTexte), 2, "clé texte : code et nom")
+	dbgVérifieEgalité(EbChampsCorps(oTexte)[1].Slug(), "code", "la clé texte est dans le corps")
+FIN
+
+// Les colonnes qui empêchent les routes : celles du corps dont le nom est refusé ; une clé générée n'est pas dans le corps, donc jamais en cause.
+PROCEDURE scenario_colonnes_sans_routes()
+	oOrdinaire est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,actif:booleen")
+	dbgVérifieEgalité(EbTestNbChampsSansRoutes(oOrdinaire), 0, "rien ne gêne")
+	oGeneree est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;liste:entier*,nom:texte")
+	dbgVérifieEgalité(EbTestNbChampsSansRoutes(oGeneree), 0, "une clé générée au nom refusé n'est pas dans le corps")
+	oGenante est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,liste:texte,fin:texte")
+	dbgVérifieEgalité(EbListeVirgules(EbChampsSansRoutes(oGenante)), "liste, fin", "les colonnes en cause, dans l'ordre")
+	oCleTexte est un cEbDemandeMake = EbTestDemandeRoutes("resource;Pays;--champs;fin:texte*,nom:texte")
+	dbgVérifieEgalité(EbListeVirgules(EbChampsSansRoutes(oCleTexte)), "fin", "une clé texte est dans le corps : son nom compte")
+FIN
+
+// Le fichier n'est pas dans la liste quand une colonne gêne ; il est en dernier quand elle ne gêne pas.
+PROCEDURE scenario_controleur_dans_la_liste()
+	oOrdinaire est un cEbDemandeMake     = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte")
+	tabAvec    est un tableau de chaînes = EbFichiersRessource(oOrdinaire)
+	dbgVérifieEgalité(tabAvec..Occurrence, 10, "dix fichiers")
+	dbgVérifieEgalité(tabAvec[10], "app/http/client/ControleurClient.owl", "le contrôleur en dernier")
+	oGenante est un cEbDemandeMake     = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,liste:texte")
+	tabSans  est un tableau de chaînes = EbFichiersRessource(oGenante)
+	dbgVérifieEgalité(tabSans..Occurrence, 9, "neuf fichiers : pas de contrôleur")
+	dbgVérifieEgalité(Position(EbListeVirgules(tabSans), "Controleur"), 0, "aucun contrôleur")
+FIN
+
+// Clé entière générée : ServiceREST à part, préfixe d'adresse « api », cinq routes ; la création écrit la clé 0, la modification prend la clé de l'adresse.
+PROCEDURE scenario_routes_d_une_cle_generee()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,email:texte?,actif:booleen,note:reel")
+	sRoutes  est une chaîne        = EbContenuRoutes(oDemande)
+	dbgVérifieVrai(Position(sRoutes, "ControleurClient est un ServiceREST") > 0, "un ServiceREST à part")
+	dbgVérifieVrai(Position(sRoutes, `UrlBase = ["api"]`) > 0, "préfixe api")
+	dbgVérifieVrai(Position(sRoutes, "stClientCorps est une Structure") > 0, "structure du corps")
+	dbgVérifieVrai(Position(sRoutes, Caract(9) + Caract(9) + "Nom") > 0, "membre Nom")
+	dbgVérifieEgalité(Position(sRoutes, Caract(9) + Caract(9) + "Id "), 0, "pas de membre Id : la clé vient de l'adresse")
+	dbgVérifieVrai(Position(sRoutes, "ListeClient est une OpérationHTTP") > 0, "liste")
+	dbgVérifieVrai(Position(sRoutes, "LitClient est une OpérationHTTP") > 0, "lecture")
+	dbgVérifieVrai(Position(sRoutes, "CreeClient est une OpérationHTTP") > 0, "création")
+	dbgVérifieVrai(Position(sRoutes, "ModifieClient est une OpérationHTTP") > 0, "modification")
+	dbgVérifieVrai(Position(sRoutes, "SupprimeClient est une OpérationHTTP") > 0, "suppression")
+	dbgVérifieVrai(Position(sRoutes, `Chemin   = ["clients", cle]`) > 0, "chemin avec la clé")
+	dbgVérifieVrai(Position(sRoutes, "surRequête(cle est un entier)") > 0, "clé entière")
+	dbgVérifieVrai(Position(sRoutes, "oNouveau est un cClient(0, stCorps.Nom, stCorps.Email, stCorps.Actif, stCorps.Note)") > 0, "création : clé 0, valeurs du corps")
+	dbgVérifieVrai(Position(sRoutes, "oChange est un cClient(cle, stCorps.Nom, stCorps.Email, stCorps.Actif, stCorps.Note)") > 0, "modification : clé de l'adresse")
+	dbgVérifieEgalité(Position(sRoutes, "httpConflit"), 0, "une clé générée ne peut pas être déjà prise")
+	dbgVérifieVrai(Position(sRoutes, "oRepository est un cRepoClientSql(cEbServiceBase.Base())") > 0, "repository SQL de l'application")
+	dbgVérifieVrai(Position(sRoutes, "oService est un cServiceClient(oRepository)") > 0, "le service reçoit le repository")
+	dbgVérifieVrai(Position(sRoutes, "oService.Trouve(cle)") > 0, "la lecture passe par le service")
+	dbgVérifieEgalité(Position(sRoutes, "oRepository.Enumere"), 0, "le contrôleur n'appelle pas le repository : liste")
+	dbgVérifieEgalité(Position(sRoutes, "oRepository.Trouve"), 0, "le contrôleur n'appelle pas le repository : lecture")
+	dbgVérifieEgalité(Position(sRoutes, "oRepository.Ajoute"), 0, "le contrôleur n'appelle pas le repository : création")
+	dbgVérifieEgalité(Position(sRoutes, "oRepository.Modifie"), 0, "le contrôleur n'appelle pas le repository : modification")
+	dbgVérifieEgalité(Position(sRoutes, "oRepository.Supprime"), 0, "le contrôleur n'appelle pas le repository : suppression")
+	dbgVérifieVrai(Position(sRoutes, "ExceptionInfo(errCode)") > 0, "l'exception est attrapée dans la route")
+FIN
+
+// Un texte obligatoire (ni NULL, ni clé) vide donne 400 ; un texte qui accepte NULL n'est pas contrôlé.
+PROCEDURE scenario_controle_des_textes_obligatoires()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte,email:texte?,actif:booleen")
+	sRoutes  est une chaîne        = EbContenuRoutes(oDemande)
+	dbgVérifieVrai(Position(sRoutes, "SI SansEspace(stCorps.Nom) = " + Caract(34) + Caract(34) + " ALORS") > 0, "nom contrôlé")
+	dbgVérifieVrai(Position(sRoutes, "ExceptionDéclenche(400, " + Caract(34) + "Le champ « nom » est obligatoire." + Caract(34) + ")") > 0, "message 400")
+	dbgVérifieEgalité(Position(sRoutes, "SansEspace(stCorps.Email)"), 0, "email accepte NULL : pas de contrôle")
+	dbgVérifieVrai(Position(sRoutes, "httpRequêteIncorrecte") > 0, "400 annoncé dans les réponses")
+	oSansTexte est un cEbDemandeMake = EbTestDemandeRoutes("resource;Mesure;--champs;id:entier*,valeur:reel,actif:booleen")
+	sSans      est une chaîne        = EbContenuRoutes(oSansTexte)
+	dbgVérifieEgalité(Position(sSans, "SansEspace"), 0, "aucun texte obligatoire : aucun contrôle")
+	dbgVérifieEgalité(Position(sSans, "httpRequêteIncorrecte"), 0, "400 non annoncé")
+FIN
+
+// Clé texte : elle vient du corps à la création (et peut être déjà prise : 409), de l'adresse à la modification.
+PROCEDURE scenario_routes_d_une_cle_texte()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Pays;--champs;code:texte*,nom:texte")
+	sRoutes  est une chaîne        = EbContenuRoutes(oDemande)
+	dbgVérifieVrai(Position(sRoutes, "surRequête(cle est une chaîne)") > 0, "clé texte")
+	dbgVérifieVrai(Position(sRoutes, "oNouveau est un cPays(stCorps.Code, stCorps.Nom)") > 0, "création : la clé vient du corps")
+	dbgVérifieVrai(Position(sRoutes, "oChange est un cPays(cle, stCorps.Nom)") > 0, "modification : la clé de l'adresse")
+	dbgVérifieVrai(Position(sRoutes, "httpConflit") > 0, "409 annoncé pour la création")
+	nModifie      est un entier  = Position(sRoutes, "ModifiePays est une OpérationHTTP")
+	sCreation     est une chaîne = Gauche(sRoutes, nModifie)
+	sModification est une chaîne = Milieu(sRoutes, nModifie)
+	dbgVérifieVrai(Position(sCreation, "SansEspace(stCorps.Code)") > 0, "création : la clé du corps ne peut pas être vide")
+	dbgVérifieEgalité(Position(sModification, "SansEspace(stCorps.Code)"), 0, "modification : la clé vient de l'adresse, le corps n'est pas contrôlé")
+	dbgVérifieVrai(Position(sCreation, "SansEspace(stCorps.Nom)") > 0, "création : nom contrôlé")
+	dbgVérifieVrai(Position(sModification, "SansEspace(stCorps.Nom)") > 0, "modification : nom contrôlé")
+	dbgVérifieVrai(Position(sModification, "httpRequêteIncorrecte") > 0, "400 annoncé à la modification (nom)")
+FIN
+
+// Le texte est en LF, sans retour chariot, sans double ligne vide, et se termine par un saut de ligne ; aucun mot de l'utilisateur ne devient un identifiant tel quel.
+PROCEDURE scenario_texte_propre()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Bon de commande;--champs;id:entier*,date_livraison:date,nom:texte")
+	sRoutes  est une chaîne        = EbContenuRoutes(oDemande)
+	dbgVérifieEgalité(Droite(sRoutes, 1), Caract(10), "saut de ligne final")
+	dbgVérifieEgalité(Position(sRoutes, Caract(13)), 0, "pas de retour chariot")
+	dbgVérifieEgalité(Position(sRoutes, Caract(10) + Caract(10) + Caract(10)), 0, "pas de double ligne vide")
+	dbgVérifieVrai(Position(sRoutes, "ControleurBonDeCommande est un ServiceREST") > 0, "service préfixé")
+	dbgVérifieVrai(Position(sRoutes, "stBonDeCommandeCorps est une Structure") > 0, "structure préfixée")
+	dbgVérifieVrai(Position(sRoutes, "Date_livraison est une chaîne") > 0, "membre au nom de la colonne")
+	dbgVérifieVrai(Position(sRoutes, `Chemin   = ["bon_de_commandes"]`) > 0, "adresse : la table")
+FIN
+
+// Le nombre de champs du corps (une fonction rendant un tableau ne se lit pas avec « ..Occurrence » directement).
+PROCEDURE EbTestNbChampsCorps(oDemande est un cEbDemandeMake) : entier
+	tabChamps est un tableau de cEbChampTable = EbChampsCorps(oDemande)
+	RENVOYER tabChamps..Occurrence
+FIN
+
+// Le nombre de colonnes qui empêchent les routes.
+PROCEDURE EbTestNbChampsSansRoutes(oDemande est un cEbDemandeMake) : entier
+	tabRefus est un tableau de chaînes = EbChampsSansRoutes(oDemande)
+	RENVOYER tabRefus..Occurrence
+FIN
+
+// Une seule colonne texte, et c'est la clé : la création contrôle la clé et annonce 400, la modification n'a rien à contrôler et ne l'annonce pas.
+PROCEDURE scenario_cle_texte_seule_controlee_a_la_creation()
+	oDemande      est un cEbDemandeMake = EbTestDemandeRoutes("resource;Code;--champs;ref:texte*,poids:reel")
+	sRoutes       est une chaîne        = EbContenuRoutes(oDemande)
+	nModifie      est un entier         = Position(sRoutes, "ModifieCode est une OpérationHTTP")
+	sCreation     est une chaîne        = Gauche(sRoutes, nModifie)
+	sModification est une chaîne        = Milieu(sRoutes, nModifie)
+	dbgVérifieVrai(nModifie > 0, "la modification est trouvée")
+	dbgVérifieVrai(Position(sCreation, "SansEspace(stCorps.Ref)") > 0, "création : la clé est contrôlée")
+	dbgVérifieVrai(Position(sCreation, "httpRequêteIncorrecte") > 0, "création : 400 annoncé")
+	dbgVérifieEgalité(Position(sModification, "SansEspace"), 0, "modification : rien à contrôler")
+	dbgVérifieEgalité(Position(sModification, "httpRequêteIncorrecte"), 0, "modification : 400 non annoncé")
+FIN
+
+// Les noms de types (date, dateheure, heure, uuid) restent en minuscules : « owl fmt » les réécrit ainsi en tête de membre (mesuré sur 1 068 mots, owl 1.7.0), et le texte écrit par ebony doit déjà être celui du formateur.
+PROCEDURE scenario_membres_que_le_formateur_met_en_minuscules()
+	oDemande  est un cEbDemandeMake           = EbTestDemandeRoutes("resource;Bon;--champs;code:texte*,Date:date,heure:texte,uuid:texte,dateheure:dateheure,nom:texte")
+	tabChamps est un tableau de cEbChampTable = oDemande.Champs()
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[1]), "Code", "code")
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[2]), "date", "date reste en minuscules")
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[3]), "heure", "heure reste en minuscules")
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[4]), "uuid", "uuid reste en minuscules")
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[5]), "dateheure", "dateheure reste en minuscules")
+	dbgVérifieEgalité(EbMembreCorps(tabChamps[6]), "Nom", "nom")
+	sRoutes est une chaîne = EbContenuRoutes(oDemande)
+	dbgVérifieVrai(Position(sRoutes, Caract(9) + Caract(9) + "date est une chaîne") > 0, "membre date en minuscules dans la structure")
+	dbgVérifieVrai(Position(sRoutes, "stCorps.date") > 0, "lu en minuscules aussi")
+FIN
+
+// Sans garde (aucun module du projet n'en fournit), le contrôleur est écrit OUVERT : ni propriété d'authentification ni procédure, et un commentaire qui le dit.
+PROCEDURE scenario_controleur_ouvert_sans_garde()
+	oProtegee    est un cEbDemandeMake                             = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte")
+	tabSansLigne est un tableau de chaînes
+	oSansGarde   est un cEbGardeRoutes(tabSansLigne, tabSansLigne)
+	oDemande     est un cEbDemandeMake                             = oProtegee.AvecGarde(oSansGarde)
+	sRoutes      est une chaîne                                    = EbContenuRoutes(oDemande)
+	dbgVérifieEgalité(Position(sRoutes, "Authentification"), 0, "pas de schéma d'authentification")
+	dbgVérifieEgalité(Position(sRoutes, "surAuthentification"), 0, "pas de handler d'authentification")
+	dbgVérifieEgalité(Position(sRoutes, "EbIdentiteDuJeton"), 0, "aucun appel à un module")
+	dbgVérifieVrai(Position(sRoutes, "ROUTES OUVERTES") > 0, "le fichier le dit")
+	dbgVérifieVrai(Position(sRoutes, "PROCEDURE surErreur()") > 0, "le reste du contrôleur est inchangé")
+FIN
+
+// Une demande est immuable : AvecGarde rend une COPIE, l'originale garde sa valeur. Une demande qui sort de l'analyse des arguments n'a PAS de garde : seul cEbGenerationMake lit les manifestes du projet.
+PROCEDURE scenario_demande_garde_copie()
+	tabSansLigne est un tableau de chaînes
+	oSansGarde   est un cEbGardeRoutes(tabSansLigne, tabSansLigne)
+	oAnalysee    est un cEbDemandeMake                             = EbAnalyseArgumentsMake(ChaîneDécoupe("resource;Client;--champs;id:entier*,nom:texte", ";"))
+	dbgVérifieFaux(oAnalysee.GardePresente(), "sans lecture des manifestes, pas de garde")
+	oProtegee est un cEbDemandeMake = oAnalysee.AvecGarde(EbTestGarde())
+	oRetiree  est un cEbDemandeMake = oProtegee.AvecGarde(oSansGarde)
+	dbgVérifieVrai(oProtegee.GardePresente(), "la copie porte le garde")
+	dbgVérifieFaux(oAnalysee.GardePresente(), "l'originale n'a pas changé")
+	dbgVérifieFaux(oRetiree.GardePresente(), "on peut le retirer")
+	dbgVérifieEgalité(oProtegee.Pascal(), "Client", "le reste de la demande est copié")
+	dbgVérifieEgalité(oProtegee.Champs()..Occurrence, 2, "les champs aussi")
+FIN
+
+// Le garde du manifeste est écrit tel quel : les propriétés dans le bloc PROPRIETES (deux tabulations), les procédures dans le corps du service (une tabulation, les tabulations relatives gardées), une ligne vide pour une ligne vide.
+PROCEDURE scenario_garde_du_manifeste_ecrit_tel_quel()
+	sRoutes est une chaîne = EbContenuRoutes(EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte"))
+	dbgVérifieVrai(Position(sRoutes, Caract(10) + Caract(9) + Caract(9) + "UrlBase = " + Caract(91) + Caract(34) + "api" + Caract(34) + Caract(93) + Caract(10) + Caract(9) + Caract(9) + "Authentification = httpAuthBearer" + Caract(10) + Caract(9) + "FIN") > 0, "la propriété du garde suit UrlBase, à deux tabulations")
+	dbgVérifieVrai(Position(sRoutes, Caract(10) + Caract(9) + "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen" + Caract(10) + Caract(9) + Caract(9) + "sIdentite est une chaîne = EbIdentiteDuJeton(sJeton)" + Caract(10)) > 0, "la procédure du garde : une tabulation, puis le corps à deux")
+	dbgVérifieVrai(Position(sRoutes, Caract(10) + Caract(9) + Caract(9) + Caract(9) + "RENVOYER Faux" + Caract(10) + Caract(9) + Caract(9) + "FIN" + Caract(10) + Caract(9) + Caract(9) + "MoiMême..Requête..Identité = sIdentite") > 0, "les tabulations relatives du manifeste sont gardées")
+	dbgVérifieVrai(Position(sRoutes, "FIN" + Caract(10) + Caract(10) + Caract(9) + "// Une exception qui échappe aux routes") > 0, "une ligne vide sépare le garde de surErreur")
+FIN
+
+// Le contrôleur est PROTÉGÉ par défaut : schéma « Bearer », un surAuthentification qui refuse en 401 avec le corps JSON de la bibliothèque, qui pose l'identité, et un mot sur le réglage qui ouvre les routes.
+PROCEDURE scenario_controleur_protege_par_defaut()
+	oDemande est un cEbDemandeMake = EbTestDemandeRoutes("resource;Client;--champs;id:entier*,nom:texte")
+	sRoutes  est une chaîne        = EbContenuRoutes(oDemande)
+	dbgVérifieVrai(Position(sRoutes, "Authentification = httpAuthBearer") > 0, "schéma Bearer dans les PROPRIETES")
+	dbgVérifieVrai(Position(sRoutes, "PROCEDURE surAuthentification(sJeton est une chaîne) : booléen") > 0, "le handler d'authentification")
+	dbgVérifieVrai(Position(sRoutes, "EbIdentiteDuJeton(sJeton)") > 0, "il décide par la bibliothèque")
+	dbgVérifieVrai(Position(sRoutes, "MoiMême..Réponse..CodeÉtat    = httpNonAutorisé") > 0, "401 au refus")
+	dbgVérifieVrai(Position(sRoutes, `EbCorpsErreurHttp("401", "")`) > 0, "corps JSON du refus")
+	dbgVérifieVrai(Position(sRoutes, "MoiMême..Requête..Identité = sIdentite") > 0, "l'identité est posée pour les routes")
+	dbgVérifieVrai(Position(sRoutes, "AUTH_ROUTES=ouvertes") > 0, "le commentaire dit comment ouvrir les routes")
+	dbgVérifieEgalité(Position(sRoutes, "httpAuthAucune"), 0, "aucune route n'est dispensée")
+FIN

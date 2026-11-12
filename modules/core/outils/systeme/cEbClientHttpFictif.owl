@@ -1,0 +1,46 @@
+// Adaptateur de test du port iEbClientHttp : renvoie la réponse qu'on lui a préparée, sans réseau, et garde la dernière requête reçue pour que le test la vérifie.
+// Par défaut il répond 200 OK avec un corps vide ; DefinitReponse() change statut, raison et corps, AjouteEnteteReponse() ajoute un en-tête, DefinitPanne() simule « aucune réponse ».
+cEbClientHttpFictif est une Classe implemente iEbClientHttp
+PRIVÉ
+	nStatut    est un entier             = 200
+	sRaison    est une chaîne            = "OK"
+	sCorps     est une chaîne            = ""
+	tabNoms    est un tableau de chaînes
+	tabValeurs est un tableau de chaînes
+	nNbEnvois  est un entier             = 0
+	oDerniere  est un cEbDemandeHttp
+
+	PROCEDURE PUBLIQUE DefinitReponse(statut est un entier, raison est une chaîne, Corps est une chaîne)
+		:nStatut = statut
+		:sRaison = raison
+		:sCorps = Corps
+	FIN
+
+	PROCEDURE PUBLIQUE AjouteEnteteReponse(nom est une chaîne, valeur est une chaîne)
+		TableauAjoute(:tabNoms, nom)
+		TableauAjoute(:tabValeurs, valeur)
+	FIN
+
+	// Le service ne répond pas : statut 0, la cause dans la raison.
+	PROCEDURE PUBLIQUE DefinitPanne(cause est une chaîne)
+		:nStatut = 0
+		:sRaison = cause
+	FIN
+
+	// Nombre de requêtes reçues.
+	PROCEDURE PUBLIQUE NbEnvois() : entier
+		RENVOYER :nNbEnvois
+	FIN
+
+	// La dernière requête reçue (inutilisable si NbEnvois() vaut 0).
+	PROCEDURE PUBLIQUE DerniereDemande() : cEbDemandeHttp
+		RENVOYER :oDerniere
+	FIN
+
+	PROCEDURE PUBLIQUE Envoie(demande est un cEbDemandeHttp) : cEbReponseHttp
+		:oDerniere = demande
+		:nNbEnvois = :nNbEnvois + 1
+		oReponse est un cEbReponseHttp(:nStatut, :sRaison, :tabNoms, :tabValeurs, :sCorps, 12)
+		RENVOYER oReponse
+	FIN
+FIN

@@ -1,0 +1,94 @@
+// Ce que « ebony env » dit : l'objet JSON de --json (lu par les outils, un IDE par exemple) et le texte lisible. Fonctions pures, testées dans tests/unitaires/commandes/env/.
+// Format de --json, une seule ligne :
+//   { "ok", "dir", "schema", "variables": [ { "cle", "type", "obligatoire", "defaut", "secret", "description", "source", "valide", "erreur", "valeur" } ], "errors": [ ... ] }
+//   - ok : la configuration est valide ; schema : config/env.json existe (sans lui, « variables » est vide et rien n'est contrôlé) ;
+//   - source : ".env", ".env.secrets", "defaut" (la valeur par défaut du schéma) ou "absente" ; erreur : le message, ou null ;
+//   - defaut et valeur : null quand il n'y en a pas. Pour une variable SECRÈTE, defaut et valeur sont TOUJOURS null : la sortie ne contient jamais la valeur d'un secret
+//     (seulement sa source et sa validité). Pour une variable non secrète, valeur est celle qui sera utilisée (null si invalide ou absente) ;
+//   - errors : toutes les erreurs, y compris celles du schéma et des fichiers qui ne concernent aucune variable. Une erreur de variable y figure aussi, comme dans « erreur ».
+// En cas d'échec de l'examen (pas un projet ebony…) : { "ok": false, "error": ... } (voir EbSignaleEchec).
+EbSortieEnv est une CollectionDeProcédures
+
+	// Une chaîne JSON, ou « null » si elle est vide.
+	PROCEDURE EbJsonChaineOuNul(sTexte est une chaîne) : chaîne
+		SI sTexte = "" ALORS
+			RENVOYER "null"
+		FIN
+		RENVOYER EbJsonChaine(sTexte)
+	FIN
+
+	// Un objet de la liste « variables ». L'état dit d'où vient la valeur et si elle est valide ; oEnv donne la valeur utilisée, sauf pour un secret.
+	PROCEDURE EbJsonVariableEnv(oEtat est un cEbEtatVariableEnv, oEnv est un cEbEnv) : chaîne
+		oVariable est un cEbVariableEnv = oEtat.Variable()
+		sDefaut   est une chaîne        = ""
+		sValeur   est une chaîne        = ""
+		SI PAS oVariable.Secret() ALORS
+			SI oVariable.ADefaut() ALORS
+				sDefaut = oVariable.Defaut()
+			FIN
+			sValeur = oEnv.LitTexte(oVariable.Cle())
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("cle") + ":" + EbJsonChaine(oVariable.Cle())
+		sJson += "," + EbJsonChaine("type") + ":" + EbJsonChaine(oVariable.Nature())
+		sJson += "," + EbJsonChaine("obligatoire") + ":" + EbJsonBooleen(oVariable.Obligatoire())
+		sJson += "," + EbJsonChaine("defaut") + ":" + EbJsonChaineOuNul(sDefaut)
+		sJson += "," + EbJsonChaine("secret") + ":" + EbJsonBooleen(oVariable.Secret())
+		sJson += "," + EbJsonChaine("description") + ":" + EbJsonChaine(oVariable.Description())
+		sJson += "," + EbJsonChaine("source") + ":" + EbJsonChaine(oEtat.Source())
+		sJson += "," + EbJsonChaine("valide") + ":" + EbJsonBooleen(oEtat.Valide())
+		sJson += "," + EbJsonChaine("erreur") + ":" + EbJsonChaineOuNul(oEtat.Erreur())
+		sJson += "," + EbJsonChaine("valeur") + ":" + EbJsonChaineOuNul(sValeur)
+		RENVOYER sJson + "}"
+	FIN
+
+	// L'objet JSON de « ebony env --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonEnv(sDossier est une chaîne, oEnv est un cEbEnv) : chaîne
+		sVariables est une chaîne = ""
+		POUR TOUT oEtat DE oEnv.Etats()
+			SI sVariables <> "" ALORS
+				sVariables += ","
+			FIN
+			sVariables += EbJsonVariableEnv(oEtat, oEnv)
+		FIN
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":" + EbJsonBooleen(oEnv.Valide())
+		sJson += "," + EbJsonChaine("dir") + ":" + EbJsonChaine(sDossier)
+		sJson += "," + EbJsonChaine("schema") + ":" + EbJsonBooleen(oEnv.SchemaPresent())
+		sJson += "," + EbJsonChaine("variables") + ":[" + sVariables + "]"
+		sJson += "," + EbJsonChaine("errors") + ":" + EbJsonListe(oEnv.Erreurs())
+		RENVOYER sJson + "}"
+	FIN
+
+	// Le texte lisible : une ligne par variable (nom, type, d'où vient la valeur), puis les erreurs. Jamais la valeur d'un secret ; la valeur d'une variable non secrète valide est montrée.
+	PROCEDURE EbTexteEnv(sDossier est une chaîne, oEnv est un cEbEnv) : chaîne
+		sLigne est une chaîne = Caract(10)
+		sTexte est une chaîne = "Configuration de " + sDossier + sLigne
+		SI PAS oEnv.SchemaPresent() ALORS
+			sTexte += "  Pas de schéma (config/env.json absent) : aucune variable n'est contrôlée." + sLigne
+		SINON
+			POUR TOUT oEtat DE oEnv.Etats()
+				oVariable est un cEbVariableEnv = oEtat.Variable()
+				sMarque   est une chaîne        = "ok     "
+				SI PAS oEtat.Valide() ALORS
+					sMarque = "ERREUR "
+				FIN
+				sTexte += "  " + sMarque + oVariable.Cle() + " (" + oVariable.Nature() + ")"
+				sTexte += " : " + oEtat.Source()
+				SI oVariable.Secret() ALORS
+					sTexte += " [secret]"
+				SINON
+					SI oEtat.Valide() ET oEtat.Source() <> "absente" ALORS
+						sTexte += " = " + oEnv.LitTexte(oVariable.Cle())
+					FIN
+				FIN
+				sTexte += sLigne
+			FIN
+		FIN
+		SI PAS oEnv.Valide() ALORS
+			sTexte += sLigne + "Erreurs (" + oEnv.Erreurs()..Occurrence + ") :" + sLigne
+			POUR TOUT sErreur DE oEnv.Erreurs()
+				sTexte += "  - " + sErreur + sLigne
+			FIN
+		FIN
+		RENVOYER sTexte
+	FIN
+FIN

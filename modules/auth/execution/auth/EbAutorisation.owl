@@ -1,0 +1,36 @@
+// L'autorisation d'une requête par jeton d'accès : ce que le contrôleur généré par « ebony make resource » appelle dans son surAuthentification. Les routes sont PROTÉGÉES par défaut.
+// Le réglage AUTH_ROUTES (.env) les ouvre : la valeur « ouvertes » (majuscules et espaces ignorés) laisse passer toute requête, TOUT AUTRE texte (absent, vide, « protegees », faute de frappe) les protège : en cas de doute on refuse.
+// MoiMême ne peut pas être passé à une procédure : c'est la route qui pose le code 401 et l'identité ; ces fonctions ne font que DÉCIDER. Mesuré (owl 1.7.0) : surAuthentification est appelé aussi sans en-tête Authorization (jeton vide).
+EbAutorisation est une CollectionDeProcédures
+
+	// Vrai si le réglage AUTH_ROUTES ouvre les routes : seule la valeur « ouvertes » les ouvre.
+	PROCEDURE EbRoutesOuvertes(sReglage est une chaîne) : booléen
+		RENVOYER Minuscule(SansEspace(sReglage)) = "ouvertes"
+	FIN
+
+	// L'identité de la requête : « anonyme » si les routes sont ouvertes, sinon le nom du jeton quand il est connu, actif et non expiré ; « » (refus) dans tous les autres cas, jeton vide compris.
+	PROCEDURE EbIdentiteRequete(sReglage est une chaîne, sJeton est une chaîne, oJetons est un cEbJetons) : chaîne
+		SI EbRoutesOuvertes(sReglage) ALORS
+			RENVOYER "anonyme"
+		FIN
+		SI sJeton = "" ALORS
+			RENVOYER ""
+		FIN
+		RENVOYER oJetons.Identifie(sJeton)
+	FIN
+
+	// L'identité de la requête d'un service lancé, d'après l'application posée par FinInitialisation (réglage AUTH_ROUTES, base résiliente, horloge du poste). « » = refus.
+	// Une exception (application absente, base en panne que la reprise n'a pas rétablie) est un refus, jamais une autorisation.
+	PROCEDURE EbIdentiteDuJeton(sJeton est une chaîne) : chaîne
+		sIdentite est une chaîne = ""
+		QUAND EXCEPTION DANS
+			oApplication est un cEbApplication                             = cEbServiceApplication.Application()
+			oHorloge     est un cEbHorlogeSysteme
+			oJetons      est un cEbJetons(cEbServiceBase.Base(), oHorloge)
+			sIdentite = EbIdentiteRequete(oApplication.Env().LitTexte("AUTH_ROUTES"), sJeton, oJetons)
+		FAIRE
+			sIdentite = ""
+		FIN
+		RENVOYER sIdentite
+	FIN
+FIN

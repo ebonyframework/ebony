@@ -1,0 +1,35 @@
+// Tests de EbKits : les modules qu'un kit donne à un projet (hors cœur, toujours présent) et leur forme dans ebony.conf. Fonctions pures.
+
+// Le kit par défaut est « api » et il est connu.
+PROCEDURE scenario_kit_par_defaut()
+	dbgVérifieEgalité(EbKitDefaut(), "api", "le kit par défaut")
+	dbgVérifieVrai(EbValeurDansListe(EbKitDefaut(), EbKitsConnus()), "il fait partie des kits connus")
+	dbgVérifieVrai(EbValeurDansListe("slim", EbKitsConnus()), "slim aussi")
+	dbgVérifieFaux(EbValeurDansListe("web", EbKitsConnus()), "web n'existe pas encore : annoncé, pas livré")
+FIN
+
+// Le kit api : la base, puis l'authentification (qui en dépend).
+PROCEDURE scenario_modules_du_kit_api()
+	tabModules est un tableau de chaînes = EbModulesDuKit("api")
+	dbgVérifieEgalité(tabModules..Occurrence, 2, "deux modules")
+	dbgVérifieEgalité(tabModules[1], "db", "la base d'abord")
+	dbgVérifieEgalité(tabModules[2], "auth", "l'authentification ensuite")
+FIN
+
+// Le kit slim : le cœur seul, aucun module.
+PROCEDURE scenario_modules_du_kit_slim()
+	tabModules est un tableau de chaînes = EbModulesDuKit("slim")
+	dbgVérifieEgalité(tabModules..Occurrence, 0, "aucun module hors cœur")
+FIN
+
+// La casse du nom de kit ne change rien ; un kit inconnu donne ceux du kit par défaut (l'appelant a validé le nom).
+PROCEDURE scenario_kit_casse_et_kit_inconnu()
+	dbgVérifieEgalité(EbModulesDuKit("SLIM")..Occurrence, 0, "SLIM est slim")
+	dbgVérifieEgalité(EbModulesDuKit("inconnu")..Occurrence, 2, "un kit inconnu donne ceux de api")
+FIN
+
+// La forme JSON de ebony.conf : un tableau, vide pour le cœur seul.
+PROCEDURE scenario_modules_en_json()
+	dbgVérifieEgalité(EbModulesEnJson("api"), `["db","auth"]`, "api")
+	dbgVérifieEgalité(EbModulesEnJson("slim"), "[]", "slim : un tableau vide, pas null")
+FIN

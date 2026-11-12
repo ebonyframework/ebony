@@ -1,0 +1,39 @@
+// Vérifie qu'ebony pourra écrire dans le dossier d'où l'utilisateur l'a lancé : il y écrit un petit fichier de test, puis le supprime.
+// Toute génération (projet, module, migration) écrit dans ce dossier ; un refus d'accès, un disque plein ou un dossier protégé
+// se découvre ici plutôt qu'au milieu d'une génération. OWL ne lève rien en cas d'échec d'écriture : c'est le port qui le transforme en exception.
+// Si OWL n'a pas pu se placer dans le dossier de lancement, rien n'est écrit : « Accès au dossier » le signale déjà et un second message ferait doublon.
+// Ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque.
+cEbVerifEcritureLancement est une Classe implemente iEbVerification
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "ecriture"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			RENVOYER cEbResultatVerification("Écriture", eEbStatut.avertissement, "non vérifiée : owl ne travaille pas dans " + sLancement, "Corrigez d'abord « Accès au dossier », puis relancez.")
+		FIN
+		sTemoin est une chaîne = EbJointChemin(sLancement, ".ebony-doctor-ecriture.tmp")
+		sCause  est une chaîne = ""
+		QUAND EXCEPTION DANS
+			:oSysteme.EcritFichierTemoin(sTemoin)
+		FAIRE
+			sCause = ExceptionInfo(errMessage)
+		FIN
+		SI sCause <> "" ALORS
+			RENVOYER cEbResultatVerification("Écriture", eEbStatut.erreur, "ebony ne peut pas écrire dans " + sLancement + " (" + sCause + ")", "Lancez ebony depuis un dossier où vous avez le droit d'écrire (pas un dossier système), et vérifiez l'espace disque.")
+		FIN
+		SI PAS :oSysteme.SupprimeFichier(sTemoin) ALORS
+			RENVOYER cEbResultatVerification("Écriture", eEbStatut.avertissement, "l'écriture fonctionne, mais le fichier de test n'a pas pu être supprimé : " + sTemoin, "Supprimez ce fichier à la main.")
+		FIN
+		RENVOYER cEbResultatVerification("Écriture", eEbStatut.reussi, "ebony peut écrire dans " + sLancement, "")
+	FIN
+FIN

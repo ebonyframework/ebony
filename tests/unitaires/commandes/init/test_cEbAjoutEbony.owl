@@ -1,0 +1,324 @@
+// Tests de cEbAjoutEbony (« ebony init ») avec un faux disque : le cas normal, la preuve que RIEN de l'utilisateur n'est modifié, chaque refus avec son code,
+// et que rien n'est écrit quand une vérification échoue.
+
+// Un disque où ebony est installé dans D:\ebony (bibliothèque : 3 fichiers, version 0.1.0) et où l'utilisateur est dans C:\Projets\Mon App, un projet OWL avec son projet.owl.
+PROCEDURE EbTestDisque() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\Mon App")
+	oDisque.AjouteDossier("C:\Projets")
+	oDisque.AjouteDossier("C:\Projets\Mon App")
+	oDisque.AjouteFichier("C:\Projets\Mon App\projet.owl", "MonAppli est un Projet" + Caract(10) + "FIN" + Caract(10))
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution\config")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\README.md", "bibliotheque")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\config\README.md", "config")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\README.md", "auth")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\donnees")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\donnees\README.md", "donnees")
+	// Le manifeste d'auth fournit config/Auth.owl avec --auth (le fichier vient des modules, plus du cœur) : même forme que celui de modules/auth/execution/modules/auth.json, en plus court.
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "fichiers": [ { "chemin": "config/Auth.owl", "option": "auth", "lignes": [ "cConfigAuth est une Classe", "", "\tPROCEDURE PUBLIQUE TableUtilisateurs() : chaîne", "\t\tRENVOYER \"{table_utilisateurs}\"", "\tFIN", "", "FIN" ] } ] }`)
+	RENVOYER oDisque
+FIN
+
+// Lance l'ajout et rend « code|message » s'il lève, ou « » s'il réussit.
+PROCEDURE EbTestEchec(oDisque est un cEbSystemeFichiersFictif, oOptions est un cEbOptionsProjet) : chaîne
+	sRes   est une chaîne                         = ""
+	oAjout est un cEbAjoutEbony(oDisque, oDisque)
+	QUAND EXCEPTION DANS
+		oAjoute est un cEbEbonyAjoute = oAjout.Execute(oOptions)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Cas normal : tout est ajouté, projet.owl est conservé tel quel, l'identifiant vient de projet.owl et le nom du dossier devient le nom du projet.
+PROCEDURE scenario_ajout_complet()
+	oDisque      est un cEbSystemeFichiersFictif        = EbTestDisque()
+	sProjetAvant est une chaîne                         = oDisque.LitTexte("C:\Projets\Mon App\projet.owl")
+	oAjout       est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions     est un cEbOptionsProjet                = EbOptionsParDefaut()
+	oAjoute      est un cEbEbonyAjoute                  = oAjout.Execute(oOptions)
+	dbgVérifieEgalité(oAjoute.Nom(), "Mon App", "nom = nom du dossier")
+	dbgVérifieEgalité(oAjoute.Dossier(), "mon-app", "dossier déduit")
+	dbgVérifieEgalité(oAjoute.Identifiant(), "MonAppli", "identifiant lu dans projet.owl, pas déduit du dossier")
+	dbgVérifieEgalité(oAjoute.Chemin(), "C:\Projets\Mon App", "chemin")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\projet.owl"), sProjetAvant, "projet.owl intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"), EbContenuConf("Mon App", "mon-app", "MonAppli", "0.1.0"), "ebony.conf")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.gitignore"), EbContenuGitignore(), ".gitignore créé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.env.exemple"), EbContenuEnvExemple("mon-app", oOptions), ".env.exemple créé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.env.secrets.exemple"), EbContenuSecretsExemple(oOptions), ".env.secrets.exemple créé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\README.md"), EbContenuReadme("Mon App"), "README.md créé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\AGENTS.md"), EbContenuAgents("Mon App"), "AGENTS.md créé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony\VERSION"), "0.1.0" + Caract(10), "bibliothèque copiée")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony\config\README.md"), "config", "sous-dossier copié")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, ebony.conf", "liste des créés")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Conserves()), "projet.owl", "liste des conservés")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 0, "aucune note : rien à faire soi-même")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\Mon App\config\Auth.owl"), "pas de config/Auth.owl sans --auth (le dossier config existe : il porte env.json)")
+FIN
+
+// Les fichiers que l'utilisateur a déjà (.gitignore, .env.exemple, README.md, projet.owl) ne sont jamais écrasés ; des notes disent quoi y ajouter.
+PROCEDURE scenario_fichiers_existants_conserves()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteFichier("C:\Projets\Mon App\.gitignore", "*.log" + Caract(10) + "ebony/" + Caract(10))
+	oDisque.AjouteFichier("C:\Projets\Mon App\.env.exemple", "MA_VARIABLE=1" + Caract(10))
+	oDisque.AjouteFichier("C:\Projets\Mon App\.env.secrets.exemple", "MON_SECRET=" + Caract(10))
+	oDisque.AjouteFichier("C:\Projets\Mon App\README.md", "Mon texte")
+	oDisque.AjouteFichier("C:\Projets\Mon App\AGENTS.md", "Mes consignes")
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oAjoute  est un cEbEbonyAjoute                                  = oAjout.Execute(oOptions)
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.gitignore"), "*.log" + Caract(10) + "ebony/" + Caract(10), ".gitignore intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.env.exemple"), "MA_VARIABLE=1" + Caract(10), ".env.exemple intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.env.secrets.exemple"), "MON_SECRET=" + Caract(10), ".env.secrets.exemple intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\README.md"), "Mon texte", "README.md intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\AGENTS.md"), "Mes consignes", "AGENTS.md intact")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, config/env.json, ebony.conf", "seuls ebony/, config/env.json et ebony.conf sont créés (l'utilisateur n'avait pas de schéma)")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Conserves()), "projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, README.md, AGENTS.md", "six conservés")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 3, "trois notes : .gitignore, .env.exemple et .env.secrets.exemple")
+	dbgVérifieVrai(Position(oAjoute.Notes()[1], "storage/, .env") > 0 ET Position(oAjoute.Notes()[1], "ebony/,") = 0, "la note du .gitignore ne cite que ce qui manque : " + oAjoute.Notes()[1])
+	dbgVérifieVrai(Position(oAjoute.Notes()[2], "DB_HOTE, DB_PORT, DB_NOM, DB_UTILISATEUR") > 0 ET Position(oAjoute.Notes()[2], "DB_MOT_DE_PASSE,") = 0, "la note du .env.exemple liste les variables de PostgreSQL : " + oAjoute.Notes()[2])
+FIN
+
+// Un projet.owl sans bloc reconnaissable : l'identifiant est déduit du dossier, avec une note.
+PROCEDURE scenario_identifiant_deduit()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.EcritTexte("C:\Projets\Mon App\projet.owl", "// rien de reconnaissable" + Caract(10))
+	oAjout  est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute est un cEbEbonyAjoute                  = oAjout.Execute(EbOptionsParDefaut())
+	dbgVérifieEgalité(oAjoute.Identifiant(), "AppMonApp", "identifiant déduit du dossier")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 1, "une note")
+	dbgVérifieVrai(Position(oAjoute.Notes()[1], "AppMonApp") > 0, "la note donne l'identifiant : " + oAjoute.Notes()[1])
+	j est un JSON = ChaîneVersJSON(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"))
+	dbgVérifieEgalité(j.projet.identifiant, "AppMonApp", "ebony.conf")
+FIN
+
+// Avec les choix : base, authentification, config/Auth.owl créé (et son dossier), ebony.conf avec la section auth.
+PROCEDURE scenario_avec_options()
+	oDisque  est un cEbSystemeFichiersFictif                        = EbTestDisque()
+	oOptions est un cEbOptionsProjet("api", "hfsql", Vrai, "users")
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute  est un cEbEbonyAjoute                                  = oAjout.Execute(oOptions)
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\Mon App\config\Auth.owl"), "RENVOYER " + Caract(34) + "users" + Caract(34)) > 0, "config/Auth.owl vient du manifeste, avec la table choisie")
+	j est un JSON = ChaîneVersJSON(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"))
+	dbgVérifieEgalité(j.base.fournisseur, "hfsql", "base")
+	dbgVérifieVrai(j.auth.jetons, "jetons")
+	dbgVérifieEgalité(j.auth.table, "users", "table")
+	dbgVérifieEgalité(j.auth.mode, "opaque", "mode")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, config/Auth.owl, ebony.conf", "config/Auth.owl dans les créés")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\Mon App\.env.exemple"), "DB_PORT=4900") > 0, ".env.exemple HFSQL")
+FIN
+
+// Un dossier config déjà là (avec le code de l'utilisateur) ne gêne pas : seul config/Auth.owl serait un conflit, et le reste de config est intact.
+PROCEDURE scenario_dossier_config_existant()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteDossier("C:\Projets\Mon App\config")
+	oDisque.AjouteFichier("C:\Projets\Mon App\config\Base.owl", "mon code")
+	oAjout  est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute est un cEbEbonyAjoute                  = oAjout.Execute(EbTestOptionsAuth())
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\config\Base.owl"), "mon code", "fichier voisin intact")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\Mon App\config\Auth.owl"), "Auth.owl ajouté")
+FIN
+
+PROCEDURE EbTestOptionsAuth() : cEbOptionsProjet
+	oOptions est un cEbOptionsProjet("api", "sqlite", Vrai, "utilisateurs")
+	RENVOYER oOptions
+FIN
+
+// Refus : chacun avec son code, son message utile, et RIEN d'écrit (ni dossier, ni fichier).
+PROCEDURE scenario_refus_pas_un_projet_owl()
+	// Le faux disque ne sait pas supprimer pour de bon : on part d'un dossier sans projet.owl.
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\Vide")
+	oDisque.AjouteDossier("C:\Projets")
+	oDisque.AjouteDossier("C:\Projets\Vide")
+	oDisque.AjouteFichier("C:\Projets\Vide\notes.txt", "autre chose")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	nFichiers est un entier  = oDisque.NbFichiers()
+	sRes      est une chaîne = EbTestEchec(oDisque, EbOptionsParDefaut())
+	dbgVérifieEgalité(Gauche(sRes, 3), "26|", "code 26")
+	dbgVérifieVrai(Position(sRes, "projet.owl est absent") > 0 ET Position(sRes, "ebony new") > 0, "dit pourquoi et renvoie vers new : " + sRes)
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+PROCEDURE scenario_refus_ebony_deja_present()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony.conf", "{}")
+	nFichiers est un entier  = oDisque.NbFichiers()
+	sRes      est une chaîne = EbTestEchec(oDisque, EbOptionsParDefaut())
+	dbgVérifieEgalité(Gauche(sRes, 3), "27|", "code 27")
+	dbgVérifieVrai(Position(sRes, "ebony upgrade") > 0, "renvoie vers ebony upgrade : " + sRes)
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"), "{}", "ebony.conf intact")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+PROCEDURE scenario_refus_conflits_listes_ensemble()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteDossier("C:\Projets\Mon App\ebony")
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony\mien.txt", "a moi")
+	oDisque.AjouteDossier("C:\Projets\Mon App\config")
+	oDisque.AjouteFichier("C:\Projets\Mon App\config\Auth.owl", "ma config")
+	nFichiers est un entier  = oDisque.NbFichiers()
+	sRes      est une chaîne = EbTestEchec(oDisque, EbTestOptionsAuth())
+	dbgVérifieEgalité(Gauche(sRes, 3), "28|", "code 28")
+	dbgVérifieVrai(Position(sRes, "ebony/, config/Auth.owl") > 0, "les deux conflits sont listés : " + sRes)
+	dbgVérifieVrai(Position(sRes, "Rien n'a été écrit") > 0, "dit que rien n'a été écrit")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\config\Auth.owl"), "ma config", "Auth.owl de l'utilisateur intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony\mien.txt"), "a moi", "ebony/ de l'utilisateur intact")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+// Un FICHIER nommé ebony ou config est aussi un conflit.
+PROCEDURE scenario_refus_fichier_nomme_ebony_ou_config()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteFichier("C:\Projets\Mon App\ebony", "un fichier")
+	oDisque.AjouteFichier("C:\Projets\Mon App\config", "un fichier")
+	sRes est une chaîne = EbTestEchec(oDisque, EbTestOptionsAuth())
+	dbgVérifieEgalité(Gauche(sRes, 3), "28|", "code 28")
+	dbgVérifieVrai(Position(sRes, "ebony/") > 0 ET Position(sRes, "config (un fichier porte ce nom)") > 0, "les deux sont nommés : " + sRes)
+FIN
+
+// Sans --auth, un config/Auth.owl existant n'est pas un conflit (on n'y écrit pas).
+PROCEDURE scenario_sans_auth_pas_de_conflit_config()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteDossier("C:\Projets\Mon App\config")
+	oDisque.AjouteFichier("C:\Projets\Mon App\config\Auth.owl", "ma config")
+	dbgVérifieEgalité(EbTestEchec(oDisque, EbOptionsParDefaut()), "", "pas d'erreur")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\config\Auth.owl"), "ma config", "Auth.owl intact")
+FIN
+
+PROCEDURE scenario_refus_nom_de_dossier()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\???")
+	oDisque.AjouteDossier("C:\Projets")
+	oDisque.AjouteDossier("C:\Projets\???")
+	oDisque.AjouteFichier("C:\Projets\???\projet.owl", "X est un Projet")
+	oDisque.DefinitInstallation("D:\ebony")
+	sRes est une chaîne = EbTestEchec(oDisque, EbOptionsParDefaut())
+	dbgVérifieEgalité(Gauche(sRes, 3), "20|", "code 20")
+	dbgVérifieVrai(Position(sRes, "Renommez le dossier") > 0, "dit de renommer le dossier : " + sRes)
+FIN
+
+PROCEDURE scenario_refus_owl_mal_place()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.DefinitActif("D:\ailleurs")
+	nFichiers est un entier = oDisque.NbFichiers()
+	dbgVérifieEgalité(Gauche(EbTestEchec(oDisque, EbOptionsParDefaut()), 3), "21|", "code 21")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+PROCEDURE scenario_refus_installation_illisible()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.DefinitInstallation("")
+	nFichiers est un entier = oDisque.NbFichiers()
+	dbgVérifieEgalité(Gauche(EbTestEchec(oDisque, EbOptionsParDefaut()), 3), "22|", "code 22")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "aucun fichier écrit")
+FIN
+
+// Une écriture qui échoue en route : code 24, projet.owl et fichiers de l'utilisateur intacts, et ebony.conf (écrit en dernier) absent, donc le projet n'est pas pris pour un projet ebony.
+PROCEDURE scenario_ecriture_interrompue()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	sProjet est une chaîne                  = oDisque.LitTexte("C:\Projets\Mon App\projet.owl")
+	oDisque.DefinitEchecSur("README.md")
+	sRes est une chaîne = EbTestEchec(oDisque, EbOptionsParDefaut())
+	dbgVérifieEgalité(Gauche(sRes, 3), "24|", "code 24")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\projet.owl"), sProjet, "projet.owl intact")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\Mon App\ebony.conf"), "ebony.conf pas écrit")
+	dbgVérifieVrai(Position(sRes, "Vos fichiers n'ont pas été touchés") > 0, "dit que les fichiers de l'utilisateur sont intacts : " + sRes)
+FIN
+
+// Relancé sur le même dossier après un ajout réussi : refusé (ebony.conf existe), rien ne change.
+PROCEDURE scenario_deuxieme_ajout_refuse()
+	oDisque   est un cEbSystemeFichiersFictif        = EbTestDisque()
+	oAjout    est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute   est un cEbEbonyAjoute                  = oAjout.Execute(EbOptionsParDefaut())
+	nFichiers est un entier                          = oDisque.NbFichiers()
+	dbgVérifieEgalité(Gauche(EbTestEchec(oDisque, EbOptionsParDefaut()), 3), "27|", "code 27")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien ajouté")
+FIN
+
+// Un config/env.json que l'utilisateur a déjà n'est jamais écrasé ; une note l'invite à le vérifier avec « ebony env ».
+PROCEDURE scenario_schema_existant_conserve()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.AjouteFichier("C:\Projets\Mon App\config\env.json", "{ ""variables"": [] }")
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oAjoute  est un cEbEbonyAjoute                                  = oAjout.Execute(oOptions)
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\config\env.json"), "{ ""variables"": [] }", "config/env.json intact")
+	dbgVérifieFaux(Position(EbListeVirgules(oAjoute.Crees()), "config/env.json") > 0, "pas dans les créés")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Conserves()), "config/env.json") > 0, "dans les conservés")
+	bNote est un booléen = Faux
+	POUR TOUT sNote DE oAjoute.Notes()
+		SI Position(sNote, "config/env.json") > 0 ET Position(sNote, "ebony env") > 0 ALORS
+			bNote = Vrai
+		FIN
+	FIN
+	dbgVérifieVrai(bNote, "une note invite à le vérifier avec ebony env")
+FIN
+
+// Sans schéma chez l'utilisateur, ebony init écrit celui de la base choisie, identique à celui d'ebony new.
+PROCEDURE scenario_schema_cree_comme_new()
+	oDisque  est un cEbSystemeFichiersFictif                        = EbTestDisque()
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oAjoute  est un cEbEbonyAjoute                                  = oAjout.Execute(oOptions)
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\config\env.json"), EbContenuSchemaEnv("mon-app", oOptions), "config/env.json créé")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Crees()), "config/env.json") > 0, "dans les créés")
+FIN
+
+// Une migration déclarée par un module est ajoutée par « ebony init » dans database/migrations/ si elle manque ; une migration que le projet a déjà n'est jamais écrasée (elle est « conservée »).
+PROCEDURE scenario_migration_d_un_module_ajoutee_ou_conservee()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEbJetons", "monte": ["CREATE TABLE eb_jetons (empreinte TEXT)"], "descend": ["DROP TABLE eb_jetons"] } ] }`)
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute  est un cEbEbonyAjoute                  = oAjout.Execute(EbOptionsParDefaut())
+	sFichier est une chaîne                         = "C:\Projets\Mon App\database\migrations\M202611100000_CreeEbJetons.owl"
+	dbgVérifieVrai(oDisque.FichierExiste(sFichier), "la migration est ajoutée")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Crees()), "database/migrations/M202611100000_CreeEbJetons.owl") > 0, "elle est annoncée parmi les créés")
+	oAvecExistante est un cEbSystemeFichiersFictif = EbTestDisque()
+	oAvecExistante.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oAvecExistante.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEbJetons", "monte": ["CREATE TABLE eb_jetons (empreinte TEXT)"], "descend": ["DROP TABLE eb_jetons"] } ] }`)
+	oAvecExistante.CreeDossier("C:\Projets\Mon App\database\migrations")
+	oAvecExistante.EcritTexte("C:\Projets\Mon App\database\migrations\M202611100000_CreeEbJetons.owl", "version du projet")
+	oAjout2  est un cEbAjoutEbony(oAvecExistante, oAvecExistante)
+	oAjoute2 est un cEbEbonyAjoute                                = oAjout2.Execute(EbOptionsParDefaut())
+	dbgVérifieEgalité(oAvecExistante.LitTexte("C:\Projets\Mon App\database\migrations\M202611100000_CreeEbJetons.owl"), "version du projet", "le fichier du projet est intact")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute2.Conserves()), "database/migrations/M202611100000_CreeEbJetons.owl") > 0, "elle est annoncée parmi les conservés")
+FIN
+
+// « ebony init --auth » n'écrit PAS la migration des utilisateurs : le projet existant a déjà sa table (un CREATE TABLE ferait échouer « ebony migrate »). Celle des jetons, sans option, est écrite.
+PROCEDURE scenario_init_avec_auth_n_ecrit_pas_la_table_des_utilisateurs()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "migrations": [ { "horodatage": "202611100000", "nom": "CreeEbJetons", "monte": ["CREATE TABLE eb_jetons (empreinte TEXT)"], "descend": ["DROP TABLE eb_jetons"] }, { "horodatage": "202611100001", "nom": "CreeUtilisateurs", "option": "auth", "monte": ["CREATE TABLE {table_utilisateurs} (identifiant TEXT)"], "descend": ["DROP TABLE {table_utilisateurs}"] } ] }`)
+	oAjout   est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions est un cEbOptionsProjet("api", "sqlite", Vrai, "users")
+	oAjoute  est un cEbEbonyAjoute                                   = oAjout.Execute(oOptions)
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\Mon App\database\migrations\M202611100001_CreeUtilisateurs.owl"), "pas de table des utilisateurs : elle existe déjà dans le projet")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\Mon App\database\migrations\M202611100000_CreeEbJetons.owl"), "celle des jetons est écrite")
+FIN
+
+// init avec le kit slim : seule la bibliothèque du cœur est copiée, ebony.conf déclare une liste de modules vide ; avec le kit par défaut, les modules du kit api sont notés et copiés.
+PROCEDURE scenario_kit_slim_et_kit_api()
+	oSlim       est un cEbSystemeFichiersFictif                     = EbTestDisque()
+	oOptionsSl  est un cEbOptionsProjet("slim", "", Faux, "")
+	oAjoutSlim  est un cEbAjoutEbony(oSlim, oSlim)
+	oAjouteSlim est un cEbEbonyAjoute                               = oAjoutSlim.Execute(oOptionsSl)
+	sConfSlim   est une chaîne                                      = oSlim.LitTexte("C:\Projets\Mon App\ebony.conf")
+	dbgVérifieVrai(oSlim.FichierExiste("C:\Projets\Mon App\ebony\config\README.md"), "slim : le cœur est copié")
+	dbgVérifieFaux(oSlim.FichierExiste("C:\Projets\Mon App\ebony\auth\README.md"), "slim : auth n'est pas copié")
+	dbgVérifieFaux(oSlim.FichierExiste("C:\Projets\Mon App\ebony\donnees\README.md"), "slim : db n'est pas copié")
+	dbgVérifieEgalité(EbModulesDeLaConf(sConfSlim)..Occurrence, 0, "slim : aucun module noté")
+	dbgVérifieVrai(EbConfDeclareModules(sConfSlim), "slim : la liste est déclarée")
+	oApi       est un cEbSystemeFichiersFictif  = EbTestDisque()
+	oAjoutApi  est un cEbAjoutEbony(oApi, oApi)
+	oAjouteApi est un cEbEbonyAjoute            = oAjoutApi.Execute(EbOptionsParDefaut())
+	sConfApi   est une chaîne                   = oApi.LitTexte("C:\Projets\Mon App\ebony.conf")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sConfApi)), "db, auth", "api : la base et l'authentification")
+	dbgVérifieVrai(oApi.FichierExiste("C:\Projets\Mon App\ebony\donnees\README.md"), "api : db est copié")
+FIN

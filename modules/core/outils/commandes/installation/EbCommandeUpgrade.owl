@@ -1,0 +1,19 @@
+EbCommandeUpgrade est une CollectionDeProcédures
+
+	// Racine de composition de « upgrade » : aligne ebony/ et le minimum d'ebony.conf sur l'ebony installé. Une erreur est une exception (codes 22, 30 à 32, 34 à 37), donc code de sortie 1 (70 sans le lanceur).
+	PROCEDURE EbExecuteUpgrade()
+		oSysteme   est un cEbSystemeFichiersReel
+		oMiseAJour est un cEbMiseAJourBibliotheque(oSysteme, oSysteme)
+		oFaite     est un cEbBibliothequeMiseAJour                     = oMiseAJour.Execute()
+		SI oFaite.DejaAJour() ALORS
+			Trace("Le projet est déjà aligné sur l'ebony installé (version " + oFaite.Version() + "). Rien n'a été écrit.")
+			RENVOYER
+		FIN
+		SI oFaite.Copiee() ALORS
+			Trace("Bibliothèque copiée : " + oFaite.Chemin() + " (version " + oFaite.Version() + ").")
+		FIN
+		SI oFaite.ConfModifiee() ALORS
+			Trace("ebony.conf : ebony.version vaut maintenant " + oFaite.Version() + ".")
+		FIN
+	FIN
+FIN

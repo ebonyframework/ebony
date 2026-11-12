@@ -1,0 +1,110 @@
+// Ce que « ebony make » dit à la fin : les notes (« notes ») et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/make/.
+// Format de --json (une seule ligne, rien d'autre sur la sortie) :
+//   { "ok": true, "command": "make resource", "name": "Client", "table": "clients", "dir": "<dossier du projet>", "dryRun": false, "created": [...], "kept": [...], "notes": [...] }
+// « created » : les fichiers créés (avec --dry-run : ceux qui le seraient), chemins relatifs au projet avec des « / ». « kept » : ceux qui existaient et n'ont pas été touchés (ebony ne remplace jamais un fichier).
+// « notes » : ce que l'utilisateur doit savoir ou faire ensuite. En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec) ; rien n'a été écrit, sauf erreur 24.
+EbSortieMake est une CollectionDeProcédures
+
+	// Les notes de la commande : ce qui n'est pas branché, ce qui est supposé, ce qui n'est pas vérifié, et un fichier conservé par note.
+	PROCEDURE EbNotesMake(oDemande est un cEbDemandeMake, sBase est une chaîne, tabConserves est un tableau de chaînes) : tableau de chaînes
+		tabNotes  est un tableau de chaînes
+		bNullable est un booléen            = Faux
+		bDate     est un booléen            = Faux
+		bRef      est un booléen            = Faux
+		POUR TOUT oChamp DE oDemande.Champs()
+			SI oChamp.Nullable() ALORS
+				bNullable = Vrai
+			FIN
+			SI oChamp.TypeChamp() = "date" OU oChamp.TypeChamp() = "dateheure" ALORS
+				bDate = Vrai
+			FIN
+			SI oChamp.ARef() ALORS
+				bRef = Vrai
+			FIN
+		FIN
+		oCle est un cEbChampTable = EbChampCle(oDemande.Champs())
+		SI oDemande.SousCommande() = "migration" ALORS
+			TableauAjoute(tabNotes, "La migration crée la table « " + oDemande.NomTable() + " » (SQL " + sBase + "). « ebony migrate » l'applique (« ebony migrate --dry-run » dit d'abord ce qu'il ferait) ; il LIT ce fichier, donc gardez la forme écrite par ebony (une instruction par TableauAjoute).")
+			SI bRef ALORS
+				TableauAjoute(tabNotes, "Les clés étrangères (@) exigent que la table référencée existe déjà au moment de l'application.")
+			FIN
+			SI sBase = "postgresql" ALORS
+				TableauAjoute(tabNotes, "PostgreSQL : aucun test n'est généré (il faut un serveur) ; ce SQL a été vérifié sur PostgreSQL 16 par ebony (tests/integration/postgresql.ps1), pas sur les autres versions.")
+			FIN
+		SINON
+			TableauAjoute(tabNotes, "Le service est dans " + EbCheminService(oDemande) + " : vos règles métier vont là (il passe pour l'instant les appels au repository, sans règle). Le test du service est " + EbCheminTestService(oDemande) + ".")
+			tabSansRoutes est un tableau de chaînes = EbChampsSansRoutes(oDemande)
+			SI tabSansRoutes..Occurrence = 0 ALORS
+				TableauAjoute(tabNotes, "Le contrôleur est dans " + EbCheminRoutes(oDemande) + " : un ServiceREST à part (le type d'OWL), monté par « owl serve » avec celui de l'application (routes GET, POST, PUT, DELETE sur /api/" + EbSegmentRoutes(oDemande) + "). Il appelle le service (" + EbCheminService(oDemande) + "), qui appelle cRepo" + oDemande.Pascal() + "Sql.")
+				SI oDemande.GardePresente() ALORS
+					TableauAjoute(tabNotes, "Les routes sont PROTÉGÉES par le garde que fournit un module du projet : le commentaire au début du contrôleur dit comment obtenir un accès et comment ouvrir les routes en développement.")
+				SINON
+					TableauAjoute(tabNotes, "Les routes sont OUVERTES : aucun module de ce projet (ebony/modules/*.json) ne fournit de garde, donc rien n'exige de jeton. Ajoutez un module qui en fournit un puis régénérez le contrôleur pour les protéger.")
+				FIN
+				TableauAjoute(tabNotes, "Le corps d'une création ou d'une modification est lu par OWL de façon tolérante : un champ absent ou d'un autre type prend la valeur par défaut du type, sans erreur (une modification peut donc écraser une colonne par 0 ou un texte vide). Seul un texte obligatoire vide donne 400.")
+			SINON
+				TableauAjoute(tabNotes, "Le contrôleur n'est pas écrit : OWL ignorerait en silence, dans le corps JSON, le membre de ces colonnes (mot réservé ou nom illisible pour OWL) : « " + EbListeVirgules(tabSansRoutes) + " ». Renommez la colonne, ou écrivez votre contrôleur. Dans votre contrôleur : oRepository est un cRepo" + oDemande.Pascal() + "Sql(cEbServiceBase.Base()), puis oService est un cService" + oDemande.Pascal() + "(oRepository) ; appelez le service, pas le repository.")
+			FIN
+			SI EbCleGeneree(oCle) ALORS
+				TableauAjoute(tabNotes, "La clé « " + oCle.NomColonne() + " » est supposée générée par la base (auto-incrément) : le repository ne l'écrit pas à l'ajout.")
+			FIN
+			SI bNullable ALORS
+				TableauAjoute(tabNotes, "Une colonne qui accepte NULL est lue comme la valeur par défaut de son type (0, texte vide, Faux) ; ebony n'écrit jamais NULL.")
+			FIN
+			SI bDate ALORS
+				TableauAjoute(tabNotes, "Les colonnes date et dateheure sont lues et écrites comme du texte ISO 8601 (AAAA-MM-JJ, AAAA-MM-JJTHH:MM:SS), dans une colonne TEXT ; vérifié sur PostgreSQL 16.")
+			FIN
+			SI sBase = "postgresql" ALORS
+				TableauAjoute(tabNotes, "PostgreSQL : dans le projet généré, le test du repository SQL tourne sur SQLite en mémoire (il faut un serveur pour PostgreSQL) ; ce SQL a été vérifié sur PostgreSQL 16 par ebony.")
+			FIN
+			SI sBase = "hfsql" ALORS
+				TableauAjoute(tabNotes, "HFSQL : le SQL du repository (RETURNING compris) n'a pas été vérifié sur HFSQL ; le test du repository tourne sur SQLite.")
+			FIN
+		FIN
+		POUR TOUT sConserve DE tabConserves
+			TableauAjoute(tabNotes, sConserve + " existe déjà : conservé, non modifié. Vérifiez qu'il correspond aux champs demandés.")
+		FIN
+		RENVOYER tabNotes
+	FIN
+
+	// L'objet JSON de « ebony make --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonMakeGenere(oGenere est un cEbMakeGenere) : chaîne
+		sJson est une chaîne = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("command") + ":" + EbJsonChaine(oGenere.NomCommande())
+		sJson += "," + EbJsonChaine("name") + ":" + EbJsonChaine(oGenere.Nom())
+		sJson += "," + EbJsonChaine("table") + ":" + EbJsonChaine(oGenere.NomTable())
+		sJson += "," + EbJsonChaine("dir") + ":" + EbJsonChaine(oGenere.Chemin())
+		sJson += "," + EbJsonChaine("dryRun") + ":" + EbJsonBooleen(oGenere.Simulation())
+		sJson += "," + EbJsonChaine("created") + ":" + EbJsonListe(oGenere.Crees())
+		sJson += "," + EbJsonChaine("kept") + ":" + EbJsonListe(oGenere.Conserves())
+		sJson += "," + EbJsonChaine("notes") + ":" + EbJsonListe(oGenere.Notes()) + "}"
+		RENVOYER sJson
+	FIN
+
+	// Le texte lisible, une ligne par fichier.
+	PROCEDURE EbTexteMakeGenere(oGenere est un cEbMakeGenere) : chaîne
+		sLigne est une chaîne = Caract(10)
+		sTexte est une chaîne = "ebony " + oGenere.NomCommande() + " : " + oGenere.Nom() + " (table " + oGenere.NomTable() + ")" + sLigne
+		SI oGenere.Simulation() ALORS
+			sTexte += "Aperçu (--dry-run) : rien n'a été écrit." + sLigne
+			sTexte += "  Seraient créés (" + oGenere.Crees()..Occurrence + ") :" + sLigne
+		SINON
+			sTexte += "  Créés (" + oGenere.Crees()..Occurrence + ") :" + sLigne
+		FIN
+		POUR TOUT sFichier DE oGenere.Crees()
+			sTexte += "    " + sFichier + sLigne
+		FIN
+		SI oGenere.Conserves()..Occurrence > 0 ALORS
+			sTexte += "  Conservés, non modifiés (" + oGenere.Conserves()..Occurrence + ") :" + sLigne
+			POUR TOUT sFichier DE oGenere.Conserves()
+				sTexte += "    " + sFichier + sLigne
+			FIN
+		FIN
+		SI oGenere.Notes()..Occurrence > 0 ALORS
+			sTexte += sLigne + "À savoir :" + sLigne
+			POUR TOUT sNote DE oGenere.Notes()
+				sTexte += "  - " + sNote + sLigne
+			FIN
+		FIN
+		RENVOYER Gauche(sTexte, Taille(sTexte) - 1)
+	FIN
+FIN

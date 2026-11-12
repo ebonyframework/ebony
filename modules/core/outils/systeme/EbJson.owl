@@ -1,0 +1,47 @@
+// Mise en forme JSON des sorties lisibles par machine (« --json »). Fonctions pures, testées dans tests/unitaires/systeme/.
+// On écrit le JSON à la main plutôt qu'avec les fonctions JSON d'OWL : l'ordre des champs et le contrôle du résultat restent à nous, et le texte est testable sans OWL.
+EbJson est une CollectionDeProcédures
+
+	// Un chiffre hexadécimal minuscule (0 à 15).
+	PROCEDURE EbJsonHexa(nValeur est un entier) : chaîne
+		RENVOYER Milieu("0123456789abcdef", nValeur + 1, 1)
+	FIN
+
+	// Un texte entre guillemets, échappé comme l'exige JSON (RFC 8259) : guillemet, barre oblique inverse et caractères de commande (code inférieur à 32).
+	// Les autres caractères, accents compris, restent tels quels : la sortie est de l'UTF-8.
+	PROCEDURE EbJsonChaine(sTexte est une chaîne) : chaîne
+		sRes est une chaîne = Caract(34)
+		POUR i = 1 À Taille(sTexte)
+			sCar  est une chaîne = Milieu(sTexte, i, 1)
+			nCode est un entier  = Asc(sCar)
+			SELON nCode
+				CAS 34
+				sRes += Caract(92) + Caract(34)
+				CAS 92
+				sRes += Caract(92) + Caract(92)
+				CAS 10
+				sRes += Caract(92) + "n"
+				CAS 13
+				sRes += Caract(92) + "r"
+				CAS 9
+				sRes += Caract(92) + "t"
+				AUTRE CAS
+				SI nCode < 32 ALORS
+					sRes += Caract(92) + "u00" + EbJsonHexa(PartieEntière(nCode / 16)) + EbJsonHexa(nCode % 16)
+				SINON
+					sRes += sCar
+				FIN
+			FIN
+		FIN
+		sRes += Caract(34)
+		RENVOYER sRes
+	FIN
+
+	// Vrai ou faux en JSON.
+	PROCEDURE EbJsonBooleen(bValeur est un booléen) : chaîne
+		SI bValeur ALORS
+			RENVOYER "true"
+		FIN
+		RENVOYER "false"
+	FIN
+FIN

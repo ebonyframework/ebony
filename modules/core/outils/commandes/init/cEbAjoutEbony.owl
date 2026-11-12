@@ -1,0 +1,207 @@
+// « ebony init » : ajoute ebony à un projet OWL qui existe déjà (un dossier avec projet.owl, sans ebony.conf), dans le dossier d'où l'utilisateur a lancé ebony.
+// NON DESTRUCTIF : n'écrase aucun fichier, y compris projet.owl, qui est seulement lu pour y trouver l'identifiant du projet.
+//   - Écrit toujours : ebony/ (copie de la bibliothèque), ebony.conf (en dernier : sa présence dit que l'ajout est terminé) et, avec --auth, les fichiers que les modules fournissent (config/Auth.owl).
+//   - N'écrit que s'ils manquent : .gitignore, .env.exemple, .env.secrets.exemple, config/env.json (le schéma de la configuration), README.md. S'ils existent, ils sont conservés ; si le .gitignore, le .env.exemple ou le .env.secrets.exemple n'a pas ce qu'ebony attend, une note le dit.
+//   - Tout est vérifié AVANT d'écrire. Un conflit (ebony/ ou un fichier d'un module comme config/Auth.owl déjà présents) est refusé en les listant tous, sans rien écrire.
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 20 nom du dossier refusé, 21 OWL mal placé, 22 installation d'ebony illisible, 24 écriture interrompue, 26 pas un projet OWL, 27 ebony déjà présent, 28 conflit.
+cEbAjoutEbony est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	// Vrai si quelque chose (fichier ou dossier) porte ce nom.
+	PROCEDURE PRIVÉE Occupe(chemin est une chaîne) : booléen
+		RENVOYER :oSysteme.FichierExiste(chemin) OU :oSysteme.DossierExiste(chemin)
+	FIN
+
+	PROCEDURE PUBLIQUE Execute(options est un cEbOptionsProjet) : cEbEbonyAjoute
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(21, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+
+		sNom   est une chaîne = EbNomDernierElement(sLancement)
+		sRefus est une chaîne = EbVerifieNomProjet(sNom)
+		SI sRefus <> "" ALORS
+			ExceptionDéclenche(20, "Le nom du dossier « " + sNom + " » ne convient pas à ebony. " + sRefus + " Renommez le dossier, ou lancez « ebony new » pour un nouveau projet.")
+		FIN
+		sDossier est une chaîne = EbDossierProjet(sNom)
+
+		SI PAS :oSysteme.FichierExiste(EbJointChemin(sLancement, "projet.owl")) ALORS
+			ExceptionDéclenche(26, "Ce dossier n'est pas un projet OWL : projet.owl est absent de " + sLancement + ". Pour créer un nouveau projet : ebony new <nom>.")
+		FIN
+		SI :oSysteme.FichierExiste(EbJointChemin(sLancement, "ebony.conf")) ALORS
+			ExceptionDéclenche(27, "Ce projet utilise déjà ebony (ebony.conf existe). Pour aligner sa bibliothèque sur l'ebony installé : ebony upgrade.")
+		FIN
+
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		// Le projet ne reçoit que les modules de son kit (noté dans ebony.conf) : le cœur, et ceux que le kit liste.
+		oInstallee.Choisit(EbModulesDuKit(options.Kit()))
+		oInstallee.Verifie()
+		sVersion est une chaîne = oInstallee.Version()
+		// Ce que les modules installés déclarent dans leur manifeste : leurs variables s'ajoutent au schéma de configuration, leurs migrations sont copiées dans database/migrations/.
+		// Pas de migration pour HFSQL : « ebony migrate » le refuse (non mesuré).
+		tabMigrations est un tableau
+		SI options.ABase() ET options.BaseDonnees() <> "hfsql" ALORS
+			tabMigrations = EbMigrationsAEcrire(oInstallee.MigrationsModules(), options, Faux)
+		FIN
+		options = options.AvecModules(oInstallee.VariablesModules(), tabMigrations, EbFichiersAEcrire(oInstallee.FichiersModules(), options))
+
+		// Conflits : tous listés d'un coup, avant la moindre écriture.
+		sConflits est une chaîne = ""
+		SI :Occupe(EbJointChemin(sLancement, "ebony")) ALORS
+			sConflits = "ebony/"
+		FIN
+		SI options.FichiersModules()..Occurrence > 0 ALORS
+			sConfig est une chaîne = EbJointChemin(sLancement, "config")
+			SI :oSysteme.FichierExiste(sConfig) ALORS
+				sConflits += EbSeparateur(sConflits) + "config (un fichier porte ce nom)"
+			SINON
+				POUR TOUT oFichierModule DE options.FichiersModules()
+					SI :oSysteme.FichierExiste(EbJointChemin(sLancement, Remplace(oFichierModule.Chemin(), "/", "\"))) ALORS
+						sConflits += EbSeparateur(sConflits) + oFichierModule.Chemin()
+					FIN
+				FIN
+			FIN
+		FIN
+		SI sConflits <> "" ALORS
+			ExceptionDéclenche(28, "Rien n'a été écrit. Ces éléments existent déjà et ebony ne les écrase jamais : " + sConflits + ". Renommez-les ou déplacez-les, puis relancez « ebony init ».")
+		FIN
+
+		// Identifiant : celui du projet existant s'il en a un reconnaissable, sinon déduit du dossier.
+		sIdentifiant est une chaîne            = EbIdentifiantDansProjetOwl(:oSysteme.LitTexte(EbJointChemin(sLancement, "projet.owl")))
+		tabNotes     est un tableau de chaînes
+		SI sIdentifiant = "" ALORS
+			sIdentifiant = EbIdentifiantProjet(sDossier)
+			TableauAjoute(tabNotes, "projet.owl ne contient pas de bloc « ... est un Projet » reconnu : ebony.conf note l'identifiant " + sIdentifiant + ", déduit du dossier.")
+		FIN
+
+		tabCrees     est un tableau de chaînes
+		tabConserves est un tableau de chaînes
+		TableauAjoute(tabConserves, "projet.owl")
+		TableauAjoute(tabCrees, "ebony/")
+
+		// .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md : créés seulement s'ils manquent. Sinon conservés, avec une note si leur contenu n'est pas celui qu'ebony attend.
+		sGitignore        est une chaîne = EbJointChemin(sLancement, ".gitignore")
+		sEnvExemple       est une chaîne = EbJointChemin(sLancement, ".env.exemple")
+		sSecretsExemple   est une chaîne = EbJointChemin(sLancement, ".env.secrets.exemple")
+		sConfigDossier    est une chaîne = EbJointChemin(sLancement, "config")
+		sSchemaEnv        est une chaîne = EbJointChemin(sConfigDossier, "env.json")
+		sReadme           est une chaîne = EbJointChemin(sLancement, "README.md")
+		sAgents           est une chaîne = EbJointChemin(sLancement, "AGENTS.md")
+		bGitignore        est un booléen = PAS :oSysteme.FichierExiste(sGitignore)
+		bEnvExemple       est un booléen = PAS :oSysteme.FichierExiste(sEnvExemple)
+		bSecretsExemple   est un booléen = PAS :oSysteme.FichierExiste(sSecretsExemple)
+		bSchemaEnv        est un booléen = PAS :oSysteme.FichierExiste(sSchemaEnv)
+		bReadme           est un booléen = PAS :oSysteme.FichierExiste(sReadme)
+		bAgents           est un booléen = PAS :oSysteme.FichierExiste(sAgents)
+		sEnvAttendu       est une chaîne = EbContenuEnvExemple(sDossier, options)
+		sSecretsAttendu   est une chaîne = EbContenuSecretsExemple(options)
+		sSecretsVariables est une chaîne = EbVariablesEnv(sSecretsAttendu)
+		SI bGitignore ALORS
+			TableauAjoute(tabCrees, ".gitignore")
+		SINON
+			TableauAjoute(tabConserves, ".gitignore")
+			sManquantes est une chaîne = EbEntreesGitignoreManquantes(:oSysteme.LitTexte(sGitignore))
+			SI sManquantes <> "" ALORS
+				TableauAjoute(tabNotes, "Votre .gitignore n'a pas été modifié ; il ne contient pas : " + sManquantes + ". Ajoutez-les (ebony/ est restauré par « ebony restore », il ne se versionne pas).")
+			FIN
+		FIN
+		SI bEnvExemple ALORS
+			TableauAjoute(tabCrees, ".env.exemple")
+		SINON
+			TableauAjoute(tabConserves, ".env.exemple")
+			SI options.ABase() ALORS
+				TableauAjoute(tabNotes, "Votre .env.exemple n'a pas été modifié. Variables de la base " + options.BaseDonnees() + " : " + EbVariablesEnv(sEnvAttendu) + ".")
+			FIN
+		FIN
+		SI bSecretsExemple ALORS
+			TableauAjoute(tabCrees, ".env.secrets.exemple")
+		SINON
+			TableauAjoute(tabConserves, ".env.secrets.exemple")
+			SI sSecretsVariables <> "" ALORS
+				TableauAjoute(tabNotes, "Votre .env.secrets.exemple n'a pas été modifié. Mettez dans .env.secrets les secrets de la base " + options.BaseDonnees() + " : " + sSecretsVariables + ".")
+			FIN
+		FIN
+		SI bSchemaEnv ALORS
+			TableauAjoute(tabCrees, "config/env.json")
+		SINON
+			TableauAjoute(tabConserves, "config/env.json")
+			SI options.ABase() ALORS
+				TableauAjoute(tabNotes, "Votre config/env.json n'a pas été modifié. Vérifiez-le avec « ebony env », et ajoutez-y les variables de la base " + options.BaseDonnees() + " : " + EbVariablesEnv(sEnvAttendu) + ".")
+			FIN
+		FIN
+		SI bReadme ALORS
+			TableauAjoute(tabCrees, "README.md")
+		SINON
+			TableauAjoute(tabConserves, "README.md")
+		FIN
+		SI bAgents ALORS
+			TableauAjoute(tabCrees, "AGENTS.md")
+		SINON
+			TableauAjoute(tabConserves, "AGENTS.md")
+		FIN
+		// Les fichiers que les modules fournissent (leur manifeste : par exemple config/Auth.owl avec --auth).
+		POUR TOUT oFichierModule DE options.FichiersModules()
+			TableauAjoute(tabCrees, oFichierModule.Chemin())
+		FIN
+		// Les migrations des modules : écrites seulement si elles manquent (un fichier du projet n'est jamais écrasé).
+		POUR TOUT oMigration DE options.MigrationsModules()
+			SI :oSysteme.FichierExiste(EbJointChemin(sLancement, Remplace(oMigration.Fichier(), "/", "\"))) ALORS
+				TableauAjoute(tabConserves, oMigration.Fichier())
+			SINON
+				TableauAjoute(tabCrees, oMigration.Fichier())
+			FIN
+		FIN
+		TableauAjoute(tabCrees, "ebony.conf")
+
+		QUAND EXCEPTION DANS
+			oInstallee.Copie(:oEcriture, EbJointChemin(sLancement, "ebony"))
+			SI bGitignore ALORS
+				:oEcriture.EcritTexte(sGitignore, EbContenuGitignore())
+			FIN
+			SI bEnvExemple ALORS
+				:oEcriture.EcritTexte(sEnvExemple, sEnvAttendu)
+			FIN
+			SI bSecretsExemple ALORS
+				:oEcriture.EcritTexte(sSecretsExemple, sSecretsAttendu)
+			FIN
+			SI bReadme ALORS
+				:oEcriture.EcritTexte(sReadme, EbContenuReadmeAvecOptions(sNom, options))
+			FIN
+			SI bAgents ALORS
+				:oEcriture.EcritTexte(sAgents, EbContenuAgentsAvecOptions(sNom, options))
+			FIN
+			SI bSchemaEnv OU options.FichiersModules()..Occurrence > 0 ALORS
+				:oEcriture.CreeDossier(sConfigDossier)
+			FIN
+			SI bSchemaEnv ALORS
+				:oEcriture.EcritTexte(sSchemaEnv, EbContenuSchemaEnv(sDossier, options))
+			FIN
+			POUR TOUT oFichierModule DE options.FichiersModules()
+				sFichierModule est une chaîne = EbJointChemin(sLancement, Remplace(oFichierModule.Chemin(), "/", "\"))
+				:oEcriture.CreeDossier(EbParentChemin(sFichierModule))
+				:oEcriture.EcritTexte(sFichierModule, EbAligneDeclarations(oFichierModule.Contenu()))
+			FIN
+			POUR TOUT oMigration DE options.MigrationsModules()
+				sFichierMigration est une chaîne = EbJointChemin(sLancement, Remplace(oMigration.Fichier(), "/", "\"))
+				SI PAS :oSysteme.FichierExiste(sFichierMigration) ALORS
+					:oEcriture.CreeDossier(EbJointChemin(EbJointChemin(sLancement, "database"), "migrations"))
+					:oEcriture.EcritTexte(sFichierMigration, EbContenuMigrationModule(oMigration))
+				FIN
+			FIN
+			:oEcriture.EcritTexte(EbJointChemin(sLancement, "ebony.conf"), EbContenuConfAvecOptions(sNom, sDossier, sIdentifiant, sVersion, options))
+		FAIRE
+			ExceptionDéclenche(24, "Ajout interrompu : " + ExceptionInfo(errMessage) + ". Vos fichiers n'ont pas été touchés ; ebony a pu laisser une partie de ce qu'il crée (" + EbListeVirgules(tabCrees) + "). Supprimez-les, puis relancez « ebony init ».")
+		FIN
+
+		oAjoute est un cEbEbonyAjoute(sNom, sDossier, sIdentifiant, sLancement, options, tabCrees, tabConserves, tabNotes)
+		RENVOYER oAjoute
+	FIN
+FIN

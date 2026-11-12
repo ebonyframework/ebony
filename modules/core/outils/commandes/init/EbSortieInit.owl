@@ -1,0 +1,36 @@
+// Ce que « ebony init » dit à la fin : les consignes (« next ») et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/init/.
+// Format de --json : { "ok": true, "dir", "files", "kept", "notes", "next", "name", "folder", "identifier", "type", "base", "auth": { "enabled", "table", "mode" } }
+// Comme « new », avec en plus : « files » = ce qui a été CRÉÉ (« ebony/ » : un dossier), « kept » = ce qui existait et n'a pas été touché (projet.owl toujours),
+// « notes » = ce que l'utilisateur doit faire dans ses propres fichiers. En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec), rien n'a été écrit sauf erreur 24.
+EbSortieInit est une CollectionDeProcédures
+
+	// Les étapes à suivre : le modèle .env à copier (il existe toujours après l'ajout), puis doctor.
+	PROCEDURE EbEtapesInit() : tableau de chaînes
+		tabEtapes est un tableau de chaînes
+		TableauAjoute(tabEtapes, "Copiez .env.exemple en .env et .env.secrets.exemple en .env.secrets")
+		TableauAjoute(tabEtapes, "ebony doctor")
+		RENVOYER tabEtapes
+	FIN
+
+	// L'objet JSON de « ebony init --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonEbonyAjoute(oAjoute est un cEbEbonyAjoute) : chaîne
+		oOptions     est un cEbOptionsProjet   = oAjoute.Options()
+		tabCrees     est un tableau de chaînes = oAjoute.Crees()
+		tabConserves est un tableau de chaînes = oAjoute.Conserves()
+		tabNotes     est un tableau de chaînes = oAjoute.Notes()
+		tabEtapes    est un tableau de chaînes = EbEtapesInit()
+		sJson        est une chaîne            = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("dir") + ":" + EbJsonChaine(oAjoute.Chemin())
+		sJson += "," + EbJsonChaine("files") + ":" + EbJsonListe(tabCrees)
+		sJson += "," + EbJsonChaine("kept") + ":" + EbJsonListe(tabConserves)
+		sJson += "," + EbJsonChaine("notes") + ":" + EbJsonListe(tabNotes)
+		sJson += "," + EbJsonChaine("next") + ":" + EbJsonListe(tabEtapes)
+		sJson += "," + EbJsonChaine("name") + ":" + EbJsonChaine(oAjoute.Nom())
+		sJson += "," + EbJsonChaine("folder") + ":" + EbJsonChaine(oAjoute.Dossier())
+		sJson += "," + EbJsonChaine("identifier") + ":" + EbJsonChaine(oAjoute.Identifiant())
+		sJson += "," + EbJsonChaine("type") + ":" + EbJsonChaine(EbTypeProjetDefaut())
+		sJson += "," + EbJsonChaine("kit") + ":" + EbJsonChaine(oOptions.Kit())
+		sJson += "," + EbJsonChaine("base") + ":" + EbJsonChaine(oOptions.BaseDonnees())
+		sJson += "," + EbJsonChaine("auth") + ":" + EbJsonAuth(oOptions) + "}"
+		RENVOYER sJson
+	FIN
+FIN

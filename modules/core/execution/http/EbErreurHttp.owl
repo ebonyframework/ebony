@@ -1,0 +1,64 @@
+// Les erreurs d'une route : ce que « ebony make resource » écrit dans son contrôleur (Controleur<Nom>.owl) et que vos propres routes peuvent appeler. Fonctions pures, sauf EbJournaliseErreurHttp.
+// POURQUOI DANS LA ROUTE : le handler « surErreur » d'un service ne reçoit ni le code ni le message d'origine (mesuré, owl 1.7.0 : code vide, message « Exception non gérée : … »). Une route attrape donc l'exception avec QUAND EXCEPTION,
+// lit ExceptionInfo(errCode) et écrit sa réponse avec ces trois fonctions (MoiMême ne peut pas être passé à une procédure : c'est la route qui l'écrit).
+// Codes des repositories générés : 404 introuvable, 409 clé déjà prise, 503 base injoignable, 500 requête refusée. La route elle-même lève 400 quand le corps est invalide (champ obligatoire vide).
+// Le détail d'une erreur serveur (500, 503) va au journal, jamais au client ; 400, 401, 404 et 409 sont des erreurs du client et ne sont pas journalisées.
+EbErreurHttp est une CollectionDeProcédures
+
+	// Le statut HTTP d'une exception de route : 400 → 400, 401 → 401, 404 → 404, 409 → 409, 503 → 503, tout le reste → 500.
+	PROCEDURE EbStatutHttpDeCode(sCode est une chaîne) : entier
+		SELON sCode
+			CAS "400"
+			RENVOYER httpRequêteIncorrecte
+			CAS "401"
+			RENVOYER httpNonAutorisé
+			CAS "404"
+			RENVOYER httpNonTrouvé
+			CAS "409"
+			RENVOYER httpConflit
+			CAS "503"
+			RENVOYER httpServiceIndisponible
+			AUTRE CAS
+			RENVOYER httpErreurServeur
+		FIN
+	FIN
+
+	// Le corps JSON d'une erreur : { "code": "...", "message": "..." } sur une ligne. 400, 404 et 409 rendent le message de l'exception (il ne contient que le nom du champ ou la clé demandée) ; 401 rend un message fixe (il ne dit pas POURQUOI le jeton est refusé) ;
+	// 503 et 500 rendent un message fixe : le détail d'une erreur de base ne sort pas.
+	PROCEDURE EbCorpsErreurHttp(sCode est une chaîne, sMessage est une chaîne) : chaîne
+		j est un JSON
+		SELON sCode
+			CAS "400"
+			j["code"] = "invalide"
+			j["message"] = sMessage
+			CAS "401"
+			j["code"] = "non_autorise"
+			j["message"] = "Un jeton d'accès valable est exigé (Authorization: Bearer ...)."
+			CAS "404"
+			j["code"] = "introuvable"
+			j["message"] = sMessage
+			CAS "409"
+			j["code"] = "conflit"
+			j["message"] = sMessage
+			CAS "503"
+			j["code"] = "base_indisponible"
+			j["message"] = "La base de données est indisponible."
+			AUTRE CAS
+			j["code"] = "erreur_interne"
+			j["message"] = "Une erreur interne est survenue."
+		FIN
+		RENVOYER JSONVersChaîne(j, psdMinifie)
+	FIN
+
+	// Vrai pour une erreur du serveur (tout sauf 400, 401, 404 et 409) : celles dont le détail va au journal.
+	PROCEDURE EbEstErreurServeurHttp(sCode est une chaîne) : booléen
+		RENVOYER sCode <> "400" ET sCode <> "401" ET sCode <> "404" ET sCode <> "409"
+	FIN
+
+	// Écrit au journal de l'application le détail d'une erreur serveur ; sans effet pour 400, 401, 404 et 409. À appeler dans un service lancé (l'application est posée dans FinInitialisation).
+	PROCEDURE EbJournaliseErreurHttp(sCode est une chaîne, sMessage est une chaîne)
+		SI EbEstErreurServeurHttp(sCode) ALORS
+			cEbServiceApplication.Application().Journal().Erreur("Erreur dans une route (code " + sCode + ") : " + sMessage)
+		FIN
+	FIN
+FIN

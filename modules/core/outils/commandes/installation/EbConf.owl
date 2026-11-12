@@ -1,0 +1,123 @@
+// Lecture d'ebony.conf (JSON) : fonctions pures, testées dans tests/unitaires/commandes/installation/.
+// Un fichier de configuration peut être absent de sens, mal formé, écrit à la main avec une erreur : on ne lève rien ici, on rend une chaîne vide, et l'appelant
+// décide du message. Mesuré (owl 1.5.0) : ChaîneVersJSON rend Null pour un texte invalide, et lire un membre absent d'un objet rend du vide sans erreur.
+EbConf est une CollectionDeProcédures
+
+	// Version MINIMALE de la bibliothèque demandée par ebony.conf (ebony.version, comme « ^1.2.0 » dans un package.json ; voir EbVersionSatisfait), ou « » si le texte n'est pas un JSON, n'est pas un objet, n'a pas de membre ebony.version,
+	// ou si ce membre n'est pas une chaîne JSON. Aucune validation du numéro : voir EbVersionValide.
+	// Le type est testé avec TypeVar : sans cela, un objet ou un tableau serait converti en texte « <object> » sans erreur (mesuré), et un nombre (0.1) en « 0.1 ».
+	PROCEDURE EbVersionDeLaConf(sTexte est une chaîne) : chaîne
+		SI PAS JSONValide(sTexte) ALORS
+			RENVOYER ""
+		FIN
+		sVersion est une chaîne = ""
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			SI JSONExiste(j, "ebony") ALORS
+				SI JSONExiste(j.ebony, "version") ET TypeVar(j.ebony.version) = owlChaîne ALORS
+					sVersion = j.ebony.version
+				FIN
+			FIN
+		FAIRE
+			sVersion = ""
+		FIN
+		RENVOYER sVersion
+	FIN
+
+	// Le texte d'ebony.conf avec ebony.version remplacé par sVersion, tous les autres membres conservés (ordre, valeurs, accents), mis en forme comme « ebony new » le fait
+	// (tabulations, fin de ligne LF, saut de ligne final). Rend « » si le texte n'a pas déjà une version lisible (EbVersionDeLaConf) : on ne fabrique pas un ebony.conf à partir d'un texte abîmé.
+	// Les commentaires seraient perdus, mais JSON n'en a pas. Le fichier de l'utilisateur est réécrit en entier : l'appelant doit l'avoir validé avant.
+	PROCEDURE EbConfAvecVersion(sTexte est une chaîne, sVersion est une chaîne) : chaîne
+		SI EbVersionDeLaConf(sTexte) = "" ALORS
+			RENVOYER ""
+		FIN
+		sRes est une chaîne = ""
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			j.ebony.version = sVersion
+			sRes            = JSONVersChaîne(j, psdMiseEnForme) + Caract(10)
+		FAIRE
+			sRes = ""
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Le fournisseur de base de données noté par « ebony new » (base.fournisseur : sqlite, postgresql ou hfsql), ou « » si le texte n'est pas un JSON, n'a pas ce membre ou si ce membre n'est pas une chaîne.
+	// Même prudence que pour la version : le type est testé avec TypeVar (un objet serait converti en « <object> » sans erreur).
+	PROCEDURE EbBaseDeLaConf(sTexte est une chaîne) : chaîne
+		SI PAS JSONValide(sTexte) ALORS
+			RENVOYER ""
+		FIN
+		sBase est une chaîne = ""
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			SI JSONExiste(j, "base") ALORS
+				SI JSONExiste(j.base, "fournisseur") ET TypeVar(j.base.fournisseur) = owlChaîne ALORS
+					sBase = j.base.fournisseur
+				FIN
+			FIN
+		FAIRE
+			sBase = ""
+		FIN
+		RENVOYER sBase
+	FIN
+
+	// Vrai si ebony.conf déclare les modules du projet (le membre « modules », un tableau JSON). Un ebony.conf sans ce membre est celui d'un projet plus ancien : tous les modules de l'installation y sont alors supposés.
+	PROCEDURE EbConfDeclareModules(sTexte est une chaîne) : booléen
+		SI PAS JSONValide(sTexte) ALORS
+			RENVOYER Faux
+		FIN
+		bDeclare est un booléen = Faux
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			bDeclare = JSONExiste(j, "modules")
+		FAIRE
+			bDeclare = Faux
+		FIN
+		RENVOYER bDeclare
+	FIN
+
+	// Les modules du projet notés dans ebony.conf (hors cœur, toujours présent) : « db », « auth »… Une liste vide pour un projet avec le cœur seul, ET pour un texte sans membre « modules » (voir EbConfDeclareModules pour les distinguer).
+	// Seuls les éléments qui sont des chaînes sont lus : un nombre ou un objet est ignoré, il ne devient pas un nom de dossier.
+	PROCEDURE EbModulesDeLaConf(sTexte est une chaîne) : tableau de chaînes
+		tabModules est un tableau de chaînes
+		SI PAS EbConfDeclareModules(sTexte) ALORS
+			RENVOYER tabModules
+		FIN
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			POUR TOUT sModule DE j.modules
+				SI TypeVar(sModule) = owlChaîne ALORS
+					TableauAjoute(tabModules, sModule)
+				FIN
+			FIN
+		FAIRE
+			TableauSupprimeTout(tabModules)
+		FIN
+		RENVOYER tabModules
+	FIN
+
+	// Vrai si le projet décrit par ce ebony.conf a ce module : déclaré dans « modules », ou, quand ebony.conf n'a pas ce membre (projet plus ancien), toujours. Le cœur est toujours là.
+	PROCEDURE EbProjetALeModule(sTexte est une chaîne, sModule est une chaîne) : booléen
+		SI Minuscule(sModule) = "core" ALORS
+			RENVOYER Vrai
+		FIN
+		SI PAS EbConfDeclareModules(sTexte) ALORS
+			RENVOYER Vrai
+		FIN
+		POUR TOUT sChoisi DE EbModulesDeLaConf(sTexte)
+			SI Minuscule(sChoisi) = Minuscule(sModule) ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+
+	// Refuse (53) une commande d'un module que le projet n'a pas : « ebony migrate » sans le module db, « ebony token » sans le module auth. sCommande : la commande telle que l'utilisateur la tape.
+	// L'Ebony installé connaît toutes les commandes ; la présence d'un module est une propriété du PROJET (ebony.conf, « modules »), choisie à sa création par son kit.
+	PROCEDURE EbExigeModuleDuProjet(sTexteConf est une chaîne, sModule est une chaîne, sCommande est une chaîne)
+		SI PAS EbProjetALeModule(sTexteConf, sModule) ALORS
+			ExceptionDéclenche(53, "Ce projet n'a pas le module « " + sModule + " » : « " + sCommande + " » en dépend. Les modules d'un projet sont notés dans ebony.conf (« modules ») ; ils sont choisis à sa création, par son kit.")
+		FIN
+	FIN
+FIN

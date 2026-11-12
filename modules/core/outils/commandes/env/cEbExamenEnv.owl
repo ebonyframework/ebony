@@ -1,0 +1,29 @@
+// « ebony env » : examine la configuration du projet du dossier COURANT (config/env.json, .env, .env.secrets) sans démarrer l'application et sans rien écrire.
+// Rend le cEbEnv chargé de la bibliothèque d'exécution : c'est le même lecteur que celui de l'application, donc le même verdict. Il ne lève rien pour une configuration invalide
+// (c'est le résultat de l'examen) ; il ne lève que si l'examen est impossible. Règles, comme « upgrade » :
+//   - il faut un ebony.conf dans le dossier courant (pas de remontée vers les dossiers parents) ;
+//   - OWL doit travailler dans le dossier de lancement.
+// Ne lit que ; ne connaît que le port iEbSystemeFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 30 OWL mal placé, 31 pas un projet ebony.
+cEbExamenEnv est une Classe
+PRIVÉ
+	oSysteme est un iEbSystemeFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers)
+		:oSysteme = systeme
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbEnv
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(30, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient lus au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+		SI PAS :oSysteme.FichierExiste(EbJointChemin(sLancement, "ebony.conf")) ALORS
+			ExceptionDéclenche(31, "Ce dossier n'est pas un projet ebony : ebony.conf est introuvable dans " + sLancement + ". Placez-vous dans le dossier d'un projet, ou créez-en un avec « ebony new <nom> ».")
+		FIN
+		oLecture est un cEbLectureEnvProjet(:oSysteme, sLancement)
+		oEnv     est un cEbEnv(oLecture)
+		oEnv.Charge("config/env.json", ".env", ".env.secrets")
+		RENVOYER oEnv
+	FIN
+FIN

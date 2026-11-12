@@ -1,0 +1,53 @@
+// Lecture de la ligne de commande : la commande, les arguments qui la suivent, la presence d'une option.
+EbLigneCommande est une CollectionDeProcédures
+
+	// Premier argument qui n'est pas une option (-nom=valeur ou /nom=valeur).
+	// LigneCommande(n) compte les options : « -racine=… » est l'argument 1, la commande vient après.
+	PROCEDURE EbNomCommande() : chaîne
+		POUR i = 1 À 20
+			sArg est une chaîne = LigneCommande(i)
+			SI sArg = "" ALORS
+				SORTIR
+			FIN
+			SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+				RENVOYER sArg
+			FIN
+		FIN
+		RENVOYER ""
+	FIN
+
+	// Tous les arguments qui suivent la commande, options comprises (« --base », « sqlite »…), un par élément ; EbAnalyseArgumentsNew les trie
+	// et réunit les mots du nom avec des espaces : « ebony new Café de la Gare » et « ebony new "Café de la Gare" » donnent le même nom.
+	PROCEDURE EbListeArgumentsApres(sCommande est une chaîne) : tableau de chaînes
+		tabArgs est un tableau de chaînes
+		bTrouve est un booléen            = Faux
+		POUR i = 1 À 300
+			sArg est une chaîne = LigneCommande(i)
+			SI sArg = "" ALORS
+				SORTIR
+			FIN
+			SI PAS bTrouve ALORS
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					bTrouve = (sArg = sCommande)
+				FIN
+			SINON
+				TableauAjoute(tabArgs, sArg)
+			FIN
+		FIN
+		RENVOYER tabArgs
+	FIN
+
+	// Vrai si l'option (par exemple « --json ») figure parmi les arguments, à n'importe quelle place.
+	PROCEDURE EbOptionPresente(sOption est une chaîne) : booléen
+		POUR i = 1 À 300
+			sArg est une chaîne = LigneCommande(i)
+			SI sArg = "" ALORS
+				SORTIR
+			FIN
+			SI sArg = sOption ALORS
+				RENVOYER Vrai
+			FIN
+		FIN
+		RENVOYER Faux
+	FIN
+FIN

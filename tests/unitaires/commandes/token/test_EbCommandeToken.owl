@@ -1,0 +1,160 @@
+// Tests de l'orchestration de « ebony token » (EbLanceToken) : une VRAIE base SQLite en mémoire (neuve avant chaque scénario, fermée après) et une horloge fictive. Le secret est donné par le test.
+
+PROCEDURE EbTestConnexionCommandeToken() : cEbConnexionSqlReelle
+	cnx est une sqlConnexion
+	cnx..Provider = sqlSqlite
+	cnx..Source   = ":memory:"
+	oConnexion est un cEbConnexionSqlReelle(cnx, "SELECT 1")
+	oConnexion.Ouvre()
+	RENVOYER oConnexion
+FIN
+
+gConnexionCommandeToken est un cEbConnexionSqlReelle = EbTestConnexionCommandeToken()
+gHorlogeCommandeToken   est un cEbHorlogeFictive
+
+PROCEDURE avantChaqueTest()
+	gConnexionCommandeToken = EbTestConnexionCommandeToken()
+	gHorlogeCommandeToken   = cEbHorlogeFictive()
+	gHorlogeCommandeToken.Definit("2026-11-07T09:30:00Z")
+FIN
+
+PROCEDURE apresChaqueTest()
+	gConnexionCommandeToken.Ferme()
+FIN
+
+// Des jetons sur la base du scénario, SANS la table (la migration du module auth n'a pas été jouée).
+PROCEDURE EbTestJetonsCommandeSansTable() : cEbJetons
+	oJetons est un cEbJetons(gConnexionCommandeToken, gHorlogeCommandeToken)
+	RENVOYER oJetons
+FIN
+
+// Des jetons sur la base du scénario, table créée comme le fait la migration du module auth (modules/auth/execution/modules/auth.json : même SQL, à tenir identique).
+PROCEDURE EbTestJetonsCommande() : cEbJetons
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionCommandeToken.Envoie("CREATE TABLE eb_jetons (empreinte TEXT NOT NULL PRIMARY KEY, nom TEXT NOT NULL, cree_le TEXT NOT NULL, expire_le TEXT NOT NULL, revoque_le TEXT NOT NULL)", tabAucun)
+	dbgVérifieVrai(oResultat.Succes(), "la table se crée")
+	oJetons est un cEbJetons = EbTestJetonsCommandeSansTable()
+	RENVOYER oJetons
+FIN
+
+// Lance une commande « token » écrite avec des « ; » et rend ce qu'elle affiche.
+PROCEDURE EbTestLanceToken(oJetons est un cEbJetons, sArgs est une chaîne, sSecret est une chaîne, bJson est un booléen) : chaîne
+	oDemande est un cEbDemandeToken = EbAnalyseArgumentsToken(ChaîneDécoupe(sArgs, ";"))
+	RENVOYER EbLanceToken(oJetons, oDemande, gHorlogeCommandeToken, sSecret, bJson)
+FIN
+
+// Lance une commande qui doit échouer et rend « code|message ».
+PROCEDURE EbTestEchecToken(oJetons est un cEbJetons, sArgs est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		sAffiche est une chaîne = EbTestLanceToken(oJetons, sArgs, "eb_inutile", Faux)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// « create » crée la table au premier jeton, affiche le secret une fois, et le secret est ensuite reconnu.
+PROCEDURE scenario_create_puis_reconnu()
+	oJetons  est un cEbJetons = EbTestJetonsCommande()
+	sAffiche est une chaîne   = EbTestLanceToken(oJetons, "create;ci", "eb_secret1", Faux)
+	dbgVérifieVrai(Position(sAffiche, "eb_secret1") > 0, "le secret est affiché")
+	dbgVérifieVrai(Position(sAffiche, "Jeton « ci » créé") > 0, "le message")
+	dbgVérifieVrai(Position(sAffiche, EbIdentifiantJeton(EbEmpreinteJeton("eb_secret1"))) > 0, "l'identifiant")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "ci", "le jeton est reconnu")
+FIN
+
+// En JSON, « create » rend le secret et l'identifiant sur une ligne.
+PROCEDURE scenario_create_json()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	sJson   est une chaîne   = EbTestLanceToken(oJetons, "create;ci", "eb_secret1", Vrai)
+	dbgVérifieVrai(Position(sJson, Caract(34) + "token" + Caract(34) + ":" + Caract(34) + "eb_secret1" + Caract(34)) > 0, "le secret")
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une ligne")
+FIN
+
+// --expire : le jeton vaut jusqu'à la fin du jour demandé, puis plus.
+PROCEDURE scenario_create_avec_expiration()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	EbTestLanceToken(oJetons, "create;court;--expire;2026-11-07", "eb_secret1", Faux)
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "court", "le jour même")
+	gHorlogeCommandeToken.Definit("2026-11-08T00:00:00Z")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "le lendemain")
+FIN
+
+// Une expiration déjà passée est refusée (25) et rien n'est écrit.
+PROCEDURE scenario_create_expiration_passee_refusee()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	sRefus  est une chaîne   = EbTestEchecToken(oJetons, "create;ci;--expire;2026-11-06")
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", "code 25")
+	dbgVérifieVrai(Position(sRefus, "déjà passée") > 0, "le message")
+	dbgVérifieEgalité(oJetons.Enumere()..Occurrence, 0, "aucun jeton écrit")
+FIN
+
+// Un secret déjà enregistré est refusé par la base : erreur 51, et le jeton d'origine reste valable.
+PROCEDURE scenario_create_secret_deja_pris()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	EbTestLanceToken(oJetons, "create;un", "eb_secret1", Faux)
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		sAffiche est une chaîne = EbTestLanceToken(oJetons, "create;deux", "eb_secret1", Faux)
+	FAIRE
+		sRes = ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(sRes, "51", "enregistrement refusé : code 51")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "un", "le premier reste valable")
+FIN
+
+// « list » sans table (aucun jeton jamais créé) ne plante pas et ne crée rien.
+PROCEDURE scenario_list_sans_table()
+	oJetons est un cEbJetons = EbTestJetonsCommandeSansTable()
+	dbgVérifieVrai(Position(EbTestLanceToken(oJetons, "list", "eb_inutile", Faux), "Aucun jeton") > 0, "aucun jeton")
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionCommandeToken.Envoie("SELECT 1 FROM " + Caract(34) + "eb_jetons" + Caract(34), tabAucun)
+	dbgVérifieFaux(oResultat.Succes(), "list n'a pas créé la table")
+FIN
+
+// « list » montre les jetons avec leur état, jamais le secret.
+PROCEDURE scenario_list_montre_les_etats()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	EbTestLanceToken(oJetons, "create;un", "eb_secret1", Faux)
+	EbTestLanceToken(oJetons, "create;deux;--expire;2026-11-07", "eb_secret2", Faux)
+	sListe est une chaîne = EbTestLanceToken(oJetons, "list", "eb_inutile", Faux)
+	dbgVérifieVrai(Position(sListe, "2 jeton(s)") > 0, "deux jetons")
+	dbgVérifieVrai(Position(sListe, "un") > 0, "le premier nom")
+	dbgVérifieVrai(Position(sListe, "deux") > 0, "le second nom")
+	dbgVérifieEgalité(Position(sListe, "eb_secret"), 0, "aucun secret")
+	gHorlogeCommandeToken.Definit("2026-11-09T00:00:00Z")
+	sJson est une chaîne = EbTestLanceToken(oJetons, "list", "eb_inutile", Vrai)
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "expired" + Caract(34)) > 0, "le second a expiré")
+	dbgVérifieVrai(Position(sJson, Caract(34) + "status" + Caract(34) + ":" + Caract(34) + "active" + Caract(34)) > 0, "le premier est actif")
+FIN
+
+// « revoke » refuse aussitôt le jeton ; un second « revoke » du même identifiant échoue (52), comme un identifiant inconnu.
+PROCEDURE scenario_revoke()
+	oJetons est un cEbJetons = EbTestJetonsCommande()
+	EbTestLanceToken(oJetons, "create;un", "eb_secret1", Faux)
+	sId est une chaîne = EbIdentifiantJeton(EbEmpreinteJeton("eb_secret1"))
+	dbgVérifieVrai(Position(EbTestLanceToken(oJetons, "revoke;" + sId, "eb_inutile", Faux), sId + " révoqué") > 0, "message")
+	dbgVérifieEgalité(oJetons.Identifie("eb_secret1"), "", "le jeton est refusé")
+	dbgVérifieEgalité(Gauche(EbTestEchecToken(oJetons, "revoke;" + sId), 3), "52|", "déjà révoqué : 52")
+	dbgVérifieEgalité(Gauche(EbTestEchecToken(oJetons, "revoke;000000000000"), 3), "52|", "inconnu : 52")
+	sListe est une chaîne = EbTestLanceToken(oJetons, "list", "eb_inutile", Faux)
+	dbgVérifieVrai(Position(sListe, "révoqué") > 0, "list le montre révoqué")
+FIN
+
+// « revoke » sans table (aucun jeton jamais créé) échoue proprement (52).
+PROCEDURE scenario_revoke_sans_table()
+	oJetons est un cEbJetons = EbTestJetonsCommandeSansTable()
+	dbgVérifieEgalité(Gauche(EbTestEchecToken(oJetons, "revoke;000000000000"), 3), "52|", "52 sans table")
+FIN
+
+// « create » sans la table (la migration n'a pas été jouée) échoue proprement (51), dit de lancer « ebony migrate », et ne crée pas la table en silence.
+PROCEDURE scenario_create_sans_table_dit_de_migrer()
+	oJetons est un cEbJetons = EbTestJetonsCommandeSansTable()
+	sEchec  est une chaîne   = EbTestEchecToken(oJetons, "create;ci")
+	dbgVérifieEgalité(Gauche(sEchec, 3), "51|", "51 sans table")
+	dbgVérifieVrai(Position(sEchec, "ebony migrate") > 0, "le message dit de lancer ebony migrate")
+	tabAucun  est un tableau associatif
+	oResultat est un cEbResultatSql     = gConnexionCommandeToken.Envoie("SELECT 1 FROM eb_jetons", tabAucun)
+	dbgVérifieFaux(oResultat.Succes(), "create n'a pas créé la table")
+FIN

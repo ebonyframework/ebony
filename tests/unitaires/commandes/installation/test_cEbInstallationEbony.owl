@@ -1,0 +1,282 @@
+// Tests de cEbInstallationEbony (« ebony install ») avec un faux disque : l'installation d'ebony dans le dossier des programmes, un dossier par version, chaque refus avec son code,
+// et la preuve que RIEN n'est écrit ni supprimé quand l'opération est refusée.
+
+// Un disque où la copie d'ebony qui s'exécute est D:\Source\ebony (le strict nécessaire plus des fichiers qui ne doivent PAS être copiés), version sVersion,
+// et où le dossier des programmes de l'utilisateur est C:\Users\moi\AppData\Local\Programs (existant, sans ebony dedans).
+PROCEDURE EbTestDisqueInstall(sVersion est une chaîne) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.DefinitInstallation("D:\Source\ebony")
+	oDisque.DefinitProgrammes("C:\Users\moi\AppData\Local\Programs")
+	oDisque.CreeDossier("C:\Users\moi\AppData\Local\Programs")
+	oDisque.CreeDossier("D:\Source\ebony\bin")
+	oDisque.CreeDossier("D:\Source\ebony\src\commandes")
+	oDisque.CreeDossier("D:\Source\ebony\modules\core\execution\config")
+	oDisque.CreeDossier("D:\Source\ebony\modules\auth\execution\auth")
+	oDisque.CreeDossier("D:\Source\ebony\modules\core\outils\modeles")
+	oDisque.EcritTexte("D:\Source\ebony\bin\ebony.cmd", "lanceur")
+	oDisque.EcritTexte("D:\Source\ebony\src\commandes\EbPrincipal.owl", "principal")
+	oDisque.EcritTexte("D:\Source\ebony\modules\core\execution\VERSION", sVersion + Caract(10))
+	oDisque.EcritTexte("D:\Source\ebony\modules\core\execution\config\README.md", "config")
+	oDisque.EcritTexte("D:\Source\ebony\modules\auth\execution\auth\EbJetons.owl", "jetons")
+	oDisque.EcritTexte("D:\Source\ebony\modules\core\outils\modeles\a.tpl", "modele")
+	oDisque.EcritTexte("D:\Source\ebony\ebony.owl", "entree")
+	oDisque.EcritTexte("D:\Source\ebony\projet.owl", "projet")
+	oDisque.EcritTexte("D:\Source\ebony\LICENSE", "MIT")
+	oDisque.EcritTexte("D:\Source\ebony\README.md", "lisez-moi")
+	oDisque.CreeDossier("D:\Source\ebony\tests")
+	oDisque.CreeDossier("D:\Source\ebony\docs")
+	oDisque.CreeDossier("D:\Source\ebony\.git")
+	oDisque.EcritTexte("D:\Source\ebony\tests\test_x.owl", "test")
+	oDisque.EcritTexte("D:\Source\ebony\docs\notes.md", "notes")
+	oDisque.EcritTexte("D:\Source\ebony\.git\HEAD", "ref")
+	oDisque.EcritTexte("D:\Source\ebony\NOTES.md", "consignes")
+	RENVOYER oDisque
+FIN
+
+// Lance l'installation et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestEchecInstall(oInstallation est un cEbInstallationEbony) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oResultat est un cEbEbonyInstalle = oInstallation.Execute()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Le manifeste : ce qu'on copie, et le nom du marqueur.
+PROCEDURE scenario_manifeste()
+	tabDossiers est un tableau de chaînes = EbDossiersAInstaller()
+	tabFichiers est un tableau de chaînes = EbFichiersAInstaller()
+	dbgVérifieEgalité(tabDossiers..Occurrence, 3, "trois dossiers")
+	dbgVérifieEgalité(tabDossiers[1], "bin", "bin")
+	dbgVérifieEgalité(tabDossiers[2], "src", "src")
+	dbgVérifieEgalité(tabDossiers[3], "modules", "modules (la bibliothèque d'exécution de chaque module)")
+	dbgVérifieEgalité(tabFichiers..Occurrence, 4, "quatre fichiers")
+	dbgVérifieEgalité(tabFichiers[1], "ebony.owl", "ebony.owl")
+	dbgVérifieEgalité(tabFichiers[2], "projet.owl", "projet.owl")
+	dbgVérifieEgalité(tabFichiers[3], "LICENSE", "LICENSE")
+	dbgVérifieEgalité(tabFichiers[4], "README.md", "README.md")
+	dbgVérifieEgalité(EbMarqueurInstallation(), "INSTALLE", "marqueur")
+	tabFacultatifs est un tableau de chaînes = EbDossiersFacultatifs()
+	dbgVérifieEgalité(tabFacultatifs..Occurrence, 1, "un dossier facultatif")
+	dbgVérifieEgalité(tabFacultatifs[1], ".commandes", "points d'entrée réduits par commande")
+FIN
+
+// Les points d'entrée réduits (.commandes) sont copiés quand la source les a, avec leur contenu ; sans eux (un clone), l'installation réussit pareil et n'en crée pas.
+PROCEDURE scenario_dossiers_facultatifs()
+	oAvec est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.2.0")
+	oAvec.CreeDossier("D:\Source\ebony\.commandes\doctor")
+	oAvec.EcritTexte("D:\Source\ebony\.commandes\doctor\ebony.owl", "entree reduite")
+	oInstallationAvec est un cEbInstallationEbony(oAvec, oAvec)
+	oResAvec          est un cEbEbonyInstalle                   = oInstallationAvec.Execute()
+	sRacineAvec       est une chaîne                            = oResAvec.Racine()
+	dbgVérifieEgalité(oAvec.LitTexte(sRacineAvec + "\.commandes\doctor\ebony.owl"), "entree reduite", ".commandes copié avec son contenu")
+	dbgVérifieEgalité(oAvec.LitTexte(sRacineAvec + "\bin\ebony.cmd"), "lanceur", "le reste est copié comme avant")
+	oSans             est un cEbSystemeFichiersFictif           = EbTestDisqueInstall("0.2.0")
+	oInstallationSans est un cEbInstallationEbony(oSans, oSans)
+	oResSans          est un cEbEbonyInstalle                   = oInstallationSans.Execute()
+	dbgVérifieFaux(oSans.DossierExiste(oResSans.Racine() + "\.commandes"), "sans source, aucun .commandes n'est créé")
+	dbgVérifieEgalité(oSans.LitTexte(oResSans.Racine() + "\bin\ebony.cmd"), "lanceur", "l'installation réussit sans les points d'entrée")
+FIN
+
+// Cas normal : le strict nécessaire est copié dans programmes\ebony\<version>, le reste n'est pas copié, la source est intacte, le marqueur est écrit.
+PROCEDURE scenario_installation_normale()
+	oDisque       est un cEbSystemeFichiersFictif               = EbTestDisqueInstall("0.1.0")
+	nAvant        est un entier                                 = oDisque.NbFichiers()
+	oInstallation est un cEbInstallationEbony(oDisque, oDisque)
+	oRes          est un cEbEbonyInstalle                       = oInstallation.Execute()
+	sRacine       est une chaîne                                = "C:\Users\moi\AppData\Local\Programs\ebony\0.1.0"
+	dbgVérifieEgalité(oRes.Version(), "0.1.0", "version")
+	dbgVérifieEgalité(oRes.Racine(), sRacine, "racine")
+	dbgVérifieEgalité(oRes.Bin(), sRacine + "\bin", "dossier du lanceur")
+	dbgVérifieFaux(oRes.DejaInstalle(), "pas déjà installé")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\bin\ebony.cmd"), "lanceur", "bin copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\src\commandes\EbPrincipal.owl"), "principal", "src copié (sous-dossier)")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\modules\core\execution\config\README.md"), "config", "modules du cœur copié (sous-sous-sous-dossier)")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\modules\core\execution\VERSION"), "0.1.0" + Caract(10), "VERSION copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\modules\auth\execution\auth\EbJetons.owl"), "jetons", "le module auth est copié aussi")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\modules\core\outils\modeles\a.tpl"), "modele", "modeles copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\ebony.owl"), "entree", "ebony.owl copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\projet.owl"), "projet", "projet.owl copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\LICENSE"), "MIT", "LICENSE copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\README.md"), "lisez-moi", "README.md copié")
+	dbgVérifieEgalité(oDisque.LitTexte(sRacine + "\INSTALLE"), "0.1.0" + Caract(10), "marqueur écrit avec la version")
+	dbgVérifieFaux(oDisque.DossierExiste(sRacine + "\tests"), "tests/ n'est pas copié")
+	dbgVérifieFaux(oDisque.DossierExiste(sRacine + "\docs"), "docs/ n'est pas copié")
+	dbgVérifieFaux(oDisque.DossierExiste(sRacine + "\.git"), ".git n'est pas copié")
+	dbgVérifieFaux(oDisque.FichierExiste(sRacine + "\NOTES.md"), "NOTES.md n'est pas copié")
+	dbgVérifieEgalité(oDisque.LitTexte("D:\Source\ebony\bin\ebony.cmd"), "lanceur", "la source est intacte")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nAvant + 11, "exactement 10 fichiers copiés (bin 1, src 1, modules 4 dont les modèles du cœur, racine 4) et le marqueur")
+FIN
+
+// Une seconde installation de la même version est « déjà installé » : rien n'est écrit (même avec des fins de ligne Windows dans le marqueur).
+PROCEDURE scenario_deja_installe()
+	oDisque       est un cEbSystemeFichiersFictif               = EbTestDisqueInstall("0.1.0")
+	oInstallation est un cEbInstallationEbony(oDisque, oDisque)
+	oPremiere     est un cEbEbonyInstalle                       = oInstallation.Execute()
+	dbgVérifieFaux(oPremiere.DejaInstalle(), "première : copie")
+	nFichiers est un entier           = oDisque.NbFichiers()
+	oSeconde  est un cEbEbonyInstalle = oInstallation.Execute()
+	dbgVérifieVrai(oSeconde.DejaInstalle(), "seconde : déjà installé")
+	dbgVérifieEgalité(oSeconde.Racine(), oPremiere.Racine(), "même racine")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien d'écrit à la seconde")
+	oDisque.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\INSTALLE", "0.1.0" + Caract(13) + Caract(10))
+	dbgVérifieVrai(oInstallation.Execute().DejaInstalle(), "marqueur CRLF : toujours reconnu")
+FIN
+
+// Lancé depuis la version déjà installée elle-même (ebony install lancé avec ebony installé) : déjà installé, rien d'écrit.
+PROCEDURE scenario_depuis_la_copie_installee()
+	oDisque   est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oPremiere est un cEbEbonyInstalle         = (cEbInstallationEbony(oDisque, oDisque)).Execute()
+	oDisque.DefinitInstallation(oPremiere.Racine())
+	nFichiers est un entier           = oDisque.NbFichiers()
+	oRes      est un cEbEbonyInstalle = (cEbInstallationEbony(oDisque, oDisque)).Execute()
+	dbgVérifieVrai(oRes.DejaInstalle(), "déjà installé")
+	dbgVérifieEgalité(oDisque.NbFichiers(), nFichiers, "rien d'écrit")
+FIN
+
+// Une version plus récente s'installe À CÔTÉ de l'ancienne : l'ancienne n'est ni modifiée ni supprimée.
+PROCEDURE scenario_nouvelle_version_a_cote()
+	oDisque   est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oAncienne est un cEbEbonyInstalle         = (cEbInstallationEbony(oDisque, oDisque)).Execute()
+	oDisque.EcritTexte("D:\Source\ebony\modules\core\execution\VERSION", "0.2.0" + Caract(10))
+	oDisque.EcritTexte("D:\Source\ebony\src\commandes\EbPrincipal.owl", "principal v2")
+	oNouvelle est un cEbEbonyInstalle = (cEbInstallationEbony(oDisque, oDisque)).Execute()
+	dbgVérifieFaux(oNouvelle.DejaInstalle(), "copie de la nouvelle")
+	dbgVérifieEgalité(oNouvelle.Racine(), "C:\Users\moi\AppData\Local\Programs\ebony\0.2.0", "nouveau dossier")
+	dbgVérifieEgalité(oDisque.LitTexte(oNouvelle.Racine() + "\src\commandes\EbPrincipal.owl"), "principal v2", "nouvelle version copiée")
+	dbgVérifieEgalité(oDisque.LitTexte(oAncienne.Racine() + "\src\commandes\EbPrincipal.owl"), "principal", "l'ancienne est intacte")
+	dbgVérifieEgalité(oDisque.LitTexte(oAncienne.Racine() + "\INSTALLE"), "0.1.0" + Caract(10), "le marqueur de l'ancienne est intact")
+FIN
+
+// Le dossier de cette version existe sans installation complète (autre marqueur, pas de marqueur) : erreur 42, rien n'est touché.
+PROCEDURE scenario_dossier_de_la_version_occupe()
+	oSans est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oSans.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	oSans.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\quelque-chose.txt", "x")
+	nFichiers est un entier  = oSans.NbFichiers()
+	sSans     est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oSans, oSans))
+	dbgVérifieEgalité(Gauche(sSans, 3), "42|", "sans marqueur : code 42")
+	dbgVérifieVrai(Position(sSans, "ne supprime rien") > 0 ET Position(sSans, "ebony install") > 0, "dit quoi faire")
+	dbgVérifieEgalité(oSans.NbFichiers(), nFichiers, "aucun fichier écrit")
+	oAutre est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oAutre.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	oAutre.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\INSTALLE", "0.0.5")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oAutre, oAutre)), 3), "42|", "marqueur d'une autre version : code 42")
+FIN
+
+// Un FICHIER nommé ebony (ou 0.1.0) occupe la place d'un dossier : erreur 42.
+PROCEDURE scenario_un_fichier_occupe_la_place()
+	oBase est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oBase.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony", "je suis un fichier")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oBase, oBase)), 3), "42|", "fichier ebony : code 42")
+	dbgVérifieEgalité(oBase.LitTexte("C:\Users\moi\AppData\Local\Programs\ebony"), "je suis un fichier", "le fichier est intact")
+	oVersion est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oVersion.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony")
+	oVersion.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0", "je suis un fichier")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oVersion, oVersion)), 3), "42|", "fichier 0.1.0 : code 42")
+FIN
+
+// La copie d'ebony qui s'exécute est incomplète : erreur 40 qui nomme ce qui manque, rien n'est écrit.
+PROCEDURE scenario_source_incomplete()
+	oDisque  est un cEbSystemeFichiersFictif               = EbTestDisqueInstall("0.1.0")
+	oSansSrc est un cEbSystemeFichiersFictif("C:\Projets")
+	oSansSrc.DefinitInstallation("D:\Source\ebony")
+	oSansSrc.DefinitProgrammes("C:\Users\moi\AppData\Local\Programs")
+	oSansSrc.CreeDossier("C:\Users\moi\AppData\Local\Programs")
+	oSansSrc.CreeDossier("D:\Source\ebony\modules\core\execution")
+	oSansSrc.EcritTexte("D:\Source\ebony\modules\core\execution\VERSION", "0.1.0")
+	nFichiers est un entier  = oSansSrc.NbFichiers()
+	sSans     est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oSansSrc, oSansSrc))
+	dbgVérifieEgalité(Gauche(sSans, 3), "40|", "code 40")
+	dbgVérifieVrai(Position(sSans, "bin\") > 0 ET Position(sSans, "src\") > 0 ET Position(sSans, "LICENSE") > 0, "nomme ce qui manque")
+	dbgVérifieFaux(Position(sSans, "modules") > 0, "ne cite pas ce qui est là")
+	dbgVérifieEgalité(oSansSrc.NbFichiers(), nFichiers, "rien d'écrit")
+	dbgVérifieFaux(oSansSrc.DossierExiste("C:\Users\moi\AppData\Local\Programs\ebony"), "rien créé")
+	oDisque.DefinitInstallation("D:\Source\ebony")
+FIN
+
+// Dossier des programmes inconnu, introuvable, ou introuvable parce qu'accentué : erreur 41, rien d'écrit.
+PROCEDURE scenario_dossier_des_programmes()
+	oInconnu est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oInconnu.DefinitProgrammes("")
+	sInconnu est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oInconnu, oInconnu))
+	dbgVérifieEgalité(Gauche(sInconnu, 3), "41|", "inconnu : code 41")
+	dbgVérifieVrai(Position(sInconnu, "ebony.cmd") > 0, "cite le lanceur")
+	oAbsent est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oAbsent.DefinitProgrammes("C:\Users\moi\AppData\Local\Absent")
+	sAbsent est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oAbsent, oAbsent))
+	dbgVérifieEgalité(Gauche(sAbsent, 3), "41|", "introuvable : code 41")
+	dbgVérifieVrai(Position(sAbsent, "Absent") > 0, "cite le dossier")
+	dbgVérifieFaux(Position(sAbsent, "non ASCII") > 0, "n'accuse pas les accents")
+	sAccent est une chaîne                  = "C:\Users\Andr" + Caract(233) + "\AppData\Local\Programs"
+	oAccent est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oAccent.DefinitProgrammes(sAccent)
+	sMessageAccent est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oAccent, oAccent))
+	dbgVérifieEgalité(Gauche(sMessageAccent, 3), "41|", "accentué introuvable : code 41")
+	dbgVérifieVrai(Position(sMessageAccent, "non ASCII") > 0, "nomme la cause : caractère non ASCII")
+	dbgVérifieFaux(oAccent.DossierExiste("C:\Users\moi\AppData\Local\Programs\ebony"), "rien créé")
+FIN
+
+// Le dossier des programmes écrit avec des barres obliques (le lanceur peut en passer) est accepté, et les chemins produits ont des barres inverses.
+PROCEDURE scenario_barres_obliques()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oDisque.DefinitProgrammes("C:/Users/moi/AppData/Local/Programs")
+	oDisque.DefinitInstallation("D:/Source/ebony")
+	oRes est un cEbEbonyInstalle = (cEbInstallationEbony(oDisque, oDisque)).Execute()
+	dbgVérifieEgalité(oRes.Racine(), "C:\Users\moi\AppData\Local\Programs\ebony\0.1.0", "racine avec barres inverses")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\bin\ebony.cmd"), "copié")
+FIN
+
+// Installation d'ebony illisible (inconnue, bibliothèque absente, VERSION invalide) : erreur 22, rien d'écrit.
+PROCEDURE scenario_installation_illisible()
+	oInconnue est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oInconnue.DefinitInstallation("")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oInconnue, oInconnue)), 3), "22|", "installation inconnue : code 22")
+	oInvalide est un cEbSystemeFichiersFictif = EbTestDisqueInstall("n'importe quoi")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oInvalide, oInvalide)), 3), "22|", "VERSION invalide : code 22")
+	dbgVérifieFaux(oInvalide.DossierExiste("C:\Users\moi\AppData\Local\Programs\ebony"), "rien créé")
+FIN
+
+// Panne pendant la copie : erreur 43, le message nomme le dossier à supprimer ; le marqueur n'est PAS écrit, donc une relance n'est pas prise pour « déjà installé ».
+PROCEDURE scenario_panne_pendant_la_copie()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oDisque.DefinitEchecSur("0.1.0\src")
+	oInstallation est un cEbInstallationEbony(oDisque, oDisque)
+	sEchec        est une chaîne                                = EbTestEchecInstall(oInstallation)
+	dbgVérifieEgalité(Gauche(sEchec, 3), "43|", "code 43")
+	dbgVérifieVrai(Position(sEchec, "Installation interrompue") > 0, "dit que l'installation est interrompue")
+	dbgVérifieVrai(Position(sEchec, "C:\Users\moi\AppData\Local\Programs\ebony\0.1.0") > 0, "nomme le dossier à supprimer")
+	dbgVérifieVrai(Position(sEchec, "relancez") > 0, "dit quoi faire")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\INSTALLE"), "pas de marqueur")
+	oDisque.DefinitEchecSur("")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(oInstallation), 3), "42|", "la relance voit une installation incomplète, pas une installation terminée")
+FIN
+
+// Panne en écrivant le marqueur (dernière écriture) : erreur 43 aussi, et pas de marqueur.
+PROCEDURE scenario_panne_sur_le_marqueur()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oDisque.DefinitEchecSur("installe")
+	sEchec est une chaîne = EbTestEchecInstall(cEbInstallationEbony(oDisque, oDisque))
+	dbgVérifieEgalité(Gauche(sEchec, 3), "43|", "code 43")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\INSTALLE"), "pas de marqueur")
+FIN
+
+// L'ordre des vérifications : l'installation d'ebony (22), puis la copie complète (40), puis le dossier des programmes (41), puis le dossier de la version (42).
+PROCEDURE scenario_ordre_des_verifications()
+	oA est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oA.DefinitInstallation("")
+	oA.DefinitProgrammes("")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oA, oA)), 3), "22|", "installation inconnue ET programmes inconnus : 22 d'abord")
+	oB est un cEbSystemeFichiersFictif("C:\Projets")
+	oB.DefinitInstallation("D:\Source\ebony")
+	oB.CreeDossier("D:\Source\ebony\modules\core\execution")
+	oB.EcritTexte("D:\Source\ebony\modules\core\execution\VERSION", "0.1.0")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oB, oB)), 3), "40|", "copie incomplète ET programmes inconnus : 40 d'abord")
+	oC est un cEbSystemeFichiersFictif = EbTestDisqueInstall("0.1.0")
+	oC.DefinitProgrammes("")
+	oC.CreeDossier("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0")
+	oC.EcritTexte("C:\Users\moi\AppData\Local\Programs\ebony\0.1.0\x", "x")
+	dbgVérifieEgalité(Gauche(EbTestEchecInstall(cEbInstallationEbony(oC, oC)), 3), "41|", "programmes inconnus : 41")
+FIN

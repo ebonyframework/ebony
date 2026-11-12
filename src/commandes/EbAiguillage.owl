@@ -1,0 +1,40 @@
+// Aiguillage GÉNÉRÉ par scripts\genere-aiguillage.ps1 d'après modules/*/outils/commandes.json : ne pas le modifier à la main (scripts\controle-commandes.ps1 vérifie qu'il est à jour). Une ligne CAS par commande ; scripts\commandes-ebony.ps1 lit cette liste (le lanceur, les points d'entrée réduits et l'archive en dérivent).
+// Chaque commande est une procédure EbExecute<Nom>() sans argument, dans son propre fichier (EbCommande<Nom>) ; elle lit elle-même --json (EbOptionPresente).
+// Ajouter une commande : son fichier, une entrée dans le commandes.json de son module, puis scripts\genere-aiguillage.ps1 ; son nom dans la liste de bin\ebony.cmd (scripts\controle-commandes.ps1 le vérifie).
+EbAiguillage est une CollectionDeProcédures
+
+	PROCEDURE EbExecuteCommande(sCommande est une chaîne)
+		SELON sCommande
+			CAS "", "aide"
+			EbAfficheAide()
+			CAS "version"
+			EbExecuteVersion()
+			CAS "doctor"
+			EbExecuteDoctor()
+			CAS "new"
+			EbExecuteNew()
+			CAS "init"
+			EbExecuteInit()
+			CAS "make"
+			EbExecuteMake()
+			CAS "migrate"
+			EbExecuteMigrate()
+			CAS "request"
+			EbExecuteRequest()
+			CAS "env"
+			EbExecuteEnv()
+			CAS "install"
+			EbExecuteInstall()
+			CAS "uninstall"
+			EbExecuteUninstall()
+			CAS "restore"
+			EbExecuteRestore()
+			CAS "upgrade"
+			EbExecuteUpgrade()
+			CAS "token"
+			EbExecuteToken()
+			AUTRE CAS
+			ExceptionDéclenche(9, "Commande inconnue : « " + sCommande + " ». Essayez « ebony aide ».")
+		FIN
+	FIN
+FIN

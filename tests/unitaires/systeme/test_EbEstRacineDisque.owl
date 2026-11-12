@@ -1,0 +1,52 @@
+// Tests de EbEstRacineDisque : reconnaît la racine d'un disque Windows (« C: », « C:\ », « C:/ »), rien d'autre.
+
+// Les trois écritures usuelles d'une racine sont reconnues.
+PROCEDURE scenario_racines_reconnues()
+	dbgVérifieVrai(EbEstRacineDisque("C:\"), "C:\")
+	dbgVérifieVrai(EbEstRacineDisque("D:/"), "D:/")
+	dbgVérifieVrai(EbEstRacineDisque("E:"), "E:")
+FIN
+
+// La lettre de disque peut être en minuscule.
+PROCEDURE scenario_lettre_minuscule()
+	dbgVérifieVrai(EbEstRacineDisque("c:\"), "c:\")
+FIN
+
+// Un dossier, même proche de la racine, n'est pas une racine.
+PROCEDURE scenario_sous_dossier_refuse()
+	dbgVérifieFaux(EbEstRacineDisque("C:\Users"), "C:\Users")
+	dbgVérifieFaux(EbEstRacineDisque("D:\Projets\ElmiraLabs"), "chemin profond")
+FIN
+
+// Une racine suivie d'une seconde barre, ou d'un autre caractère, n'est pas reconnue.
+PROCEDURE scenario_troisieme_caractere_invalide()
+	dbgVérifieFaux(EbEstRacineDisque("C:x"), "C:x")
+	dbgVérifieFaux(EbEstRacineDisque("C:\\"), "C:\\ (quatre caractères)")
+FIN
+
+// Une chaîne qui ne commence pas par une lettre suivie de deux-points est refusée.
+PROCEDURE scenario_formes_invalides()
+	dbgVérifieFaux(EbEstRacineDisque(""), "vide")
+	dbgVérifieFaux(EbEstRacineDisque("C"), "un seul caractère")
+	dbgVérifieFaux(EbEstRacineDisque("1:\"), "chiffre à la place de la lettre")
+	dbgVérifieFaux(EbEstRacineDisque("CD:"), "deux lettres")
+	dbgVérifieFaux(EbEstRacineDisque("CD"), "deux lettres, sans deux-points")
+	dbgVérifieFaux(EbEstRacineDisque("C\/"), "lettre, séparateur à la place du deux-points")
+	dbgVérifieFaux(EbEstRacineDisque("\\serveur"), "chemin réseau")
+FIN
+
+// Les bornes de l'alphabet : « A » et « Z » sont des lettres de disque, « @ » (avant A) et « [ » (après Z) non.
+PROCEDURE scenario_bornes_de_l_alphabet()
+	dbgVérifieVrai(EbEstRacineDisque("A:\"), "A:\")
+	dbgVérifieVrai(EbEstRacineDisque("Z:\"), "Z:\")
+	dbgVérifieFaux(EbEstRacineDisque("@:\"), "@ juste avant A")
+	dbgVérifieFaux(EbEstRacineDisque("[:\"), "[ juste après Z")
+FIN
+
+// La racine du système de fichiers de Linux (« / », « \ » en interne) est une racine ; un dossier de premier niveau n'en est pas une.
+PROCEDURE scenario_racine_linux()
+	dbgVérifieVrai(EbEstRacineDisque("/"), "/")
+	dbgVérifieVrai(EbEstRacineDisque("\"), "\ (forme interne)")
+	dbgVérifieFaux(EbEstRacineDisque("/root"), "un dossier de premier niveau")
+	dbgVérifieFaux(EbEstRacineDisque("\root"), "idem, forme interne")
+FIN

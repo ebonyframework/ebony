@@ -1,0 +1,41 @@
+// Ce que « ebony install » copie dans le dossier des programmes : le strict nécessaire pour exécuter ebony (pas .git, tests/, docs/, scripts/, assets/, tmp/).
+// Fonctions pures, testées dans tests/unitaires/commandes/installation/.
+// Tous les .owl d'un dossier forment un seul projet : copier tests/ ferait charger ~30 fichiers de test à chaque lancement d'ebony.
+EbManifeste est une CollectionDeProcédures
+
+	// Dossiers copiés tels quels, avec tout leur contenu : le lanceur, le code d'ebony, les modules (dont la bibliothèque d'exécution de chacun, modules/<nom>/execution, et le code et les modèles du cœur, modules/core/outils).
+	PROCEDURE EbDossiersAInstaller() : tableau de chaînes
+		RENVOYER ChaîneDécoupe("bin,src,modules", ",")
+	FIN
+
+	// Le dossier d'exécution d'un module dans une installation d'ebony : <racine>\modules\<module>\execution. Son contenu reproduit l'arborescence de ebony/ du projet (core : config\, cycle\, VERSION… ; auth : auth\).
+	PROCEDURE EbCheminExecutionModule(sRacine est une chaîne, sModule est une chaîne) : chaîne
+		sModules  est une chaîne = EbJointChemin(sRacine, "modules")
+		sDuModule est une chaîne = EbJointChemin(sModules, sModule)
+		RENVOYER EbJointChemin(sDuModule, "execution")
+	FIN
+
+	// Le manifeste d'un module dans une installation d'ebony : <racine>\modules\<module>\execution\modules\<module>.json. Il est dans execution/ pour être copié avec la bibliothèque : le projet l'a dans ebony\modules\<module>.json
+	// Facultatif : un module peut ne pas en avoir.
+	PROCEDURE EbCheminManifesteModule(sRacine est une chaîne, sModule est une chaîne) : chaîne
+		sDossier est une chaîne = EbJointChemin(EbCheminExecutionModule(sRacine, sModule), "modules")
+		RENVOYER EbJointChemin(sDossier, sModule + ".json")
+	FIN
+
+	// Fichiers copiés à la racine : le point d'entrée (ebony.owl), le projet qui le contient (projet.owl) et la licence MIT, qui doit accompagner toute copie.
+	PROCEDURE EbFichiersAInstaller() : tableau de chaînes
+		RENVOYER ChaîneDécoupe("ebony.owl,projet.owl,LICENSE,README.md", ",")
+	FIN
+
+	// Dossiers copiés SEULEMENT s'ils existent dans la copie d'ebony qui s'exécute : les points d'entrée réduits par commande (scripts/construit-entrees.ps1), présents dans l'archive de distribution
+	// et générés avant les tests d'intégration, absents d'un clone. Un dossier à point est ignoré par OWL quand le projet complet est lancé (ebony.owl à la racine) : ils ne créent pas de doublon.
+	// Sans eux, ebony fonctionne pareil (le lanceur retombe sur ebony.owl), mais chaque commande coûte 20 à 25 s de plus.
+	PROCEDURE EbDossiersFacultatifs() : tableau de chaînes
+		RENVOYER ChaîneDécoupe(".commandes", ",")
+	FIN
+
+	// Nom du fichier écrit EN DERNIER dans le dossier d'une version installée : il contient la version. Sans lui, la copie a été interrompue.
+	PROCEDURE EbMarqueurInstallation() : chaîne
+		RENVOYER "INSTALLE"
+	FIN
+FIN

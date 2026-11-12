@@ -1,0 +1,34 @@
+// Tests de EbContientNonAscii : détecte un caractère de code supérieur à 127 dans un texte.
+
+// Un chemin Windows ordinaire, avec espaces et chiffres, ne contient aucun caractère non ASCII.
+PROCEDURE scenario_chemin_ascii()
+	dbgVérifieFaux(EbContientNonAscii("C:\Users\Jose Martin\Projets 2026\app"), "chemin ASCII")
+FIN
+
+// Un texte vide n'en contient pas.
+PROCEDURE scenario_texte_vide()
+	dbgVérifieFaux(EbContientNonAscii(""), "texte vide")
+FIN
+
+// Une lettre accentuée au milieu d'un nom de dossier est détectée.
+PROCEDURE scenario_accent_au_milieu()
+	dbgVérifieVrai(EbContientNonAscii("C:\Users\Jos" + Caract(233) + "\app"), "é dans un chemin")
+FIN
+
+// Un accent en première position, puis en dernière position, est détecté.
+PROCEDURE scenario_accent_aux_extremites()
+	dbgVérifieVrai(EbContientNonAscii(Caract(201) + "cole"), "É en première position")
+	dbgVérifieVrai(EbContientNonAscii("caf" + Caract(233)), "é en dernière position")
+FIN
+
+// Les caractères hors du latin (euro, japonais) sont détectés comme les lettres accentuées.
+PROCEDURE scenario_caracteres_hors_latin()
+	dbgVérifieVrai(EbContientNonAscii("prix " + Caract(8364)), "symbole euro")
+	dbgVérifieVrai(EbContientNonAscii(Caract(26085) + Caract(26412)), "caractères japonais")
+FIN
+
+// La limite exacte : le code 127 est ASCII, le code 128 ne l'est pas.
+PROCEDURE scenario_limite_127_128()
+	dbgVérifieFaux(EbContientNonAscii("a" + Caract(127) + "b"), "code 127 (DEL)")
+	dbgVérifieVrai(EbContientNonAscii("a" + Caract(128) + "b"), "code 128")
+FIN

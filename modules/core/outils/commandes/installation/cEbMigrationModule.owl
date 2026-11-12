@@ -1,0 +1,80 @@
+// Une migration que fournit un module : déclarée dans son manifeste, copiée par « ebony new » et « ebony init » dans database/migrations/ du projet, qui en est ensuite propriétaire (comme AdonisJS,
+// dont « add @adonisjs/auth » écrit les migrations de users et des jetons dans le projet). « ebony migrate » l'applique ensuite comme les autres. Objet valeur immuable, rempli par le constructeur.
+// L'horodatage est FIXE (écrit dans le manifeste) : les migrations d'un module passent avant celles du projet, dont l'horodatage est celui de leur création, et « ebony new » écrit toujours les mêmes noms.
+// Une migration peut dépendre d'une OPTION de « ebony new » (« auth » : seulement avec --auth) et porter le nom de la table des utilisateurs sous la forme {table_utilisateurs}, remplacé par Resolue().
+cEbMigrationModule est une Classe
+PRIVÉ
+	sModule     est une chaîne            = ""
+	sHorodatage est une chaîne            = ""
+	sIntention  est une chaîne            = ""
+	sOption     est une chaîne            = ""
+	tabMonte    est un tableau de chaînes
+	tabDescend  est un tableau de chaînes
+
+	PROCEDURE Constructeur(Module est une chaîne, Horodatage est une chaîne, Intention est une chaîne, Option est une chaîne, instructionsMonte est un tableau de chaînes, instructionsDescend est un tableau de chaînes)
+		:sModule = Module
+		:sHorodatage = Horodatage
+		:sIntention = Intention
+		:sOption = Option
+		POUR TOUT sSql DE instructionsMonte
+			TableauAjoute(:tabMonte, sSql)
+		FIN
+		POUR TOUT sSql DE instructionsDescend
+			TableauAjoute(:tabDescend, sSql)
+		FIN
+	FIN
+
+	// Le module qui la fournit (le nom de son dossier dans modules/).
+	PROCEDURE PUBLIQUE Module() : chaîne
+		RENVOYER :sModule
+	FIN
+
+	// L'horodatage fixe : douze chiffres, comme celui d'une migration de « make migration » (202611100000).
+	PROCEDURE PUBLIQUE Horodatage() : chaîne
+		RENVOYER :sHorodatage
+	FIN
+
+	// L'intention, en PascalCase (CreeEbJetons).
+	PROCEDURE PUBLIQUE Intention() : chaîne
+		RENVOYER :sIntention
+	FIN
+
+	// L'option de « ebony new » dont elle dépend : « auth » (seulement avec --auth), ou vide (toujours).
+	PROCEDURE PUBLIQUE Option() : chaîne
+		RENVOYER :sOption
+	FIN
+
+	// Le nom de la migration, celui du fichier sans extension : « M » + horodatage + « _ » + intention.
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER "M" + :sHorodatage + "_" + :sIntention
+	FIN
+
+	// Le chemin du fichier dans le projet, avec des « / ».
+	PROCEDURE PUBLIQUE Fichier() : chaîne
+		RENVOYER "database/migrations/" + :Nom() + ".owl"
+	FIN
+
+	// Les instructions SQL qui appliquent la migration, dans l'ordre d'envoi.
+	PROCEDURE PUBLIQUE Monte() : tableau de chaînes
+		RENVOYER :tabMonte
+	FIN
+
+	// Les instructions SQL qui la défont, dans l'ordre d'envoi.
+	PROCEDURE PUBLIQUE Descend() : tableau de chaînes
+		RENVOYER :tabDescend
+	FIN
+
+	// La même migration, avec {table_utilisateurs} remplacé par le nom de la table des utilisateurs du projet (« utilisateurs » ou « users »). Objet valeur : l'original n'est pas modifié.
+	PROCEDURE PUBLIQUE Resolue(sTable est une chaîne) : cEbMigrationModule
+		tabMonteResolu   est un tableau de chaînes
+		tabDescendResolu est un tableau de chaînes
+		POUR TOUT sSql DE :tabMonte
+			TableauAjoute(tabMonteResolu, Remplace(sSql, "{table_utilisateurs}", sTable))
+		FIN
+		POUR TOUT sSql DE :tabDescend
+			TableauAjoute(tabDescendResolu, Remplace(sSql, "{table_utilisateurs}", sTable))
+		FIN
+		oResolue est un cEbMigrationModule(:sModule, :sHorodatage, :sIntention, :sOption, tabMonteResolu, tabDescendResolu)
+		RENVOYER oResolue
+	FIN
+FIN

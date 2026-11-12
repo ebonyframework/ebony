@@ -1,0 +1,167 @@
+// Tests de la lecture des arguments de « ebony token » : create (nom, --expire), list, revoke (identifiant), et chaque refus (code 25).
+
+// Les arguments écrits avec des « ; ».
+PROCEDURE EbTestArgsToken(sListe est une chaîne) : tableau de chaînes
+	tabArgs est un tableau de chaînes
+	SI sListe <> "" ALORS
+		tabArgs = ChaîneDécoupe(sListe, ";")
+	FIN
+	RENVOYER tabArgs
+FIN
+
+// Lit les arguments et rend « » s'ils sont acceptés, ou « code|message » s'ils sont refusés.
+PROCEDURE EbTestRefusToken(sListe est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken(sListe))
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Un refus est un code 25 (usage incorrect) et son message contient le fragment attendu.
+PROCEDURE EbTestRefusToken25(sListe est une chaîne, sFragment est une chaîne, sLibelle est une chaîne)
+	sRefus est une chaîne = EbTestRefusToken(sListe)
+	dbgVérifieEgalité(Gauche(sRefus, 3), "25|", sLibelle + " : code 25")
+	dbgVérifieVrai(Position(sRefus, sFragment) > 0, sLibelle + " : le message dit « " + sFragment + " » (reçu : " + sRefus + ")")
+FIN
+
+// « create <nom> » : un jeton sans expiration.
+PROCEDURE scenario_create_avec_un_nom()
+	oDemande est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;ci-github"))
+	dbgVérifieEgalité(oDemande.SousCommande(), "create", "sous-commande")
+	dbgVérifieEgalité(oDemande.Argument(), "ci-github", "le nom")
+	dbgVérifieEgalité(oDemande.ExpireLe(), "", "pas d'expiration")
+FIN
+
+// Un nom libre (espaces, accents) arrive en un seul argument.
+PROCEDURE scenario_create_nom_libre()
+	oDemande est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;robot de nuit é"))
+	dbgVérifieEgalité(oDemande.Argument(), "robot de nuit é", "le nom est gardé tel quel")
+FIN
+
+// --expire donne la fin du jour demandé, avec une valeur séparée ou collée par « = ».
+PROCEDURE scenario_create_avec_expiration()
+	oSepare est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;ci;--expire;2027-03-31"))
+	dbgVérifieEgalité(oSepare.ExpireLe(), "2027-03-31T23:59:59Z", "--expire valeur")
+	oColle est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;--expire=2027-03-31;ci"))
+	dbgVérifieEgalité(oColle.ExpireLe(), "2027-03-31T23:59:59Z", "--expire=valeur, avant le nom")
+	dbgVérifieEgalité(oColle.Argument(), "ci", "le nom est lu quand même")
+FIN
+
+// « list » : pas d'argument ; --json et les options du lanceur sont acceptés sans effet.
+PROCEDURE scenario_list_et_options_du_lanceur()
+	oListe est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("list"))
+	dbgVérifieEgalité(oListe.SousCommande(), "list", "sous-commande")
+	dbgVérifieEgalité(oListe.Argument(), "", "pas d'argument")
+	oJson est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("list;--json"))
+	dbgVérifieEgalité(oJson.SousCommande(), "list", "--json ne change pas la demande")
+	oLanceur est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("-racine=C:\ebony;list"))
+	dbgVérifieEgalité(oLanceur.SousCommande(), "list", "une option du lanceur est ignorée")
+FIN
+
+// « revoke <identifiant> ».
+PROCEDURE scenario_revoke_avec_un_identifiant()
+	oDemande est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("revoke;ba7816bf8f01"))
+	dbgVérifieEgalité(oDemande.SousCommande(), "revoke", "sous-commande")
+	dbgVérifieEgalité(oDemande.Argument(), "ba7816bf8f01", "l'identifiant")
+FIN
+
+// Sans sous-commande, ou avec une sous-commande inconnue : refus qui liste les sous-commandes.
+PROCEDURE scenario_refus_sous_commande()
+	EbTestRefusToken25("", "Il manque la sous-commande", "aucune")
+	EbTestRefusToken25("--json", "Il manque la sous-commande", "que des options")
+	EbTestRefusToken25("supprime", "Sous-commande inconnue", "inconnue")
+	EbTestRefusToken25("supprime", "create, list, revoke", "liste les sous-commandes")
+FIN
+
+// Plusieurs mots après « create » forment un seul nom, séparés par une espace, que --expire soit avant, entre ou après (le lanceur ne garde pas toujours les guillemets d'un argument à espaces).
+PROCEDURE scenario_create_mots_multiples_forment_un_nom()
+	oDeux est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;robot;nuit"))
+	dbgVérifieEgalité(oDeux.Argument(), "robot nuit", "deux mots")
+	oOption est un cEbDemandeToken = EbAnalyseArgumentsToken(EbTestArgsToken("create;robot;--expire;2027-03-31;de;nuit"))
+	dbgVérifieEgalité(oOption.Argument(), "robot de nuit", "l'option au milieu ne coupe pas le nom")
+	dbgVérifieEgalité(oOption.ExpireLe(), "2027-03-31T23:59:59Z", "et l'expiration est lue")
+FIN
+
+// Seul « create » regroupe les mots : « revoke » et « list » gardent un argument unique.
+PROCEDURE scenario_refus_mots_en_trop_hors_create()
+	EbTestRefusToken25("revoke;ba7816bf8f01;ba7816bf8f02", "Argument en trop", "deux identifiants")
+FIN
+
+// create : le nom est obligatoire et limité à 60 caractères (mots réunis compris).
+PROCEDURE scenario_refus_create()
+	EbTestRefusToken25("create", "Il manque le nom du jeton", "sans nom")
+	sLong est une chaîne = ""
+	POUR i = 1 À 61
+		sLong += "x"
+	FIN
+	EbTestRefusToken25("create;" + sLong, "trop long", "61 caractères")
+	dbgVérifieEgalité(EbTestRefusToken("create;" + Gauche(sLong, 60)), "", "60 caractères : accepté")
+FIN
+
+// revoke : l'identifiant est obligatoire et de la forme que « list » affiche (12 hexadécimaux en minuscules).
+PROCEDURE scenario_refus_revoke()
+	EbTestRefusToken25("revoke", "Il manque l'identifiant", "sans identifiant")
+	EbTestRefusToken25("revoke;ba7816bf8f0", "n'est pas valide", "11 caractères")
+	EbTestRefusToken25("revoke;ba7816bf8f012", "n'est pas valide", "13 caractères")
+	EbTestRefusToken25("revoke;BA7816BF8F01", "n'est pas valide", "majuscules")
+	EbTestRefusToken25("revoke;ba7816bf8fzz", "n'est pas valide", "pas hexadécimal")
+	EbTestRefusToken25("revoke;ba7816bf8f01;autre", "Argument en trop", "deux identifiants")
+FIN
+
+// list ne prend pas d'argument.
+PROCEDURE scenario_refus_list_avec_argument()
+	EbTestRefusToken25("list;ci", "ne prend pas d'argument", "list ci")
+FIN
+
+// Options : inconnue, --expire hors de create, valeur absente, date incorrecte.
+PROCEDURE scenario_refus_options()
+	EbTestRefusToken25("create;ci;--duree;3", "Option inconnue", "option inconnue")
+	EbTestRefusToken25("list;--expire;2027-03-31", "--expire ne va qu'avec", "--expire avec list")
+	EbTestRefusToken25("revoke;ba7816bf8f01;--expire;2027-03-31", "--expire ne va qu'avec", "--expire avec revoke")
+	EbTestRefusToken25("create;ci;--expire", "Il manque la valeur de --expire", "valeur absente")
+	EbTestRefusToken25("create;ci;--expire;--json", "Il manque la valeur de --expire", "valeur remplacée par une option")
+	EbTestRefusToken25("create;ci;--expire;demain", "n'est pas valide", "date en lettres")
+	EbTestRefusToken25("create;ci;--expire=2027-02-30", "n'est pas valide", "30 février")
+FIN
+
+// Dates : une date du calendrier donne la fin du jour (UTC) ; le reste donne « ».
+PROCEDURE scenario_expiration_de_jour()
+	dbgVérifieEgalité(EbExpirationDeJour("2027-03-31"), "2027-03-31T23:59:59Z", "31 mars")
+	dbgVérifieEgalité(EbExpirationDeJour("2028-02-29"), "2028-02-29T23:59:59Z", "29 février d'une année bissextile")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-02-29"), "", "29 février d'une année ordinaire")
+	dbgVérifieEgalité(EbExpirationDeJour("2100-02-29"), "", "2100 n'est pas bissextile")
+	dbgVérifieEgalité(EbExpirationDeJour("2000-02-29"), "2000-02-29T23:59:59Z", "2000 l'est")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-04-31"), "", "31 avril")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-13-01"), "", "mois 13")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-00-10"), "", "mois 0")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-01-00"), "", "jour 0")
+	dbgVérifieEgalité(EbExpirationDeJour("1999-12-31"), "", "avant 2000")
+	dbgVérifieEgalité(EbExpirationDeJour("2027-3-31"), "", "mois sur un chiffre")
+	dbgVérifieEgalité(EbExpirationDeJour("2027/03/31"), "", "mauvais séparateur")
+	dbgVérifieEgalité(EbExpirationDeJour("27-03-31x"), "", "pas des chiffres")
+	dbgVérifieEgalité(EbExpirationDeJour(""), "", "vide")
+FIN
+
+// Les jours des mois, bissextile comprise.
+PROCEDURE scenario_jours_du_mois()
+	dbgVérifieEgalité(EbJoursDuMois(2027, 1), 31, "janvier")
+	dbgVérifieEgalité(EbJoursDuMois(2027, 4), 30, "avril")
+	dbgVérifieEgalité(EbJoursDuMois(2027, 2), 28, "février ordinaire")
+	dbgVérifieEgalité(EbJoursDuMois(2028, 2), 29, "février bissextile")
+	dbgVérifieEgalité(EbJoursDuMois(2027, 0), 0, "mois 0")
+	dbgVérifieEgalité(EbJoursDuMois(2027, 13), 0, "mois 13")
+FIN
+
+// La forme d'un identifiant de jeton.
+PROCEDURE scenario_identifiant_de_jeton_valide()
+	dbgVérifieVrai(EbIdentifiantJetonValide("ba7816bf8f01"), "hexadécimal minuscule")
+	dbgVérifieVrai(EbIdentifiantJetonValide("000000000000"), "que des zéros")
+	dbgVérifieFaux(EbIdentifiantJetonValide("BA7816BF8F01"), "majuscules")
+	dbgVérifieFaux(EbIdentifiantJetonValide("ba7816bf8f0"), "trop court")
+	dbgVérifieFaux(EbIdentifiantJetonValide("ba7816bf8f01a"), "trop long")
+	dbgVérifieFaux(EbIdentifiantJetonValide("ba7816bf8fgh"), "pas hexadécimal")
+	dbgVérifieFaux(EbIdentifiantJetonValide(""), "vide")
+FIN

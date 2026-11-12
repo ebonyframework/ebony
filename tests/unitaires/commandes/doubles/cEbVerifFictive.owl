@@ -1,0 +1,18 @@
+// Double de test : une vérification qui rend toujours le résultat qu'on lui a donné.
+cEbVerifFictive est une Classe implemente iEbVerification
+PRIVÉ
+	oResultat est un cEbResultatVerification
+
+	PROCEDURE Constructeur(resultat est un cEbResultatVerification)
+		:oResultat = resultat
+	FIN
+
+	// Identifiant stable de la vérification (sortie « ebony doctor --json ») : il ne change jamais, même si le libellé change.
+	PROCEDURE PUBLIQUE Id() : chaîne
+		RENVOYER "fictive"
+	FIN
+
+	PROCEDURE PUBLIQUE Execute() : cEbResultatVerification
+		RENVOYER :oResultat
+	FIN
+FIN

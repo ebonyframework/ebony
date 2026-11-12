@@ -1,0 +1,56 @@
+// Une ligne de code OWL analysée pour l'alignement en colonnes que fait le formateur d'OWL 1.7.0 (voir EbFormatOwl).
+// Nature : 0 = ligne laissée telle quelle, 1 = déclaration « x est un … », 2 = affectation ou propriété « x = … ».
+// Objet valeur immuable, rempli par le constructeur.
+cEbLigneOwl est une Classe
+PRIVÉ
+	sOriginale   est une chaîne = ""
+	nNature      est un entier  = 0
+	sIndentation est une chaîne = ""
+	sNom         est une chaîne = ""
+	sDeclaration est une chaîne = ""
+	sValeur      est une chaîne = ""
+	bAvecValeur  est un booléen = Faux
+
+	PROCEDURE Constructeur(sTexteOriginal est une chaîne, nNatureLigne est un entier, sIndent est une chaîne, sNomLigne est une chaîne, sPartieDeclaration est une chaîne, sPartieValeur est une chaîne, bAvecPartieValeur est un booléen)
+		:sOriginale = sTexteOriginal
+		:nNature = nNatureLigne
+		:sIndentation = sIndent
+		:sNom = sNomLigne
+		:sDeclaration = sPartieDeclaration
+		:sValeur = sPartieValeur
+		:bAvecValeur = bAvecPartieValeur
+	FIN
+
+	// La ligne telle qu'elle a été lue.
+	PROCEDURE PUBLIQUE Originale() : chaîne
+		RENVOYER :sOriginale
+	FIN
+
+	PROCEDURE PUBLIQUE Nature() : entier
+		RENVOYER :nNature
+	FIN
+
+	// Les espaces ou tabulations du début de ligne.
+	PROCEDURE PUBLIQUE Indentation() : chaîne
+		RENVOYER :sIndentation
+	FIN
+
+	// Le nom déclaré ou affecté (« nId », « Langues », « MoiMême..Réponse..Corps »).
+	PROCEDURE PUBLIQUE Nom() : chaîne
+		RENVOYER :sNom
+	FIN
+
+	// Pour une déclaration : « est un entier », « est une chaîne », « est un cEbX(oY) » (sans la valeur). Vide pour une affectation.
+	PROCEDURE PUBLIQUE Declaration() : chaîne
+		RENVOYER :sDeclaration
+	FIN
+
+	// Ce qui suit le « = » (commentaire de fin de ligne compris). Vide s'il n'y a pas de valeur.
+	PROCEDURE PUBLIQUE Valeur() : chaîne
+		RENVOYER :sValeur
+	FIN
+
+	PROCEDURE PUBLIQUE AvecValeur() : booléen
+		RENVOYER :bAvecValeur
+	FIN
+FIN

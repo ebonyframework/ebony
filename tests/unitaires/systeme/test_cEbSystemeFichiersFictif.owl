@@ -1,0 +1,294 @@
+// Tests du faux disque (cEbSystemeFichiersFictif) : il doit se comporter comme le vrai (dossier parent exigé, copie qui exige sa source...),
+// sinon les tests des commandes qui l'utilisent ne prouveraient rien.
+
+// Écrire un fichier exige que le dossier parent existe.
+PROCEDURE scenario_ecriture_exige_le_parent()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	bLeve   est un booléen                                = Faux
+	QUAND EXCEPTION DANS
+		oDisque.EcritTexte("C:\Projets\x\a.txt", "contenu")
+	FAIRE
+		bLeve = Vrai
+	FIN
+	dbgVérifieVrai(bLeve, "lève : le parent n'existe pas")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\x\a.txt"), "rien n'a été écrit")
+	oDisque.AjouteDossier("C:\Projets")
+	oDisque.EcritTexte("C:\Projets\a.txt", "contenu")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\a.txt"), "écrit une fois le parent là")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\a.txt"), "contenu", "relu à l'identique")
+FIN
+
+// Réécrire un fichier remplace son contenu sans le doubler.
+PROCEDURE scenario_ecriture_remplace()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.AjouteDossier("C:\P")
+	oDisque.EcritTexte("C:\P\a.txt", "un")
+	oDisque.EcritTexte("C:\P\a.txt", "deux")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\P\a.txt"), "deux", "dernier contenu")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "un seul fichier")
+FIN
+
+// Lire un fichier absent lève, au lieu de rendre une chaîne vide (indiscernable d'un fichier vide).
+PROCEDURE scenario_lecture_absente_leve()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	bLeve   est un booléen                          = Faux
+	QUAND EXCEPTION DANS
+		sTexte est une chaîne = oDisque.LitTexte("C:\P\absent.txt")
+	FAIRE
+		bLeve = Vrai
+	FIN
+	dbgVérifieVrai(bLeve, "lève")
+	oDisque.AjouteDossier("C:\P")
+	oDisque.EcritTexte("C:\P\vide.txt", "")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\P\vide.txt"), "", "un fichier vide se lit sans lever")
+FIN
+
+// Les chemins se comparent sans tenir compte des barres, de la casse ni de la barre finale.
+PROCEDURE scenario_chemins_equivalents()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.AjouteDossier("C:\Projets\App")
+	oDisque.EcritTexte("c:/projets/app/Fichier.TXT", "x")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\App\fichier.txt"), "casse et barres")
+	dbgVérifieVrai(oDisque.DossierExiste("C:/Projets/App/"), "barre finale")
+FIN
+
+// CreeDossier crée aussi les parents, comme fRepCree.
+PROCEDURE scenario_creation_avec_parents()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\a\b\c")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\a\b\c"), "le dossier")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\a\b"), "son parent")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\a"), "son grand-parent")
+	oDisque.CreeDossier("C:\a\b\c")
+	dbgVérifieEgalité(oDisque.NbDossiers(), 4, "recréer un dossier existant n'en ajoute pas (a, b, c et la racine C:\)")
+FIN
+
+// Un fichier qui porte déjà le nom empêche la création : le vrai fRepCree dit Vrai à tort, l'adaptateur réel le détecte, le faux aussi.
+PROCEDURE scenario_creation_sur_un_fichier()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.AjouteDossier("C:\P")
+	oDisque.EcritTexte("C:\P\nom", "je suis un fichier")
+	bLeve est un booléen = Faux
+	QUAND EXCEPTION DANS
+		oDisque.CreeDossier("C:\P\nom")
+	FAIRE
+		bLeve = Vrai
+	FIN
+	dbgVérifieVrai(bLeve, "lève")
+FIN
+
+// Un dossier est vide s'il n'a ni fichier, ni sous-dossier (même vide), ni fichier caché.
+PROCEDURE scenario_dossier_vide()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\t\vide")
+	oDisque.CreeDossier("C:\t\avecfichier")
+	oDisque.EcritTexte("C:\t\avecfichier\f.txt", "x")
+	oDisque.CreeDossier("C:\t\caches")
+	oDisque.EcritTexte("C:\t\caches\.gitkeep", "")
+	oDisque.CreeDossier("C:\t\sousdossier\inner")
+	dbgVérifieVrai(oDisque.DossierEstVide("C:\t\vide"), "vide")
+	dbgVérifieFaux(oDisque.DossierEstVide("C:\t\avecfichier"), "un fichier")
+	dbgVérifieFaux(oDisque.DossierEstVide("C:\t\caches"), "un fichier caché")
+	dbgVérifieFaux(oDisque.DossierEstVide("C:\t\sousdossier"), "un sous-dossier vide")
+	dbgVérifieVrai(oDisque.DossierEstVide("C:\t\absent"), "un dossier absent compte pour vide")
+	dbgVérifieFaux(oDisque.DossierEstVide("C:\t"), "le parent contient des choses")
+FIN
+
+// « C:\t » ne doit pas prendre « C:\tout » pour un de ses enfants.
+PROCEDURE scenario_prefixe_n_est_pas_un_enfant()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\t")
+	oDisque.CreeDossier("C:\tout")
+	oDisque.EcritTexte("C:\tout\f.txt", "x")
+	dbgVérifieVrai(oDisque.DossierEstVide("C:\t"), "C:\t est vide malgré C:\tout")
+FIN
+
+// Copier un dossier copie fichiers, sous-dossiers vides et contenus.
+PROCEDURE scenario_copie()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\src\sub\deep")
+	oDisque.CreeDossier("C:\src\vide")
+	oDisque.EcritTexte("C:\src\a.txt", "A")
+	oDisque.EcritTexte("C:\src\sub\deep\b.txt", "B")
+	oDisque.CreeDossier("C:\dest")
+	oDisque.CopieDossier("C:\src", "C:\dest\copie")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\dest\copie"), "destination créée")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\dest\copie\sub\deep"), "sous-dossiers")
+	dbgVérifieVrai(oDisque.DossierExiste("C:\dest\copie\vide"), "dossier vide copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\dest\copie\a.txt"), "A", "fichier à la racine")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\dest\copie\sub\deep\b.txt"), "B", "fichier profond")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\src\a.txt"), "A", "la source est intacte")
+FIN
+
+// Copie sur une destination existante : fusion (même nom écrasé, autres conservés), comme fRepCopie.
+PROCEDURE scenario_copie_fusion()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\src")
+	oDisque.EcritTexte("C:\src\a.txt", "NOUVEAU")
+	oDisque.CreeDossier("C:\dest")
+	oDisque.EcritTexte("C:\dest\a.txt", "ANCIEN")
+	oDisque.EcritTexte("C:\dest\autre.txt", "reste")
+	oDisque.CopieDossier("C:\src", "C:\dest")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\dest\a.txt"), "NOUVEAU", "écrasé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\dest\autre.txt"), "reste", "conservé")
+FIN
+
+// Copie : la source doit exister et le parent de la destination aussi ; rien n'est créé en cas d'échec (le vrai fRepCopie crée une destination vide : l'adaptateur réel l'évite).
+PROCEDURE scenario_copie_exige_source_et_parent()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	bSource est un booléen                          = Faux
+	QUAND EXCEPTION DANS
+		oDisque.CopieDossier("C:\inexistant", "C:\dest")
+	FAIRE
+		bSource = Vrai
+	FIN
+	dbgVérifieVrai(bSource, "source absente : lève")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\dest"), "aucune destination créée")
+	oDisque.CreeDossier("C:\src")
+	bParent est un booléen = Faux
+	QUAND EXCEPTION DANS
+		oDisque.CopieDossier("C:\src", "C:\absent\dest")
+	FAIRE
+		bParent = Vrai
+	FIN
+	dbgVérifieVrai(bParent, "parent de la destination absent : lève")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\absent\dest"), "aucune destination créée")
+FIN
+
+// Une panne simulée fait échouer création, écriture et copie dont le chemin contient le motif, et seulement celles-là.
+PROCEDURE scenario_panne_simulee()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\ok")
+	oDisque.CreeDossier("C:\src")
+	oDisque.DefinitEchecSur("lecture-seule")
+	bEcriture est un booléen = Faux
+	QUAND EXCEPTION DANS
+		oDisque.EcritTexte("C:\ok\lecture-seule.txt", "x")
+	FAIRE
+		bEcriture = Vrai
+	FIN
+	dbgVérifieVrai(bEcriture, "écriture sur le motif : lève")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\ok\lecture-seule.txt"), "et n'écrit rien")
+	bCreation est un booléen = Faux
+	QUAND EXCEPTION DANS
+		oDisque.CreeDossier("C:\ok\lecture-seule")
+	FAIRE
+		bCreation = Vrai
+	FIN
+	dbgVérifieVrai(bCreation, "création sur le motif : lève")
+	bCopie est un booléen = Faux
+	QUAND EXCEPTION DANS
+		oDisque.CopieDossier("C:\src", "C:\ok\lecture-seule")
+	FAIRE
+		bCopie = Vrai
+	FIN
+	dbgVérifieVrai(bCopie, "copie vers le motif : lève")
+	oDisque.EcritTexte("C:\ok\normal.txt", "x")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\ok\normal.txt"), "un chemin sans le motif n'est pas touché")
+FIN
+
+// Sans panne simulée, rien ne lève même si le motif est vide.
+PROCEDURE scenario_pas_de_panne_par_defaut()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\ok")
+	oDisque.EcritTexte("C:\ok\a.txt", "x")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "écrit sans panne")
+FIN
+
+// CopieFichier : copie le contenu, remplace l'existant, laisse la source intacte.
+PROCEDURE scenario_copie_fichier()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.AjouteDossier("C:\a")
+	oDisque.AjouteDossier("C:\b")
+	oDisque.AjouteFichier("C:\a\x.txt", "contenu")
+	oDisque.AjouteFichier("C:\b\x.txt", "ancien")
+	oDisque.CopieFichier("C:\a\x.txt", "C:\b\x.txt")
+	dbgVérifieEgalité(oDisque.ContenuDe("C:\b\x.txt"), "contenu", "l'existant est remplacé")
+	dbgVérifieEgalité(oDisque.ContenuDe("C:\a\x.txt"), "contenu", "la source est intacte")
+	oDisque.CopieFichier("C:\a\x.txt", "C:\b\y.txt")
+	dbgVérifieEgalité(oDisque.ContenuDe("C:\b\y.txt"), "contenu", "nouveau nom")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 3, "trois fichiers")
+FIN
+
+// CopieFichier exige comme le vrai une source qui est un fichier et un dossier parent existant, et obéit aux pannes simulées.
+PROCEDURE scenario_copie_fichier_exige_source_et_parent()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	oDisque.AjouteDossier("C:\a")
+	oDisque.AjouteFichier("C:\a\x.txt", "contenu")
+	sSansSource est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDisque.CopieFichier("C:\a\absent.txt", "C:\a\y.txt")
+	FAIRE
+		sSansSource = ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieVrai(Position(sSansSource, "source n'existe pas") > 0, "source absente : lève")
+	sSansParent est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDisque.CopieFichier("C:\a\x.txt", "C:\pasla\y.txt")
+	FAIRE
+		sSansParent = ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieVrai(Position(sSansParent, "parent") > 0, "parent absent : lève")
+	oDisque.DefinitEchecSur("panne")
+	sPanne est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDisque.CopieFichier("C:\a\x.txt", "C:\a\panne.txt")
+	FAIRE
+		sPanne = ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieVrai(Position(sPanne, "échec simulé") > 0, "panne simulée sur la destination")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\a\panne.txt"), "rien n'est écrit")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 1, "un seul fichier")
+FIN
+
+// Le dossier des programmes est inconnu par défaut, et se définit.
+PROCEDURE scenario_dossier_programmes()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	dbgVérifieEgalité(oDisque.DossierProgrammes(), "", "inconnu par défaut")
+	oDisque.DefinitProgrammes("C:\Users\moi\AppData\Local\Programs")
+	dbgVérifieEgalité(oDisque.DossierProgrammes(), "C:\Users\moi\AppData\Local\Programs", "défini")
+FIN
+
+// Le nom d'affichage du dossier d'installation retombe sur le dossier d'installation tant qu'on n'en définit pas un.
+PROCEDURE scenario_installation_affichee()
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets")
+	dbgVérifieEgalité(oDisque.DossierInstallationAffiche(), "", "inconnu : vide")
+	oDisque.DefinitInstallation("C:\PROGRA~1\ebony")
+	dbgVérifieEgalité(oDisque.DossierInstallationAffiche(), "C:\PROGRA~1\ebony", "repli sur le dossier d'installation")
+	oDisque.DefinitInstallationAffichee("C:\Program Files\ebony")
+	dbgVérifieEgalité(oDisque.DossierInstallationAffiche(), "C:\Program Files\ebony", "nom d'affichage défini")
+	dbgVérifieEgalité(oDisque.DossierInstallation(), "C:\PROGRA~1\ebony", "le dossier utilisé pour ouvrir les fichiers ne change pas")
+FIN
+
+// La liste d'un dossier : les noms des fichiers directs, triés, sans ceux des sous-dossiers ; un dossier absent ou vide donne une liste vide.
+PROCEDURE scenario_liste_des_fichiers_d_un_dossier()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.AjouteDossier("C:\P")
+	oDisque.AjouteDossier("C:\P\migrations")
+	oDisque.AjouteFichier("C:\P\migrations\M2_B.owl", "b")
+	oDisque.AjouteFichier("C:\P\migrations\M1_A.owl", "a")
+	oDisque.AjouteFichier("C:\P\migrations\sous\M0_Z.owl", "z")
+	oDisque.AjouteFichier("C:\P\autre.owl", "x")
+	tabNoms est un tableau de chaînes = oDisque.ListeFichiers("C:\P\migrations")
+	dbgVérifieEgalité(tabNoms..Occurrence, 2, "deux fichiers directs")
+	dbgVérifieEgalité(tabNoms[1], "M1_A.owl", "triés : le premier")
+	dbgVérifieEgalité(tabNoms[2], "M2_B.owl", "triés : le second")
+	dbgVérifieEgalité(oDisque.ListeFichiers("c:/p/migrations")..Occurrence, 2, "même résultat avec une autre forme du chemin")
+	dbgVérifieEgalité(oDisque.ListeFichiers("C:\P\absent")..Occurrence, 0, "dossier absent : liste vide")
+FIN
+
+// Les sous-dossiers directs d'un dossier : leurs noms, triés, sans les sous-dossiers de ceux-ci ni les fichiers ; un dossier absent ou sans sous-dossier donne une liste vide.
+PROCEDURE scenario_liste_des_dossiers_d_un_dossier()
+	oDisque est un cEbSystemeFichiersFictif("C:\P")
+	oDisque.CreeDossier("C:\P\modules\core\execution")
+	oDisque.CreeDossier("C:\P\modules\auth")
+	oDisque.AjouteFichier("C:\P\modules\NOTES.md", "x")
+	oDisque.CreeDossier("C:\P\ailleurs")
+	tabNoms est un tableau de chaînes = oDisque.ListeDossiers("C:\P\modules")
+	dbgVérifieEgalité(tabNoms..Occurrence, 2, "deux sous-dossiers directs (ni le fichier ni execution)")
+	dbgVérifieEgalité(tabNoms[1], "auth", "triés : le premier")
+	dbgVérifieEgalité(tabNoms[2], "core", "triés : le second")
+	dbgVérifieEgalité(oDisque.ListeDossiers("c:/p/modules")..Occurrence, 2, "même résultat avec une autre forme du chemin")
+	dbgVérifieEgalité(oDisque.ListeDossiers("C:\P\modules\auth")..Occurrence, 0, "sans sous-dossier : liste vide")
+	dbgVérifieEgalité(oDisque.ListeDossiers("C:\P\absent")..Occurrence, 0, "dossier absent : liste vide")
+FIN

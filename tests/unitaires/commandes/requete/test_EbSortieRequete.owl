@@ -1,0 +1,53 @@
+// Tests de EbSortieRequete : le texte et l'objet JSON de « ebony request » (lu par les outils pour rejouer une requête).
+
+PROCEDURE EbTestReponse(nStatut est un entier, sRaison est une chaîne, sCorps est une chaîne) : cEbReponseHttp
+	tabNoms    est un tableau de chaînes
+	tabValeurs est un tableau de chaînes
+	TableauAjoute(tabNoms, "Content-Type")
+	TableauAjoute(tabValeurs, "application/json")
+	TableauAjoute(tabNoms, "X-Test")
+	TableauAjoute(tabValeurs, "a" + Caract(34) + "b")
+	oReponse est un cEbReponseHttp(nStatut, sRaison, tabNoms, tabValeurs, sCorps, 25)
+	RENVOYER oReponse
+FIN
+
+// Le JSON est valide, sur une seule ligne, et se relit champ par champ ; le corps est une chaîne même quand il est du JSON, les guillemets d'un en-tête sont échappés.
+PROCEDURE scenario_json_complet()
+	sCorps est une chaîne = "{" + Caract(34) + "nom" + Caract(34) + ":" + Caract(34) + "Zo" + Caract(233) + Caract(34) + "}"
+	sJson  est une chaîne = EbJsonReponse(EbTestReponse(200, "OK", sCorps))
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide : " + sJson)
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieEgalité(j.status, 200, "statut")
+	dbgVérifieEgalité(j.reason, "OK", "raison")
+	dbgVérifieEgalité(j.body, sCorps, "corps relu à l'identique, accent et guillemets compris")
+	dbgVérifieEgalité(j.ms, 25, "durée")
+	dbgVérifieEgalité(j.headers["Content-Type"], "application/json", "en-tête")
+	dbgVérifieEgalité(j.headers["X-Test"], "a" + Caract(34) + "b", "guillemet dans un en-tête")
+FIN
+
+// Un 404 est ok=true : la requête a abouti, c'est le service qui a répondu 404.
+PROCEDURE scenario_json_404_est_ok()
+	j est un JSON = ChaîneVersJSON(EbJsonReponse(EbTestReponse(404, "Not Found", "")))
+	dbgVérifieVrai(j.ok, "ok malgré le 404")
+	dbgVérifieEgalité(j.status, 404, "statut 404")
+	dbgVérifieEgalité(j.body, "", "corps vide")
+FIN
+
+// Sans en-tête, « headers » est un objet vide.
+PROCEDURE scenario_json_sans_entetes()
+	tabVide  est un tableau de chaînes
+	oReponse est un cEbReponseHttp(204, "No Content", tabVide, tabVide, "", 3)
+	sJson    est une chaîne                                                    = EbJsonReponse(oReponse)
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide : " + sJson)
+	dbgVérifieVrai(Position(sJson, Caract(34) + "headers" + Caract(34) + ":{}") > 0, "objet vide : " + sJson)
+FIN
+
+// Le texte : ligne d'état, en-têtes, ligne vide, corps.
+PROCEDURE scenario_texte()
+	sLigne   est une chaîne = Caract(10)
+	sTexte   est une chaîne = EbTexteReponse(EbTestReponse(200, "OK", "42"))
+	sAttendu est une chaîne = "HTTP 200 OK (25 ms)" + sLigne + "Content-Type: application/json" + sLigne + "X-Test: a" + Caract(34) + "b" + sLigne + sLigne + "42"
+	dbgVérifieEgalité(sTexte, sAttendu, "texte exact")
+FIN
