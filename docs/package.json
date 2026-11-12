@@ -1,0 +1,14 @@
+{
+  "name": "ebony-docs",
+  "private": true,
+  "type": "module",
+  "description": "Le site de documentation d'Ebony (VitePress), publie sur GitHub Pages.",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

@@ -79,10 +79,10 @@ try {
 }
 finally { Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue }
 
-# Aucun .md dans l'instantane, sauf README.md a la racine et les guides d'usage de docs/guides/ (README de dossiers et notes de version restent dans le depot de developpement).
+# Aucun .md dans l'instantane, sauf README.md a la racine, la page d'accueil du site (docs/index.md) et les guides d'usage de docs/guides/ (README de dossiers et notes de version restent dans le depot de developpement).
 $racineInstantane = $destinationComplete.TrimEnd('\', '/')
 $prefixeGuides = (Join-Path $racineInstantane 'docs\guides') + [IO.Path]::DirectorySeparatorChar
-$estInterdit = { $_.FullName -ne (Join-Path $racineInstantane 'README.md') -and -not $_.FullName.StartsWith($prefixeGuides, [StringComparison]::OrdinalIgnoreCase) }
+$estInterdit = { $_.FullName -ne (Join-Path $racineInstantane 'README.md') -and $_.FullName -ne (Join-Path $racineInstantane 'docs\index.md') -and -not $_.FullName.StartsWith($prefixeGuides, [StringComparison]::OrdinalIgnoreCase) }
 Get-ChildItem -LiteralPath $racineInstantane -Recurse -File -Filter '*.md' -Force | Where-Object $estInterdit | Remove-Item -Force
 $mdRestants = @(Get-ChildItem -LiteralPath $racineInstantane -Recurse -File -Filter '*.md' -Force | Where-Object $estInterdit)
 if ($mdRestants.Count -gt 0) { Echec ("il reste des .md dans l'instantane : " + ($mdRestants | Select-Object -First 3 | ForEach-Object Name) -join ', ') }

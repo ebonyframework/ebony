@@ -1,6 +1,6 @@
 # Comment une requête traverse un projet Ebony
 
-Ce guide explique ce qui se passe entre l'arrivée d'une requête HTTP et la réponse, et **où écrire quoi** dans un projet généré par `ebony new` et `ebony make resource`. Les exemples viennent de la ressource `Produit` du [démarrage rapide](../../README.md#démarrage-rapide).
+Ce guide explique ce qui se passe entre l'arrivée d'une requête HTTP et la réponse, et **où écrire quoi** dans un projet généré par `ebony new` et `ebony make resource`. Les exemples viennent de la ressource `Produit` du [premiers pas](premiers-pas.md).
 
 ## Le chemin d'une requête
 
