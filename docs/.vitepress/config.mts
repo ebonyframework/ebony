@@ -60,6 +60,7 @@ export default defineConfig({
         text: 'Les bases',
         items: [
           { text: 'Configuration', link: '/guides/configuration' },
+          { text: 'ebony.conf', link: '/guides/ebony-conf' },
           { text: 'Ajouter une route', link: '/guides/routes' },
           { text: 'Erreurs', link: '/guides/erreurs' },
           { text: 'Déployer', link: '/guides/deployer' },
