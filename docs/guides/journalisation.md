@@ -43,5 +43,5 @@ Le troisième paramètre du constructeur est le **niveau minimum** : en dessous,
 
 - Le format `clé=valeur` (l'issue proposait JSON ou `clé=valeur` : seul JSON est fourni).
 - Une fraction de seconde dans `ts`, et l'identifiant de corrélation par requête.
-- Le branchement dans le code généré (`surErreur`, démarrage) : la procédure existe, aucun fichier généré ne l'appelle encore.
+- Le journal dans les routes et dans `surErreur` : le démarrage d'un projet généré écrit déjà `Base ouverte` et `Application démarrée` (une ligne JSON chacune sur la sortie du service), mais les routes générées n'écrivent rien par requête.
 - Non testé : la collecte de la sortie par un hébergeur réel. Vérifié : la ligne écrite par `cEbSortieJournalConsole` sur la sortie standard sous `owl test`.

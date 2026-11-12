@@ -1,7 +1,7 @@
 # Performance et limites d'une application OWL
 
 Ce que le serveur d'OWL (`owl serve`, ou le binaire produit par `owl-build`) permet et ne permet pas, pour écrire des handlers qui tiennent en production.
-Origine : tests faits sous Linux (OWL 1.6.0, binaire statique, PostgreSQL 18). Seul le comportement de la section 1 a été refait sous Windows (OWL 1.7.0, voir plus bas) ; les autres mesures n'ont **pas** été refaites. EbonyCore ne promet rien de plus que ce qui est écrit ici. OWL évolue vite : ces limites sont à remesurer à chaque nouvelle version d'OWL.
+Origine : tests faits sous Linux (OWL 1.6.0, binaire statique, PostgreSQL 18). Seul le comportement de la section 1 a été refait sous Windows (OWL 1.7.0 puis 1.8.1, voir plus bas) ; les autres mesures n'ont **pas** été refaites. EbonyCore ne promet rien de plus que ce qui est écrit ici. OWL évolue vite : ces limites sont à remesurer à chaque nouvelle version d'OWL.
 
 ## 1. Les requêtes sont servies une par une
 
@@ -22,7 +22,9 @@ Mesuré avec `owl serve` et avec le binaire `owl-build` :
 | 4 requêtes d'une seconde, envoyées ensemble | 4,06 s au total (en concurrence : environ 1 s) |
 | requête immédiate envoyée pendant une requête d'une seconde | 0,69 s (seule : 0,001 s) |
 
-Limites de cette remesure : seule l'attente par `Temporise` a été essayée (pas un calcul long, pas un client lent ou muet) ; le binaire `owl-build` et un service généré par `ebony new` (base de données, bibliothèque `Eb*`) n'ont pas été mesurés.
+**Rejoué sous Windows 11 avec OWL 1.8.1** (12 novembre 2026, même service minimal, `curl.exe`) : le comportement est inchangé. Une requête d'une seconde seule : 1,05 s ; quatre ensemble : 4,25 s ; une requête immédiate envoyée 0,2 s après le début d'une requête d'une seconde : 0,90 s (seule : 0,04 s, démarrage de `curl.exe` compris).
+
+Limites de ces remesures : seule l'attente par `Temporise` a été essayée (pas un calcul long, pas un client lent ou muet) ; le binaire `owl-build` et un service généré par `ebony new` (base de données, bibliothèque `Eb*`) n'ont pas été mesurés.
 
 **Aucune concurrence n'est promise.** Conséquences :
 

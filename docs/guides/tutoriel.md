@@ -2,7 +2,7 @@
 
 Les [premiers pas](premiers-pas.md) génèrent une ressource. Ce tutoriel va plus loin : **deux tables liées**, une **validation** dans le contrôleur, une **règle métier** dans le service, une **route de votre cru**, et un **test** de la règle. À la fin, vous savez où écrire quoi dans un projet Ebony ; la carte des couches est dans [le chemin d'une requête](architecture.md). Chaque commande et chaque code de ce guide a été rejoué (Windows, OWL 1.8.1, SQLite) ; les réponses citées sont celles du service.
 
-Prérequis : Ebony installé ([installation](installation.md)), `ebony doctor` sans erreur.
+Prérequis : Ebony installé ([installation](installation.md)), `ebony doctor` sans erreur. Chaque commande, chaque modification de code et chaque réponse citées ont été rejouées telles quelles sur la version 0.1.0 publiée (Windows, OWL 1.8.1, SQLite).
 
 ## 1. Deux ressources liées
 
@@ -153,10 +153,10 @@ FIN
 ```powershell
 owl test -vv --filter test_cServiceProduit
 # ✓ scenario scenario_service_refuse_un_doublon_dans_la_meme_categorie
-# STATUS: ALL CLEAR (1 suites, 17 assertions, 7 scenarios)
+# STATUS: ALL CLEAR (1 suites, 16 assertions, 6 scenarios)
 ```
 
-Écrivez de la même façon un scénario « le même nom dans une autre catégorie est permis ». `owl test` recompile tout le projet à chaque suite : comptez quelques dizaines de secondes.
+Écrivez de la même façon un scénario « le même nom dans une autre catégorie est permis ». `owl test` recompile tout le projet à chaque suite : les 10 suites de ce projet passent en une cinquantaine de secondes (mesuré), le temps croît avec la taille du projet.
 
 ## À savoir
 

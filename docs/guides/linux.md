@@ -5,7 +5,8 @@ Le parcours du guide [premiers pas](premiers-pas.md) (`new`, `make`, `migrate`, 
 ## Installer
 
 1. OWL : l'archive Linux de la [release d'OWL](https://github.com/followthewhiteowl/neowl/releases) (`owl` dans le PATH) et `curl`.
-2. ebony, en une commande : `curl -fsSL https://github.com/ebonyframework/ebony/releases/latest/download/install.sh | sh` (voir le [guide d'installation](installation.md#en-une-commande) : somme SHA-256 vérifiée, copie dans `~/.local/share/ebony/<version>/`, lien `~/.local/bin/ebony`). Vérifié avec Ubuntu sous WSL 2 contre l'archive construite par `scripts/construit-archive.ps1`, **pas encore contre une vraie release publiée**. À la main : le dépôt cloné, ou `ebony.tar.gz` extraite ; `chmod +x bin/ebony` si le bit d'exécution manque.
+2. ebony, en une commande : `curl -fsSL https://github.com/ebonyframework/ebony/releases/latest/download/install.sh | sh` (voir le [guide d'installation](installation.md#en-une-commande) : somme SHA-256 vérifiée, copie dans `~/.local/share/ebony/<version>/`, lien `~/.local/bin/ebony`). Vérifié avec Ubuntu sous WSL 2 contre l'archive construite par `scripts/construit-archive.ps1`, et rejoué le 12 novembre 2026 contre la **release 0.1.0 publiée** (somme vérifiée, ebony --version, puis 
+ew, make, migrate, 	oken, owl test et owl serve sur un projet neuf). À la main : le dépôt cloné, ou `ebony.tar.gz` extraite ; `chmod +x bin/ebony` si le bit d'exécution manque.
 3. Le PATH, si vous n'avez pas utilisé `install.sh` : un lien suffit, `ln -s /chemin/vers/ebony/bin/ebony ~/.local/bin/ebony` (le lanceur suit les liens pour retrouver son dossier).
 
 `ebony --version`, puis `ebony doctor` dans un dossier de travail.
@@ -21,7 +22,7 @@ Pièges rencontrés en portant `lanceur.ps1` (PowerShell 7) : `ConvertFrom-Json`
 - **Pas d'`ebony install` ni d'`ebony uninstall`** : ils modifient le PATH par le registre de Windows (`bin/ebony-path.ps1`). Sous Linux ils répondent par un refus net (code 2), sans rien faire.
 - **Une commande est plus lente depuis un clone** : les mini-projets par commande (`.commandes/`) sont écrits par `scripts/construit-entrees.ps1` (PowerShell) et ne sont dans l'archive de distribution que si elle a été construite sous Windows. Sans eux, chaque commande recompile ebony entier (`owl --check projet.owl` : 40 s sur la machine de mesure ; une commande n'a pas été chronométrée).
 - **Les chemins** : ebony écrit ses chemins avec `\` en interne (la forme de Windows). Un chemin Linux (`/root/essai`) garde son style `/` dans tous les messages ; les appels au système passent par `EbCheminDuSysteme` (`fSep()`). Sous Linux, deux chemins qui ne diffèrent que par la casse sont deux dossiers.
-- **Affichage** : quelques noms relatifs Ã©crits en dur avec `\` (Â« modules\core\execution Â» dans le message du `doctor`, par exemple) s'affichent tels quels sous Linux ; les chemins absolus sont en `/`. CosmÃ©tique : tout appel au systÃ¨me est converti (`fSep()`). `fSep()` n'est utilisÃ© qu'Ã  cette frontiÃ¨re : les fonctions de `EbChemin` restent pures (mÃªme rÃ©sultat sur tout systÃ¨me), ce que les tests Ã  faux disque, Ã©crits avec `D:\...`, supposent.
+- **Affichage** : quelques noms relatifs écrits en dur avec `\` (« modules\core\execution » dans le message du `doctor`, par exemple) s'affichent tels quels sous Linux ; les chemins absolus sont en `/`. C'est cosmétique : tout appel au système est converti (`fSep()`). `fSep()` n'est utilisé qu'à cette frontière : les fonctions de `EbChemin` restent pures (même résultat sur tout système), ce que les tests à faux disque, écrits avec `D:\...`, supposent.
 - **Le lanceur** `bin/ebony` est un script `sh` : mêmes options passées à `ebony.owl` que `bin/ebony.cmd` (`-racine=`, `-cwd=`, `-owl=`, `-sortie=`…), même code de sortie. `-programmes=` reste vide (il ne sert qu'à `install`).
 
 ## Ce qui n'est pas vérifié
@@ -29,5 +30,4 @@ Pièges rencontrés en portant `lanceur.ps1` (PowerShell 7) : `ConvertFrom-Json`
 - D'autres distributions, d'autres versions d'OWL.
 - PostgreSQL sous Linux (le test PostgreSQL est un script PowerShell qui lance Docker) ; le niveau TLS `verifie` avec une autorité publique.
 - PostgreSQL sous Linux : `tests/integration/postgresql.ps1` est écrit pour Windows (`Start-Process -WindowStyle`, `curl.exe`) et l'Ubuntu de mesure n'a pas Docker ; le porter sans pouvoir l'exécuter ne prouverait rien, il reste donc ignoré, et dit.
-- `owl test` d'un projet généré sous Linux.
 - Un chemin de projet avec des accents ou des espaces sous Linux.
