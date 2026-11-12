@@ -62,6 +62,7 @@ export default defineConfig({
           { text: 'Configuration', link: '/guides/configuration' },
           { text: 'Ajouter une route', link: '/guides/routes' },
           { text: 'Erreurs', link: '/guides/erreurs' },
+          { text: 'Déployer', link: '/guides/deployer' },
           { text: 'Journal', link: '/guides/journalisation' },
           { text: "Jetons d'accès", link: '/guides/token' }
         ]
