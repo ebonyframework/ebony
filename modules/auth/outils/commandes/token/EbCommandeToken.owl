@@ -8,7 +8,7 @@ EbCommandeToken est une CollectionDeProcédures
 		FIN
 		sCause est une chaîne = oJetons.Enregistre(oDemande.Argument(), sSecret, oDemande.ExpireLe())
 		SI sCause <> "" ALORS
-			ExceptionDéclenche(51, "Le jeton n'a pas pu être enregistré. Cause : " + sCause + ". Si la table eb_jetons n'existe pas, lancez « ebony migrate » : sa migration est dans database/migrations/ (écrite par « ebony new » ; un projet créé avec la 0.2 ne l'a pas : copiez celle d'un projet neuf créé avec --auth, puis lancez « ebony migrate »).")
+			ExceptionDéclenche(51, "Le jeton n'a pas pu être enregistré. Cause : " + sCause + ". Si la table eb_jetons n'existe pas, lancez « ebony migrate » : sa migration est dans database/migrations/ (écrite par « ebony new »).")
 		FIN
 		sIdentifiant est une chaîne = EbIdentifiantJeton(EbEmpreinteJeton(sSecret))
 		SI bJson ALORS
