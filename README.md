@@ -8,12 +8,14 @@
 
 Inspiré d'AdonisJS, pour le langage [OWL](https://github.com/followthewhiteowl/neowl).
 
-[![Licence MIT](https://img.shields.io/badge/licence-MIT-3b82f6?style=flat-square&labelColor=2b2b2b)](LICENSE)
-[![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-f28c28?style=flat-square&labelColor=2b2b2b)](https://github.com/ebonyframework/ebony/releases)
-[![Statut : préversion](https://img.shields.io/badge/statut-pr%C3%A9version-eab308?style=flat-square&labelColor=2b2b2b)](#statut-et-limites-connues)
-[![OWL 1.8.1](https://img.shields.io/badge/OWL-1.8.1-7c4dbd?style=flat-square&labelColor=2b2b2b)](https://github.com/followthewhiteowl/neowl)
-[![Plateformes : Windows et Linux](https://img.shields.io/badge/plateformes-Windows%20%7C%20Linux-6b7280?style=flat-square&labelColor=2b2b2b)](docs/guides/installation.md#linux)
+[![Version](https://img.shields.io/github/v/release/ebonyframework/ebony?style=for-the-badge&label=Version)](https://github.com/ebonyframework/ebony/releases)
+[![Licence MIT](https://img.shields.io/github/license/ebonyframework/ebony?style=for-the-badge&label=Licence)](LICENSE)
+[![OWL 1.8.1](https://img.shields.io/badge/OWL-1.8.1-blue?style=for-the-badge)](https://github.com/followthewhiteowl/neowl)
+[![Plateformes : Windows et Linux](https://img.shields.io/badge/Plateformes-Windows%20%7C%20Linux-lightgrey?style=for-the-badge)](docs/guides/installation.md)
+[![Statut : préversion](https://img.shields.io/badge/Statut-Pr%C3%A9version-yellow?style=for-the-badge)](#statut-et-limites-connues)
 
+[Installation](#installation) ·
+[Structure](#structure-dun-projet) ·
 [Démarrage rapide](#démarrage-rapide) ·
 [Modules](#les-modules-officiels) ·
 [Philosophie](#philosophie) ·
@@ -44,7 +46,7 @@ Le framework se construit en couches : le cœur d'abord, puis un type de projet 
 | **Desktop** | Des applications de bureau. | Prévu |
 | **Mobile** | Des applications mobiles. | À l'étude |
 
-## Démarrage rapide
+## Installation
 
 Prérequis : [OWL](https://github.com/followthewhiteowl/neowl) **1.8.1** (`owl` dans le PATH, la version prise en charge ; une autre version donne un avertissement de `ebony doctor`), Windows ou Linux. Installez Ebony **en une commande** (elle vérifie que `owl` est là, télécharge la dernière release, contrôle sa somme SHA-256 et installe ; elle n'installe pas OWL) :
 
@@ -56,6 +58,66 @@ curl -fsSL https://github.com/ebonyframework/ebony/releases/latest/download/inst
 ```
 
 Ouvrez ensuite un nouveau terminal et lancez `ebony doctor`. Autres voies (archive, clone) et détail de ce que fait l'installateur : le [guide d'installation](docs/guides/installation.md).
+
+## Structure d'un projet
+
+Tout projet Ebony part du **même socle** ; son **kit** (le type d'application, choisi par `ebony new <nom> --kit …`) ajoute des dossiers ou en retire. Le socle :
+
+```text
+mon-projet/
+├── ebony.conf                    nom, kit, modules, options, version minimale d'ebony
+├── projet.owl                    le projet OWL (point d'entrée)
+├── .env.exemple                  modèles de configuration : copiez-les en .env et .env.secrets
+├── .env.secrets.exemple
+├── AGENTS.md                     consignes pour un assistant de code (conventions, pièges d'OWL) : adaptez-le
+├── README.md
+├── config/env.json               le schéma de la configuration (des données, pas du code)
+├── app/                          le code de l'application : son contenu dépend du kit (ci-dessous)
+└── ebony/                        la bibliothèque d'exécution (ignorée par git, restaurée par « ebony restore »)
+```
+
+`ebony/` n'est pas à vous : c'est la bibliothèque, que `ebony upgrade` aligne sur la version installée. Tout le reste est à vous.
+
+### Ce que chaque kit ajoute
+
+| Kit | État | Dossiers propres à ce kit |
+|---|---|---|
+| **api** (par défaut) | Disponible | `app/http/` (service REST, contrôleurs), `app/services/`, `app/donnees/`, `app/domaine/`, `database/migrations/`, `tests/`, `storage/` (SQLite local) ; `config/Auth.owl` avec `--auth`. Détail ci-dessous. |
+| **slim** | Disponible | `app/http/` seulement : le service REST, sans base de données ni migrations, ni variable `DB_*`. |
+| **web** | Prévu | Ceux de l'API, plus `app/http/pages/` (routes de pages), `vues/` (gabarits HTML), `public/` (CSS, images, scripts) et `ebony/gabarits/`. |
+| **desktop** (bureau) | Prévu | `app/ui/` (une fenêtre par fichier), `app/presentation/` (contrôleurs ou présentateurs), `ressources/` (icônes) ; plus de `app/http/`, sauf si l'application expose aussi une API. |
+| **mobile** | À l'étude | Structure non définie. |
+
+Seuls `api` et `slim` existent aujourd'hui. Les structures de `web` et de `desktop` sont des **intentions de conception, pas du code** : elles peuvent changer avant d'être livrées.
+
+### Le kit api, en détail
+
+Ce que crée `ebony new boutique`, puis `ebony make resource Produit …` :
+
+```text
+boutique/
+├── ebony.conf                    nom, base, modules, options, version minimale d'ebony
+├── projet.owl                    le projet OWL (point d'entrée)
+├── .env.exemple                  modèles de configuration : copiez-les en .env et .env.secrets
+├── .env.secrets.exemple
+├── AGENTS.md                     consignes pour un assistant de code (conventions, pièges d'OWL) : adaptez-le
+├── config/
+│   ├── env.json                  le schéma de la configuration (des données, pas du code)
+│   └── Auth.owl                  l'authentification du projet (avec --auth) : à vous
+├── app/
+│   ├── http/                     le service REST et les contrôleurs : les routes
+│   ├── services/produit/         les règles métier
+│   ├── donnees/produit/          les repositories : SQL et mémoire
+│   └── domaine/produit/          l'entité et les contrats (interfaces)
+├── database/migrations/          une migration par fichier, jouée par « ebony migrate »
+├── tests/                        unitaires (sans base) et d'intégration (vraie base)
+├── storage/                      la base SQLite locale (ignorée par git)
+└── ebony/                        la bibliothèque d'exécution (ignorée par git, restaurée par « ebony restore »)
+```
+
+## Démarrage rapide
+
+Ebony installé (voir [Installation](#installation)), créez une API, migrez-la, protégez-la par un jeton et lancez-la :
 
 ```powershell
 ebony new boutique ; cd boutique
@@ -111,31 +173,6 @@ FIN
 
 `GET /api/compte-produits` répond `{"compte":2}` avec un jeton, 401 sans. La route passe par le **service**, jamais par le repository, et traduit toute exception en réponse JSON : voir [le chemin d'une requête](docs/guides/architecture.md) et [les erreurs](docs/guides/erreurs.md).
 
-### Ce que le projet contient
-
-```text
-boutique/
-├── ebony.conf                    nom, base, modules, options, version minimale d'ebony
-├── projet.owl                    le projet OWL (point d'entrée)
-├── .env.exemple                  modèles de configuration : copiez-les en .env et .env.secrets
-├── .env.secrets.exemple
-├── AGENTS.md                     consignes pour un assistant de code (conventions, pièges d'OWL) : adaptez-le
-├── config/
-│   ├── env.json                  le schéma de la configuration (des données, pas du code)
-│   └── Auth.owl                  l'authentification du projet (avec --auth) : à vous
-├── app/
-│   ├── http/                     le service REST et les contrôleurs : les routes
-│   ├── services/produit/         les règles métier
-│   ├── donnees/produit/          les repositories : SQL et mémoire
-│   └── domaine/produit/          l'entité et les contrats (interfaces)
-├── database/migrations/          une migration par fichier, jouée par « ebony migrate »
-├── tests/                        unitaires (sans base) et d'intégration (vraie base)
-├── storage/                      la base SQLite locale (ignorée par git)
-└── ebony/                        la bibliothèque d'exécution (ignorée par git, restaurée par « ebony restore »)
-```
-
-`ebony/` n'est pas à vous : c'est la bibliothèque, que `ebony upgrade` aligne sur la version installée. Tout le reste est à vous.
-
 ## Les modules officiels
 
 Les fonctionnalités d'Ebony sont réparties en modules : chacun apporte du code d'exécution, des commandes et, au besoin, un manifeste de données.
@@ -144,7 +181,7 @@ Les fonctionnalités d'Ebony sont réparties en modules : chacun apporte du code
 |---|---|---|
 | Cycle de vie, configuration, journal, HTTP, commandes | `core` | Disponible |
 | Jetons d'accès, routes protégées, `ebony token` | `auth` | Disponible |
-| Connexion, migrations, repositories SQL | `db` | Prévu : aujourd'hui dans `core` |
+| Connexion, migrations, repositories SQL | `db` | Disponible (kit `api` ; absent du kit `slim`) |
 | Vérification de ce que le client envoie | `validation` | Prévu : aujourd'hui limitée aux champs texte obligatoires |
 
 Le détail est dans [les modules](docs/guides/modules.md).
