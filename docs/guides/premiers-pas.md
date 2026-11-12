@@ -1,6 +1,6 @@
 # Premiers pas : de `ebony new` à une API qui répond
 
-Un projet, une table, une API REST protégée par un jeton, en quelques commandes. Chaque commande de ce guide a été rejouée telle quelle (sous Windows, avec OWL 1.8.1 et SQLite) ; les sorties citées sont celles du programme. Sous Linux : `bin/ebony` à la place d'`ebony` et `cp` à la place de `Copy-Item`.
+Un projet, une table, une API REST protégée par un jeton, en quelques commandes. Chaque commande de ce guide a été rejouée telle quelle, sur la version 0.1.0 publiée, sous Windows avec OWL 1.8.1 et SQLite ; les sorties citées sont celles du programme. Sous Linux : `cp` à la place de `Copy-Item`, `curl` à la place de `curl.exe` (la commande `ebony` est le lien posé par `install.sh`).
 
 Prérequis : OWL et ebony installés (voir [l'installation](installation.md)). `ebony doctor` le vérifie.
 
@@ -93,7 +93,7 @@ Les cinq routes de la ressource : `GET` et `POST /api/produits`, `GET`, `PUT` et
 - **Un `PUT` remplace toute la ressource.** Un champ absent du corps est remis à la valeur par défaut de son type (voir [le corps d'une requête](architecture.md#le-corps-dune-requête--une-lecture-tolérante)). Envoyez tous les champs.
 - **Les erreurs ont une forme unique** : `{"code":"…","message":"…"}`. Voir [les erreurs](erreurs.md).
 - **`owl serve` traite les requêtes une par une** : ne l'exposez pas à une charge imprévisible.
-- Les tests générés se lancent avec `owl test` : OWL recompile le projet pour chaque suite, comptez quelques dizaines de secondes par suite.
+- Les tests générés se lancent avec `owl test` : les 5 suites de ce guide passent en une quinzaine de secondes. OWL recompile le projet pour chaque suite, donc le temps croît avec la taille du projet.
 - Vos propres routes vont dans le contrôleur de la ressource ou dans `app/http/`, sur le modèle des routes générées.
 
 ## Ce qui n'est pas fait

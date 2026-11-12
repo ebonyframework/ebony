@@ -36,11 +36,16 @@ Une commande crée un projet qui compile et démarre sous `owl serve`. Une autre
 
 Prérequis : [OWL](https://github.com/followthewhiteowl/neowl) **1.8.1** (`owl` dans le PATH, la version prise en charge ; une autre version donne un avertissement de `ebony doctor`), Windows ou Linux. Installez Ebony **en une commande** (elle vérifie que `owl` est là, télécharge la dernière release, contrôle sa somme SHA-256 et installe ; elle n'installe pas OWL) :
 
+**Windows** (PowerShell) :
+
 ```powershell
-irm https://github.com/ebonyframework/ebony/releases/latest/download/install.ps1 | iex      # Windows (PowerShell)
+irm https://github.com/ebonyframework/ebony/releases/latest/download/install.ps1 | iex
 ```
+
+**Linux** :
+
 ```sh
-curl -fsSL https://github.com/ebonyframework/ebony/releases/latest/download/install.sh | sh   # Linux
+curl -fsSL https://github.com/ebonyframework/ebony/releases/latest/download/install.sh | sh
 ```
 
 Ouvrez ensuite un nouveau terminal et lancez `ebony doctor`. Autres voies (archive, clone) et détail de ce que fait l'installateur : le [guide d'installation](https://ebonyframework.github.io/ebony/guides/installation).
