@@ -39,3 +39,7 @@ docs/guides/token.md
 docs/guides/journalisation.md
 docs/guides/glossaire.md
 docs/guides/performance-et-limites.md
+docs/guides/introduction.md
+docs/guides/structure.md
+docs/guides/routes.md
+docs/guides/statut-et-limites.md

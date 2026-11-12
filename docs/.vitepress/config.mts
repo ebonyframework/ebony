@@ -47,9 +47,11 @@ export default defineConfig({
       {
         text: 'Pour commencer',
         items: [
+          { text: 'Introduction', link: '/guides/introduction' },
           { text: 'Installation', link: '/guides/installation' },
           { text: 'Ebony sous Linux', link: '/guides/linux' },
           { text: 'Premiers pas', link: '/guides/premiers-pas' },
+          { text: "Structure d'un projet", link: '/guides/structure' },
           { text: 'Tutoriel : une petite boutique', link: '/guides/tutoriel' },
           { text: 'Adopter Ebony dans un projet existant', link: '/guides/adopter-un-projet' }
         ]
@@ -58,6 +60,7 @@ export default defineConfig({
         text: 'Les bases',
         items: [
           { text: 'Configuration', link: '/guides/configuration' },
+          { text: 'Ajouter une route', link: '/guides/routes' },
           { text: 'Erreurs', link: '/guides/erreurs' },
           { text: 'Journal', link: '/guides/journalisation' },
           { text: "Jetons d'accès", link: '/guides/token' }
@@ -75,6 +78,7 @@ export default defineConfig({
         items: [
           { text: "Le chemin d'une requête", link: '/guides/architecture' },
           { text: 'Modules et kits', link: '/guides/modules' },
+          { text: 'Statut et limites connues', link: '/guides/statut-et-limites' },
           { text: 'Limites et performance', link: '/guides/performance-et-limites' }
         ]
       },
