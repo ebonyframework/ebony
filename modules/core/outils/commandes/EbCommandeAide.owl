@@ -13,6 +13,7 @@ EbCommandeAide est une CollectionDeProcédures
 		Trace("  new <nom>     crée un projet dans un nouveau dossier (le nom est libre : ebony new Café de la Gare)")
 		Trace("                options : --kit api|slim, --base sqlite|postgresql|hfsql, --auth [--table utilisateurs|users], --json")
 		Trace("  init          ajoute ebony au projet OWL du dossier courant, sans rien écraser (mêmes options que new, pas de nom)")
+		Trace("  add <module>  ajoute un module d'ebony (db, auth…) au projet courant : ebony add db [--base sqlite|postgresql|hfsql] [--json]")
 		Trace("  make resource <Nom> --champs <liste>   écrit l'entité, les repositories (SQL et mémoire), le service, les tests et le contrôleur (cinq routes REST) d'une table dans le projet courant, sans rien écraser")
 		Trace("  make migration <Nom> --champs <liste>  écrit la migration qui crée une table (Nom = Cree<Table>, ou --table <table>)")
 		Trace("                options : --table <table>, --dry-run (dit ce qui serait créé, n'écrit rien), --json")

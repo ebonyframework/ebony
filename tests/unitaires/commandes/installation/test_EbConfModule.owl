@@ -1,0 +1,79 @@
+// Tests de EbConfModule : lire un membre texte d'ebony.conf, et réécrire le fichier avec un module de plus (« ebony add »). Aucun disque : le texte d'ebony.conf est passé en argument.
+
+// L'ebony.conf d'un projet slim, tel que « ebony new --kit slim » l'écrit (le nom a un accent : il doit survivre à la réécriture).
+PROCEDURE EbTestConfSlim() : chaîne
+	oSlim est un cEbOptionsProjet("slim", "", Faux, "")
+	RENVOYER EbContenuConfAvecOptions("Caf" + Caract(233) + " de la Gare", "cafe-de-la-gare", "AppCafeDeLaGare", "0.1.0", oSlim)
+FIN
+
+// L'ebony.conf d'un projet api (base et authentification).
+PROCEDURE EbTestConfApi() : chaîne
+	oApi est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	RENVOYER EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oApi)
+FIN
+
+// Un membre texte se lit sous la forme groupe.membre ; un groupe ou un membre absent, un membre qui n'est pas un texte, et un texte qui n'est pas du JSON donnent « ».
+PROCEDURE scenario_texte_de_la_conf()
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfApi(), "projet", "dossier"), "mon-app", "projet.dossier")
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfApi(), "projet", "identifiant"), "AppMonApp", "projet.identifiant")
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfApi(), "base", "fournisseur"), "sqlite", "base.fournisseur")
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfSlim(), "base", "fournisseur"), "", "un projet slim n'a pas de base")
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfApi(), "projet", "inconnu"), "", "membre absent")
+	dbgVérifieEgalité(EbTexteDeLaConf(EbTestConfApi(), "inconnu", "dossier"), "", "groupe absent")
+	dbgVérifieEgalité(EbTexteDeLaConf(`{ "base": { "fournisseur": 5 } }`, "base", "fournisseur"), "", "membre numérique")
+	dbgVérifieEgalité(EbTexteDeLaConf(`{ "base": "sqlite" }`, "base", "fournisseur"), "", "groupe qui est un texte")
+	dbgVérifieEgalité(EbTexteDeLaConf("{ pas du json", "base", "fournisseur"), "", "pas du JSON")
+FIN
+
+// Une liste de modules s'écrit comme un tableau JSON.
+PROCEDURE scenario_liste_en_json()
+	tabAucun est un tableau de chaînes
+	dbgVérifieEgalité(EbListeModulesEnJson(tabAucun), "[]", "aucun module")
+	tabDeux est un tableau de chaînes
+	TableauAjoute(tabDeux, "db")
+	TableauAjoute(tabDeux, "auth")
+	dbgVérifieEgalité(EbListeModulesEnJson(tabDeux), `["db","auth"]`, "deux modules")
+FIN
+
+// Ajouter db à un projet slim : « modules » devient [db], base.fournisseur est écrit, tout le reste est conservé (nom accentué, kit noté, version) et le fichier garde la forme d'« ebony new ».
+PROCEDURE scenario_ajoute_db_a_un_projet_slim()
+	sNouvelle est une chaîne = EbConfAvecModule(EbTestConfSlim(), "db", "sqlite")
+	dbgVérifieVrai(sNouvelle <> "", "la réécriture réussit")
+	dbgVérifieVrai(JSONValide(sNouvelle), "le résultat est du JSON valide")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sNouvelle)), "db", "modules : db")
+	dbgVérifieEgalité(EbTexteDeLaConf(sNouvelle, "base", "fournisseur"), "sqlite", "base.fournisseur écrit")
+	dbgVérifieEgalité(EbTexteDeLaConf(sNouvelle, "projet", "Nom"), "Caf" + Caract(233) + " de la Gare", "le nom accentué est conservé")
+	dbgVérifieEgalité(EbTexteDeLaConf(sNouvelle, "projet", "kit"), "slim", "le kit noté n'est pas changé")
+	dbgVérifieEgalité(EbVersionDeLaConf(sNouvelle), "0.1.0", "la version est conservée")
+	dbgVérifieEgalité(Droite(sNouvelle, 1), Caract(10), "saut de ligne final")
+	dbgVérifieEgalité(Position(sNouvelle, Caract(13)), 0, "aucune fin de ligne CR")
+	dbgVérifieVrai(Position(sNouvelle, "modules") > 0 ET Position(sNouvelle, "base") > Position(sNouvelle, "modules"), "base après modules, comme dans un projet api")
+FIN
+
+// Le même texte, pour un projet api, que celui d'« ebony new » : slim + db + auth redonne api, aux membres kit près (le critère de réussite d'« ebony add »).
+PROCEDURE scenario_slim_plus_db_plus_auth_redonne_api()
+	sUn   est une chaîne = EbConfAvecModule(EbTestConfSlim(), "db", "sqlite")
+	sDeux est une chaîne = EbConfAvecModule(sUn, "auth", "")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sDeux)), "db, auth", "modules : db puis auth")
+	dbgVérifieEgalité(EbTexteDeLaConf(sDeux, "base", "fournisseur"), "sqlite", "la base est celle de db")
+	// Un api neuf, avec le même nom : seul le kit noté diffère.
+	oApi est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	sApi est une chaîne                                     = EbContenuConfAvecOptions("Caf" + Caract(233) + " de la Gare", "cafe-de-la-gare", "AppCafeDeLaGare", "0.1.0", oApi)
+	dbgVérifieEgalité(Remplace(sDeux, Caract(34) + "kit" + Caract(34) + ": " + Caract(34) + "slim" + Caract(34), Caract(34) + "kit" + Caract(34) + ": " + Caract(34) + "api" + Caract(34)), sApi, "à ceci près, identique à ebony new")
+FIN
+
+// Ajouter un module sans base ne touche pas à base.fournisseur ; ajouter un module déjà listé ne le répète pas.
+PROCEDURE scenario_module_sans_base_et_module_deja_present()
+	sDeux est une chaîne = EbConfAvecModule(EbTestConfApi(), "validation", "")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sDeux)), "db, auth, validation", "validation en dernier")
+	dbgVérifieEgalité(EbTexteDeLaConf(sDeux, "base", "fournisseur"), "sqlite", "la base est inchangée")
+	sRepete est une chaîne = EbConfAvecModule(EbTestConfApi(), "AUTH", "")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sRepete)), "db, auth", "auth (écrit en capitales) n'est pas répété")
+FIN
+
+// Un ebony.conf ancien (sans « modules »), un texte qui n'est pas du JSON ou un fichier vide ne sont pas réécrits : « » pour que l'appelant refuse.
+PROCEDURE scenario_conf_inutilisable_non_reecrite()
+	dbgVérifieEgalité(EbConfAvecModule(`{ "ebony": { "version": "0.1.0" } }`, "db", "sqlite"), "", "sans membre modules")
+	dbgVérifieEgalité(EbConfAvecModule("{ pas du json", "db", "sqlite"), "", "pas du JSON")
+	dbgVérifieEgalité(EbConfAvecModule("", "db", "sqlite"), "", "vide")
+FIN

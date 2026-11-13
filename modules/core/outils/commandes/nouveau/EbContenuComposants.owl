@@ -1,0 +1,60 @@
+// app/Composants.owl : le registre des composants de l'application. Un composant vient d'un module (la base de données, par exemple) ; le registre rend la liste de leurs fabriques, dans l'ordre de démarrage,
+// et le service généré l'appelle dans FinInitialisation. Ainsi le service n'est jamais réécrit quand un module s'ajoute : seul ce fichier l'est, en entier, d'après les modules du projet.
+// Le cœur écrit ces lignes d'après les manifestes (cEbComposantModule), sans connaître aucun module par son nom. Les procédures d'une Collection sont globales en OWL : le nom de la procédure du registre doit être unique
+// dans le projet, d'où le préfixe de l'identifiant (AppBoutique donne AppBoutiqueFabriques) ; un appel qualifié Collection.Procedure() n'existe pas (mesuré : « Variable inconnue » à l'exécution, pas à owl --check).
+EbContenuComposants est une CollectionDeProcédures
+
+	// Le nom de la Collection du registre : l'identifiant du projet suivi de « Composants ».
+	PROCEDURE EbNomComposants(sIdentifiant est une chaîne) : chaîne
+		RENVOYER sIdentifiant + "Composants"
+	FIN
+
+	// Le nom de la procédure du registre : l'identifiant du projet suivi de « Fabriques ». C'est ce que le service appelle.
+	PROCEDURE EbNomFabriques(sIdentifiant est une chaîne) : chaîne
+		RENVOYER sIdentifiant + "Fabriques"
+	FIN
+
+	// L'argument d'une fabrique pour une source nommée par le manifeste : le texte OWL qui le donne. « base.fournisseur » est le fournisseur de base noté dans ebony.conf, entre guillemets.
+	// Lève (22) pour une autre source : le lecteur de manifeste ne les laisse pas passer, ceci en est la seconde garde.
+	PROCEDURE EbArgumentComposant(sSource est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+		SI sSource = "base.fournisseur" ALORS
+			RENVOYER Caract(34) + oOptions.BaseDonnees() + Caract(34)
+		FIN
+		ExceptionDéclenche(22, "La source d'argument « " + sSource + " » n'est pas connue du cœur. Réinstallez ebony.")
+		RENVOYER ""
+	FIN
+
+	// La ligne OWL qui crée la fabrique d'un composant : « oComposant1 est un cEbServiceBase("sqlite") ». nRang est son rang (1 pour le premier). Les arguments suivent l'ordre des sources du manifeste.
+	PROCEDURE EbLigneCreationComposant(oComposant est un cEbComposantModule, nRang est un entier, oOptions est un cEbOptionsProjet) : chaîne
+		sArguments est une chaîne = ""
+		POUR TOUT sSource DE oComposant.Sources()
+			SI sArguments <> "" ALORS
+				sArguments += ", "
+			FIN
+			sArguments += EbArgumentComposant(sSource, oOptions)
+		FIN
+		RENVOYER "oComposant" + nRang + " est un " + oComposant.Fabrique() + "(" + sArguments + ")"
+	FIN
+
+	// Le texte de app/Composants.owl d'un projet. tabComposants : les cEbComposantModule des modules du projet, dans l'ordre de démarrage (aucun pour un projet slim : la procédure rend alors une liste vide).
+	PROCEDURE EbContenuComposants(sIdentifiant est une chaîne, tabComposants est un tableau, oOptions est un cEbOptionsProjet) : chaîne
+		sTab     est une chaîne = Caract(9)
+		sLigne   est une chaîne = Caract(10)
+		sContenu est une chaîne = "// app/Composants.owl : les composants de l'application, un par module qui en apporte un (la base de données, par exemple). Ce fichier est géré par Ebony : « ebony add » le réécrit en entier, ne le modifiez pas à la main." + sLigne
+		sContenu += "// Le service l'appelle dans FinInitialisation ; il n'est pas modifié quand un module s'ajoute." + sLigne
+		sContenu += EbNomComposants(sIdentifiant) + " est une CollectionDeProcédures" + sLigne + sLigne
+		sContenu += sTab + "// Les fabriques des composants, dans l'ordre de démarrage : elles s'ouvrent dans cet ordre et se ferment dans l'ordre inverse." + sLigne
+		sContenu += sTab + "PROCEDURE " + EbNomFabriques(sIdentifiant) + "() : tableau" + sLigne
+		sContenu += sTab + sTab + "tabFabriques est un tableau" + sLigne
+		nRang est un entier = 0
+		POUR TOUT oComposant DE tabComposants
+			nRang++
+			sContenu += sTab + sTab + EbLigneCreationComposant(oComposant, nRang, oOptions) + sLigne
+			sContenu += sTab + sTab + "TableauAjoute(tabFabriques, oComposant" + nRang + ")" + sLigne
+		FIN
+		sContenu += sTab + sTab + "RENVOYER tabFabriques" + sLigne
+		sContenu += sTab + "FIN" + sLigne
+		sContenu += "FIN" + sLigne
+		RENVOYER sContenu
+	FIN
+FIN

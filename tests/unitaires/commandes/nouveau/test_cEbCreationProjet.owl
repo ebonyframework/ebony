@@ -56,7 +56,37 @@ PROCEDURE scenario_bibliotheque_copiee()
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\config\README.md"), "config", "sous-dossier")
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\auth\README.md"), "auth", "le module auth est fusionné dans ebony/ à côté du cœur")
 	dbgVérifieEgalité(oDisque.LitTexte("D:\ebony\modules\core\execution\VERSION"), "0.1.0" + Caract(10), "la source est intacte")
-	dbgVérifieEgalité(oDisque.NbFichiers(), 19, "5 de la bibliothèque (3 modules : core, auth, db) + 5 copiés + ebony.conf, projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, app/http/Service<Nom>.owl, README.md, AGENTS.md")
+	dbgVérifieEgalité(oDisque.NbFichiers(), 20, "5 de la bibliothèque (3 modules : core, auth, db) + 5 copiés + ebony.conf, projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, app/http/Service<Nom>.owl, app/Composants.owl, README.md, AGENTS.md")
+FIN
+
+// Le registre des composants est écrit dans app/Composants.owl, et le service l'appelle : sans manifeste de composant dans l'installation, le registre rend une liste vide.
+PROCEDURE scenario_registre_genere_vide_sans_manifeste()
+	oDisque   est un cEbSystemeFichiersFictif            = EbTestDisque()
+	oCreation est un cEbCreationProjet(oDisque, oDisque)
+	oCree     est un cEbProjetCree                       = oCreation.Execute("mon-app")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\app\Composants.owl"), "app/Composants.owl existe")
+	sRegistre est une chaîne = oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl")
+	dbgVérifieVrai(Position(sRegistre, "PROCEDURE AppMonAppFabriques() : tableau") > 0, "la procédure du registre")
+	dbgVérifieEgalité(Position(sRegistre, "oComposant"), 0, "aucun composant déclaré")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\app\http\ServiceMonApp.owl"), "AppMonAppFabriques()") > 0, "le service appelle le registre")
+FIN
+
+// Un module dont le manifeste déclare un composant : « ebony new » l'écrit dans le registre, avec le fournisseur de base du projet, sans que le service ait changé.
+PROCEDURE scenario_registre_genere_avec_le_composant_de_db()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\modules\db.json", `{ "nom": "db", "composant": { "fabrique": "cEbServiceBase", "arguments": ["base.fournisseur"] } }`)
+	oCreation est un cEbCreationProjet(oDisque, oDisque)
+	oOptions  est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oCree     est un cEbProjetCree                                   = oCreation.ExecuteAvecOptions("mon-app", oOptions)
+	sRegistre est une chaîne                                         = oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl")
+	dbgVérifieVrai(Position(sRegistre, `cEbServiceBase("postgresql")`) > 0, "la base du projet est dans le registre")
+	tabSources est un tableau de chaînes
+	TableauAjoute(tabSources, "base.fournisseur")
+	oAttendu    est un cEbComposantModule("db", "cEbServiceBase", tabSources)
+	tabAttendus est un tableau
+	TableauAjoute(tabAttendus, oAttendu)
+	dbgVérifieEgalité(sRegistre, EbAligneDeclarations(EbContenuComposants("AppMonApp", tabAttendus, oOptions)), "le texte du registre")
 FIN
 
 // Le service REST est écrit dans app/http/Service<Nom>.owl, sous un nom préfixé « Service » déduit de l'identifiant, avec la base choisie.
@@ -66,7 +96,7 @@ PROCEDURE scenario_service_genere()
 	oOptions  est un cEbOptionsProjet("api", "postgresql", Faux, "")
 	oCree     est un cEbProjetCree                                   = oCreation.ExecuteAvecOptions("Ma Boutique", oOptions)
 	dbgVérifieVrai(oDisque.DossierExiste("C:\Projets\ma-boutique\app\http"), "app/http créé")
-	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\ma-boutique\app\http\ServiceMaBoutique.owl"), EbAligneDeclarations(EbContenuService("Ma Boutique", "AppMaBoutique", oOptions)), "le service")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\ma-boutique\app\http\ServiceMaBoutique.owl"), EbAligneDeclarations(EbContenuService("Ma Boutique", "AppMaBoutique")), "le service")
 	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\ma-boutique\app\http\ServiceMaBoutique.owl"), "ServiceMaBoutique est un ServiceREST") > 0, "classe du service")
 FIN
 

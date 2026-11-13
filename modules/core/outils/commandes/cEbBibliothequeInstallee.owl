@@ -165,6 +165,67 @@ PRIVÉ
 		RENVOYER tabFichiers
 	FIN
 
+	// Les composants que les manifestes des modules retenus apportent à l'application (des cEbComposantModule), dans l'ordre des modules : c'est l'ordre de démarrage du registre des composants du projet.
+	// Un module sans manifeste, ou dont le manifeste n'a pas de « composant », n'en apporte aucun. Lève (22) si l'installation est inconnue ou si un manifeste est illisible.
+	PROCEDURE PUBLIQUE ComposantsModules() : tableau
+		sRacine       est une chaîne = :Racine()
+		tabComposants est un tableau
+		POUR TOUT sModule DE :Modules()
+			sManifeste est une chaîne = EbCheminManifesteModule(sRacine, sModule)
+			SI :oSysteme.FichierExiste(sManifeste) ALORS
+				POUR TOUT oComposant DE EbComposantsDuManifeste(:oSysteme.LitTexte(sManifeste), sManifeste, sModule)
+					TableauAjoute(tabComposants, oComposant)
+				FIN
+			FIN
+		FIN
+		RENVOYER tabComposants
+	FIN
+
+	// Les modules installés hors le cœur (leurs noms), sans tenir compte d'un choix éventuel (Choisit) : ceux qu'« ebony add » peut ajouter à un projet. Lève (22) si l'installation est inconnue ou si le cœur manque.
+	PROCEDURE PUBLIQUE ModulesInstalles() : tableau de chaînes
+		tabInstalles est un tableau de chaînes
+		POUR TOUT sNom DE :oSysteme.ListeDossiers(EbJointChemin(:Racine(), "modules"))
+			SI Minuscule(sNom) <> "core" ET :oSysteme.DossierExiste(EbCheminExecutionModule(:Racine(), sNom)) ALORS
+				TableauAjoute(tabInstalles, sNom)
+			FIN
+		FIN
+		RENVOYER tabInstalles
+	FIN
+
+	// Les modules dont dépend sModule, d'après son manifeste (membre « dependances »). Vide pour un module sans manifeste. Lève (22) si le manifeste est illisible.
+	PROCEDURE PUBLIQUE DependancesDuModule(sModule est une chaîne) : tableau de chaînes
+		tabDependances est un tableau de chaînes
+		sManifeste     est une chaîne            = EbCheminManifesteModule(:Racine(), sModule)
+		SI :oSysteme.FichierExiste(sManifeste) ALORS
+			tabDependances = EbDependancesDuManifeste(:oSysteme.LitTexte(sManifeste), sManifeste, sModule)
+		FIN
+		RENVOYER tabDependances
+	FIN
+
+	// Ce qui, dans la destination (le dossier ebony/ du projet), empêcherait de copier le module sans rien écraser : un sous-dossier propre au module (donnees, auth…) déjà là et non vide, ou son manifeste déjà copié. Le dossier « modules »,
+	// partagé par tous les manifestes, n'est pas un conflit en lui-même. Vide si la copie est possible. Les noms rendus sont relatifs à la destination, avec des « / ».
+	PROCEDURE PUBLIQUE ConflitsCopieModule(sDestination est une chaîne, sModule est une chaîne) : tableau de chaînes
+		tabConflits est un tableau de chaînes
+		sSource     est une chaîne            = EbCheminExecutionModule(:Racine(), sModule)
+		POUR TOUT sDossier DE :oSysteme.ListeDossiers(sSource)
+			SI Minuscule(sDossier) <> "modules" ALORS
+				sCible est une chaîne = EbJointChemin(sDestination, sDossier)
+				SI :oSysteme.FichierExiste(sCible) OU (:oSysteme.DossierExiste(sCible) ET PAS :oSysteme.DossierEstVide(sCible)) ALORS
+					TableauAjoute(tabConflits, sDossier + "/")
+				FIN
+			FIN
+		FIN
+		SI :oSysteme.FichierExiste(EbJointChemin(EbJointChemin(sDestination, "modules"), sModule + ".json")) ALORS
+			TableauAjoute(tabConflits, "modules/" + sModule + ".json")
+		FIN
+		RENVOYER tabConflits
+	FIN
+
+	// Copie la bibliothèque d'UN module dans la destination (le dossier ebony/ d'un projet), qui doit déjà exister : son execution/ est fusionné à ce qui s'y trouve (le manifeste va dans modules/). À appeler après ConflitsCopieModule : la copie, elle, ne vérifie rien.
+	PROCEDURE PUBLIQUE CopieModule(oEcriture est un iEbEcritureFichiers, sDestination est une chaîne, sModule est une chaîne)
+		oEcriture.CopieDossier(EbCheminExecutionModule(:Racine(), sModule), sDestination)
+	FIN
+
 	// Version de la bibliothèque installée, lue dans modules/core/execution/VERSION (fins de ligne retirées). Lève (22) si le fichier est absent ou ne contient pas un numéro valide.
 	PROCEDURE PUBLIQUE Version() : chaîne
 		sFichierVersion est une chaîne = EbJointChemin(:Chemin(), "VERSION")

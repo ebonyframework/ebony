@@ -30,7 +30,7 @@ Inspiré d'AdonisJS, pour le langage [OWL](https://github.com/followthewhiteowl/
 
 Une commande crée un projet qui compile et démarre sous `owl serve`. Une autre écrit, pour une table, l'entité, les repositories, le service métier, le contrôleur REST et les tests, avec des routes protégées par jeton. Le code généré est lisible et reste le vôtre.
 
-> **Préversion 0.1.0.** Un socle de démarrage pour une petite API OWL, pas encore un framework complet. Lisez le [statut et les limites](https://ebonyframework.github.io/ebony/guides/statut-et-limites) avant de l'adopter.
+> **Préversion 0.1.1.** Un socle de démarrage pour une petite API OWL, pas encore un framework complet. Lisez le [statut et les limites](https://ebonyframework.github.io/ebony/guides/statut-et-limites) avant de l'adopter.
 
 ## Installation
 

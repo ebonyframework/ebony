@@ -46,7 +46,7 @@ Téléchargez `ebony.zip` et `ebony.zip.sha256` depuis les [releases](https://gi
 ```powershell
 (Get-FileHash .\ebony.zip -Algorithm SHA256).Hash.ToLower()      # doit être la somme du fichier .sha256
 Expand-Archive .\ebony.zip C:\sources
-C:\sources\ebony-0.1.0\bin\ebony.cmd install
+C:\sources\ebony-0.1.1\bin\ebony.cmd install
 ```
 
 ### Depuis un clone (pour contribuer)

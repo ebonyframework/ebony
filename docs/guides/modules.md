@@ -23,7 +23,7 @@ Un **kit** est la liste des modules qu'un projet reçoit à sa création : `ebon
 
 Les kits `web`, `desktop` et `mobile` sont annoncés dans l'écosystème, sans date ni promesse : seul `api` (et son allégé `slim`) existe.
 
-Un projet `slim` n'a pas le module `db` : `ebony migrate` et `ebony make` le refusent (code 1) en nommant le module, et `ebony token` refuse de même sans `auth`. Rien n'est écrit dans ce cas. Pour une base, créer le projet avec le kit `api`.
+Un projet `slim` n'a pas le module `db` : `ebony migrate` et `ebony make` le refusent (code 1) en nommant le module, et `ebony token` refuse de même sans `auth`. Rien n'est écrit dans ce cas. Pour lui donner une base ou les jetons, `ebony add db` puis `ebony add auth` (voir [Ajouter un module](ajouter-un-module.md)), ou créer le projet avec le kit `api`.
 
 ## Le manifeste d'un module
 
@@ -35,7 +35,7 @@ Un module peut joindre un **manifeste** (`ebony/modules/<nom>.json`) qui déclar
 - **Configuration.** `.env` et `.env.secrets` (non versionnés), contrôlés d'après un schéma de données, `config/env.json` (jamais du code exécuté). L'état de chaque variable (source, validité, erreur) est connu sans jamais exposer sa valeur. Voir [la configuration](configuration.md).
 - **Journal.** Une ligne JSON par événement sur la sortie standard, pour la collecte par un hébergeur : niveaux `debug`, `info`, `warn`, `error`, champs triés, échappement correct, horodatage UTC à la seconde. Le seuil vient de `LOG_NIVEAU` (`info` par défaut). Aucun secret ne doit être écrit dans un message : le journal écrit tel quel ce qu'on lui donne.
 - **HTTP.** Le contexte de requête, la réponse, des fabriques de réponses, les erreurs JSON standard (voir [les erreurs](erreurs.md)) et la sérialisation JSON.
-- **Commandes.** `new`, `init`, `make`, `migrate`, `env`, `request`, `doctor`, `restore`, `upgrade`, `install`, `uninstall` : voir [la référence](commandes.md).
+- **Commandes.** `new`, `init`, `add`, `make`, `migrate`, `env`, `request`, `doctor`, `restore`, `upgrade`, `install`, `uninstall` : voir [la référence](commandes.md).
 
 ## `db` : la base de données
 

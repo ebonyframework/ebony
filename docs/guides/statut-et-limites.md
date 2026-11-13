@@ -1,10 +1,11 @@
 # Statut et limites connues
 
 
-Ebony 0.1.0 est une **préversion**. À savoir avant de l'adopter :
+Ebony 0.1.1 est une **préversion**. À savoir avant de l'adopter :
 
 - **Une requête à la fois.** Un service OWL traite les requêtes une par une (quatre requêtes d'une seconde envoyées ensemble prennent environ quatre secondes) : ne l'exposez pas à une charge imprévisible. OWL n'a ni thread ni asynchrone.
 - **Bases** : SQLite et PostgreSQL 16 pour `ebony migrate` (essayés contre un vrai serveur) ; HFSQL est refusé pour les migrations.
+- **Modules** : seuls `db` et `auth` existent. `ebony add` en ajoute un à un projet ; il n'y a pas de commande pour en retirer un, ni de modules tiers, et `add` n'a été essayé qu'avec SQLite (voir [Ajouter un module](ajouter-un-module.md)).
 - **Authentification** : des jetons d'accès pour des clients ; pas de connexion d'utilisateur (mot de passe, session, rôles).
 - **Un `PUT` remplace toute la ressource** : un champ absent du corps est remis à la valeur par défaut de son type, et il n'y a pas de mise à jour partielle générée (voir [le chemin d'une requête](architecture.md#le-corps-dune-requête--une-lecture-tolérante)).
 - **Validation minimale** : seuls les champs texte obligatoires sont vérifiés ; un module de validation est prévu.

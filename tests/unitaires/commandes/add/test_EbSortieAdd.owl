@@ -1,0 +1,45 @@
+// Tests de EbSortieAdd : les étapes à suivre et l'objet JSON de « ebony add --json ». Fonctions pures, aucun disque.
+
+// Un résultat tel que « ebony add auth » en rendrait un : une migration créée, ebony.conf réécrit, une note, un fichier conservé.
+PROCEDURE EbTestResultatAdd(bMigration est un booléen) : cEbModuleAjoute
+	tabModules   est un tableau de chaînes
+	tabCrees     est un tableau de chaînes
+	tabModifies  est un tableau de chaînes
+	tabConserves est un tableau de chaînes
+	tabNotes     est un tableau de chaînes
+	TableauAjoute(tabModules, "db")
+	TableauAjoute(tabModules, "auth")
+	TableauAjoute(tabCrees, "ebony/ (module auth)")
+	SI bMigration ALORS
+		TableauAjoute(tabCrees, "database/migrations/M202611100000_CreeEbJetons.owl")
+	FIN
+	TableauAjoute(tabModifies, "ebony.conf")
+	TableauAjoute(tabConserves, "config/env.json")
+	TableauAjoute(tabNotes, "Ajoutez AUTH_ROUTES à config/env.json.")
+	oResultat est un cEbModuleAjoute("auth", "C:\Projets\Café", "sqlite", tabModules, tabCrees, tabModifies, tabConserves, tabNotes)
+	RENVOYER oResultat
+FIN
+
+// Les étapes : « ebony migrate » seulement quand une migration a été écrite, puis toujours « ebony env ».
+PROCEDURE scenario_etapes()
+	dbgVérifieEgalité(EbListeVirgules(EbEtapesAdd(EbTestResultatAdd(Vrai))), "ebony migrate, ebony env", "avec une migration")
+	dbgVérifieEgalité(EbListeVirgules(EbEtapesAdd(EbTestResultatAdd(Faux))), "ebony env", "sans migration")
+FIN
+
+// Le JSON : une seule ligne valide, avec ok, le module, les modules du projet, la base, les fichiers créés, réécrits, conservés, les notes et les étapes.
+PROCEDURE scenario_json()
+	sJson est une chaîne = EbJsonModuleAjoute(EbTestResultatAdd(Vrai))
+	dbgVérifieVrai(JSONValide(sJson), "JSON valide")
+	dbgVérifieEgalité(Position(sJson, Caract(10)), 0, "une seule ligne")
+	j est un JSON = ChaîneVersJSON(sJson)
+	dbgVérifieVrai(j.ok, "ok")
+	dbgVérifieEgalité(j.module, "auth", "module")
+	dbgVérifieEgalité(j.dir, "C:\Projets\Café", "dossier (accent conservé)")
+	dbgVérifieEgalité(j.base, "sqlite", "base")
+	dbgVérifieEgalité(j.modules[2], "auth", "modules du projet")
+	dbgVérifieEgalité(j.files[2], "database/migrations/M202611100000_CreeEbJetons.owl", "fichiers créés")
+	dbgVérifieEgalité(j.updated[1], "ebony.conf", "fichiers réécrits")
+	dbgVérifieEgalité(j.kept[1], "config/env.json", "fichiers conservés")
+	dbgVérifieEgalité(j.notes[1], "Ajoutez AUTH_ROUTES à config/env.json.", "notes")
+	dbgVérifieEgalité(j.Next[1], "ebony migrate", "étapes")
+FIN

@@ -1,0 +1,97 @@
+// Tests de EbLectureComposant : le composant qu'un module déclare dans son manifeste (membre « composant »), lu comme des DONNÉES.
+// Aucun disque : le texte du manifeste est passé en argument. Une entrée invalide est une exception de code 22 qui la nomme.
+
+// Lance la lecture et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusComposant(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabComposants est un tableau = EbComposantsDuManifeste(sTexte, "essai.json", "essai")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Une chaîne de n lettres « a » (un nom de fabrique de la longueur voulue).
+PROCEDURE EbTestLettresA(nNombre est un entier) : chaîne
+	sRes est une chaîne = ""
+	POUR i = 1 À nNombre
+		sRes += "a"
+	FIN
+	RENVOYER sRes
+FIN
+
+// Un manifeste qui apporte un composant : la fabrique et la source de son argument sont lues, avec le nom du module.
+PROCEDURE scenario_lit_le_composant()
+	sTexte        est une chaîne = `{ "nom": "essai", "composant": { "fabrique": "cEbServiceBase", "arguments": ["base.fournisseur"] } }`
+	tabComposants est un tableau = EbComposantsDuManifeste(sTexte, "essai.json", "essai")
+	dbgVérifieEgalité(tabComposants..Occurrence, 1, "un composant")
+	oComposant est un cEbComposantModule = tabComposants[1]
+	dbgVérifieEgalité(oComposant.Module(), "essai", "le module")
+	dbgVérifieEgalité(oComposant.Fabrique(), "cEbServiceBase", "la fabrique")
+	dbgVérifieEgalité(oComposant.Sources()..Occurrence, 1, "une source")
+	dbgVérifieEgalité(oComposant.Sources()[1], "base.fournisseur", "la source")
+FIN
+
+// Un composant sans « arguments » : une fabrique qui se construit sans argument.
+PROCEDURE scenario_composant_sans_arguments()
+	tabComposants est un tableau            = EbComposantsDuManifeste(`{ "composant": { "fabrique": "cEbFabriqueEssai" } }`, "essai.json", "essai")
+	oComposant    est un cEbComposantModule = tabComposants[1]
+	dbgVérifieEgalité(oComposant.Fabrique(), "cEbFabriqueEssai", "la fabrique")
+	dbgVérifieEgalité(oComposant.Sources()..Occurrence, 0, "aucune source")
+FIN
+
+// Un manifeste sans « composant » (celui d'un module qui n'a rien à démarrer, comme auth) n'en apporte aucun.
+PROCEDURE scenario_sans_composant_aucun()
+	tabComposants est un tableau = EbComposantsDuManifeste(`{ "nom": "auth", "environnement": [] }`, "essai.json", "essai")
+	dbgVérifieEgalité(tabComposants..Occurrence, 0, "aucun composant")
+FIN
+
+// Un texte qui n'est pas du JSON est refusé (22) avec le nom du manifeste.
+PROCEDURE scenario_json_invalide_refuse()
+	sRes est une chaîne = EbTestRefusComposant("{ pas du json")
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sRes, "essai.json") > 0, "nomme le manifeste")
+FIN
+
+// Une fabrique absente, vide, d'un autre type ou au nom qui ne peut pas être une classe est refusée : ce nom finit en code dans le projet.
+PROCEDURE scenario_fabrique_invalide_refusee()
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { } }`), 3), "22|", "fabrique absente")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "" } }`), 3), "22|", "fabrique vide")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": 5 } }`), 3), "22|", "fabrique numérique")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "1abc" } }`), 3), "22|", "commence par un chiffre")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "a b" } }`), 3), "22|", "espace")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "a()" } }`), 3), "22|", "parenthèses")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "cEb.Base" } }`), 3), "22|", "point")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "é" } }`), 3), "22|", "lettre accentuée")
+	dbgVérifieVrai(Position(EbTestRefusComposant(`{ "composant": { "fabrique": "a b" } }`), "composant") > 0, "nomme l'entrée")
+FIN
+
+// Une source qui n'est pas connue du cœur est refusée : le manifeste ne peut pas faire écrire n'importe quoi dans le registre.
+PROCEDURE scenario_source_inconnue_refusee()
+	sRes est une chaîne = EbTestRefusComposant(`{ "composant": { "fabrique": "cEbX", "arguments": ["projet.nom"] } }`)
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sRes, "projet.nom") > 0, "cite la source")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "cEbX", "arguments": [5] } }`), 3), "22|", "argument numérique")
+FIN
+
+// Une entrée « composant » qui n'est pas un objet, ou des « arguments » qui n'en sont pas la liste, sont refusés plutôt que lus de travers.
+PROCEDURE scenario_formes_inattendues_refusees()
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": "cEbServiceBase" }`), 3), "22|", "composant en texte")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": 5 }`), 3), "22|", "composant en nombre")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": [] }`), 3), "22|", "composant en liste")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "cEbX", "arguments": "base.fournisseur" } }`), 3), "22|", "arguments en texte")
+	dbgVérifieEgalité(Gauche(EbTestRefusComposant(`{ "composant": { "fabrique": "cEbX", "arguments": { "a": "base.fournisseur" } } }`), 3), "22|", "arguments en objet")
+FIN
+
+// Les noms de fabrique permis : lettres ASCII, chiffres et soulignés, commençant par une lettre, 60 caractères au plus.
+PROCEDURE scenario_noms_de_fabrique()
+	dbgVérifieVrai(EbNomFabriqueValide("cEbServiceBase"), "un nom ordinaire")
+	dbgVérifieVrai(EbNomFabriqueValide("c_Eb_Base2"), "soulignés et chiffre")
+	dbgVérifieVrai(EbNomFabriqueValide("A"), "une lettre")
+	dbgVérifieFaux(EbNomFabriqueValide(""), "vide")
+	dbgVérifieFaux(EbNomFabriqueValide("_a"), "commence par un souligné")
+	dbgVérifieFaux(EbNomFabriqueValide("a-b"), "tiret")
+	dbgVérifieVrai(EbNomFabriqueValide(EbTestLettresA(60)), "60 caractères")
+	dbgVérifieFaux(EbNomFabriqueValide(EbTestLettresA(61)), "61 caractères")
+FIN

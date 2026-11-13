@@ -1,0 +1,22 @@
+// Ce que l'utilisateur a demandé à « ebony add » : le module à ajouter et, facultativement, la base de données (--base). Objet valeur immuable, rempli par le constructeur.
+// Les valeurs sont déjà vérifiées par EbAnalyseArgumentsAdd.
+cEbDemandeAdd est une Classe
+PRIVÉ
+	sModule est une chaîne = ""
+	sBase   est une chaîne = ""
+
+	PROCEDURE Constructeur(NomModule est une chaîne, BaseDemandee est une chaîne)
+		:sModule = NomModule
+		:sBase = BaseDemandee
+	FIN
+
+	// Le nom du module demandé (le nom de son dossier dans modules/, en minuscules).
+	PROCEDURE PUBLIQUE Module() : chaîne
+		RENVOYER :sModule
+	FIN
+
+	// La base écrite avec --base (sqlite, postgresql ou hfsql), ou vide si l'option n'a pas été donnée.
+	PROCEDURE PUBLIQUE BaseDemandee() : chaîne
+		RENVOYER :sBase
+	FIN
+FIN

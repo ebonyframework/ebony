@@ -271,8 +271,8 @@ try {
         NwGit @('init', '-q') | Out-Null
         NwGit @('add', '-A') | Out-Null
         $nwIndex = @(NwGit @('diff', '--cached', '--name-only')) | Sort-Object
-        $nwAttendu = @('.env.exemple', '.env.secrets.exemple', '.gitignore', 'README.md', 'AGENTS.md', 'app/http/ServiceMonApp.owl', 'config/env.json', 'database/migrations/M202611100000_CreeEbJetons.owl', 'ebony.conf', 'projet.owl') | Sort-Object
-        Verifie "seuls .env.exemple, .env.secrets.exemple, .gitignore, README.md, AGENTS.md, app/http/ServiceMonApp.owl, config/env.json, database/migrations/M202611100000_CreeEbJetons.owl, ebony.conf et projet.owl seraient commites (ni ebony/ ni storage/)" (($nwIndex -join ',') -eq ($nwAttendu -join ',')) ($nwIndex -join ',')
+        $nwAttendu = @('.env.exemple', '.env.secrets.exemple', '.gitignore', 'README.md', 'AGENTS.md', 'app/Composants.owl', 'app/http/ServiceMonApp.owl', 'config/env.json', 'database/migrations/M202611100000_CreeEbJetons.owl', 'ebony.conf', 'projet.owl') | Sort-Object
+        Verifie "seuls .env.exemple, .env.secrets.exemple, .gitignore, README.md, AGENTS.md, app/Composants.owl, app/http/ServiceMonApp.owl, config/env.json, database/migrations/M202611100000_CreeEbJetons.owl, ebony.conf et projet.owl seraient commites (ni ebony/ ni storage/)" (($nwIndex -join ',') -eq ($nwAttendu -join ',')) ($nwIndex -join ',')
 
         Write-Host "new mon-app une seconde fois (le dossier existe, n'est pas vide)"
         $nwHash = (Get-FileHash (Join-Path $nwP 'ebony.conf')).Hash
@@ -1022,6 +1022,46 @@ try {
         $r = Lance $mkA @('new', 'kit-inconnu', '--kit', 'web')
         Verifie "new --kit web : refuse (code 2), liste les kits" (($r.Code -eq 2) -and ($r.Sortie -match 'api, slim')) "code=$($r.Code) $($r.Sortie)"
         Verifie "aucun des trois projets refuses n'a ete cree" ((-not (Test-Path -LiteralPath (Join-Path $mkA 'slim-base'))) -and (-not (Test-Path -LiteralPath (Join-Path $mkA 'slim-auth'))) -and (-not (Test-Path -LiteralPath (Join-Path $mkA 'kit-inconnu')))) ''
+        # ---- ebony add : un module de plus dans un projet existant. Critere de reussite : slim, puis add db, puis add auth redonne un projet api neuf (aux fichiers kit pres : ebony.conf, README.md, AGENTS.md). ----
+        Write-Host "  ebony add : slim + add db + add auth redonne un projet api neuf (octet pour octet, hors kit)"
+        $r = Lance $mkA @('new', 'addreel', '--kit', 'slim', '--json')
+        Verifie "add : le projet slim de depart est cree" ($r.Code -eq 0) "code=$($r.Code) $($r.Sortie)"
+        $mkAdd = Join-Path $mkA 'addreel'
+        $r = Lance $mkAdd @('add', 'auth', '--json')
+        Verifie "add auth avant db : refuse (code 1), dit d'ajouter db d'abord" (($r.Code -eq 1) -and ($r.Sortie -match 'ebony add db')) "code=$($r.Code) $($r.Sortie)"
+        $r = Lance $mkAdd @('add', 'validation', '--json')
+        Verifie "add d'un module inconnu : refuse (code 1), liste les modules possibles" (($r.Code -eq 1) -and ($r.Sortie -match "n'existe pas") -and ($r.Sortie -match 'auth, db')) "code=$($r.Code) $($r.Sortie)"
+        $r = Lance $mkAdd @('add', '--json')
+        Verifie "add sans nom de module : usage incorrect (code 2)" ($r.Code -eq 2) "code=$($r.Code) $($r.Sortie)"
+        $r = Lance $mkAdd @('add', 'db', '--base', 'oracle')
+        Verifie "add db --base oracle : usage incorrect (code 2)" ($r.Code -eq 2) "code=$($r.Code) $($r.Sortie)"
+        $mkConfAvant = [IO.File]::ReadAllText((Join-Path $mkAdd 'ebony.conf'), [Text.Encoding]::UTF8)
+        Verifie "les refus n'ont rien ecrit : ebony.conf et ebony\ inchanges" (($mkConfAvant -match '"modules":\s*\[\s*\]') -and (-not (Test-Path -LiteralPath (Join-Path $mkAdd 'ebony\donnees')))) $mkConfAvant
+        $r = Lance $mkAdd @('add', 'db', '--json')
+        $mkJsonAdd = TkJson $r
+        Verifie "add db : code 0, base sqlite, ebony.conf et le registre reecrits" (($r.Code -eq 0) -and $mkJsonAdd -and ($mkJsonAdd.module -eq 'db') -and ($mkJsonAdd.base -eq 'sqlite') -and (@($mkJsonAdd.updated) -contains 'ebony.conf') -and (@($mkJsonAdd.updated) -contains 'app/Composants.owl')) "code=$($r.Code) $($r.Sortie)"
+        $r = Lance $mkAdd @('add', 'db')
+        Verifie "add db une seconde fois : refuse (code 1), module deja present" (($r.Code -eq 1) -and ($r.Sortie -match 'd.j. dans ce projet')) "code=$($r.Code) $($r.Sortie)"
+        $r = Lance $mkAdd @('add', 'auth', '--json')
+        $mkJsonAdd = TkJson $r
+        Verifie "add auth : code 0, la migration des jetons est ecrite, ebony migrate est la suite" (($r.Code -eq 0) -and $mkJsonAdd -and (@($mkJsonAdd.modules) -join ',') -eq 'db,auth' -and (@($mkJsonAdd.files) -contains 'database/migrations/M202611100000_CreeEbJetons.owl') -and (@($mkJsonAdd.next) -contains 'ebony migrate')) "code=$($r.Code) $($r.Sortie)"
+        # La reference : le meme projet cree d'un coup en kit api, dans un autre dossier parent (meme nom : meme identifiant).
+        $mkRefParent = Join-Path $mkA 'refadd'
+        New-Item -ItemType Directory -Force $mkRefParent | Out-Null
+        $r = Lance $mkRefParent @('new', 'addreel', '--json')
+        Verifie "add : le projet api de reference est cree" ($r.Code -eq 0) "code=$($r.Code) $($r.Sortie)"
+        $mkRefAdd = Join-Path $mkRefParent 'addreel'
+        $mkListeAdd = { param($Racine) Get-ChildItem -LiteralPath $Racine -Recurse -File -Force | Where-Object { $_.FullName.Substring($Racine.Length + 1) -notin @('ebony.conf', 'README.md', 'AGENTS.md') } | ForEach-Object { $_.FullName.Substring($Racine.Length + 1) + ' ' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } }
+        $mkDiffAdd = Compare-Object @(& $mkListeAdd $mkAdd) @(& $mkListeAdd $mkRefAdd)
+        $mkNbAdd = @(& $mkListeAdd $mkRefAdd).Count
+        Verifie "slim + add db + add auth : memes fichiers et memes octets qu'un projet api neuf (hors ebony.conf, README.md, AGENTS.md)" (($mkNbAdd -ge 30) -and (@($mkDiffAdd).Count -eq 0)) "fichiers de reference : $mkNbAdd ; differences : $(@($mkDiffAdd | ForEach-Object { $_.InputObject }) -join ' | ')"
+        $mkConfAdd = [IO.File]::ReadAllText((Join-Path $mkAdd 'ebony.conf'), [Text.Encoding]::UTF8)
+        $mkConfRefAdd = [IO.File]::ReadAllText((Join-Path $mkRefAdd 'ebony.conf'), [Text.Encoding]::UTF8)
+        Verifie "ebony.conf : seul le kit note differe (slim contre api)" (($mkConfAdd -replace '"kit": "slim"', '"kit": "api"') -ceq $mkConfRefAdd) $mkConfAdd
+        Push-Location $mkAdd; try { $mkCheckAdd = (owl --check projet.owl) -join ' ' } finally { Pop-Location }
+        Verifie "owl --check passe sur le projet obtenu par add" ($mkCheckAdd -match '"errors":\[\]') $mkCheckAdd
+        $r = Lance $mkAdd @('migrate', '--json')
+        Verifie "migrate applique la migration ecrite par add auth" (($r.Code -eq 0) -and ($r.Sortie -match 'CreeEbJetons')) "code=$($r.Code) $($r.Sortie)"
         Write-Host "  une colonne dont le nom est ignore par OWL comme membre (liste) : pas de controleur, et la note le dit"
         $r = Lance $mkP @('make', 'resource', 'Etiquette', '--champs', 'id:entier*,liste:texte', '--dry-run', '--json')
         $mkJsonSans = $null; try { $mkJsonSans = $r.Sortie.Trim() | ConvertFrom-Json } catch { }
@@ -1134,9 +1174,9 @@ try {
             try { $iiJson = $iiLignes[0] | ConvertFrom-Json } catch { }
             Verifie "la ligne est un objet JSON avec ok=true" (($null -ne $iiJson) -and ($iiJson.ok -eq $true)) $r.Sortie
             if ($null -ne $iiJson) {
-                Verifie "files : ebony/, ebony.conf, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, config/Auth.owl, la migration des jetons (pas projet.owl ni .gitignore)" ((($iiJson.files | Sort-Object) -join ',') -eq ((@('ebony/', 'ebony.conf', '.env.exemple', '.env.secrets.exemple', 'config/env.json', 'README.md', 'AGENTS.md', 'config/Auth.owl', 'database/migrations/M202611100000_CreeEbJetons.owl') | Sort-Object) -join ',')) $iiLignes[0]
+                Verifie "files : ebony/, ebony.conf, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, app/Composants.owl, config/Auth.owl, la migration des jetons (pas projet.owl ni .gitignore)" ((($iiJson.files | Sort-Object) -join ',') -eq ((@('ebony/', 'ebony.conf', '.env.exemple', '.env.secrets.exemple', 'config/env.json', 'README.md', 'AGENTS.md', 'app/Composants.owl', 'config/Auth.owl', 'database/migrations/M202611100000_CreeEbJetons.owl') | Sort-Object) -join ',')) $iiLignes[0]
                 Verifie "kept : projet.owl et .gitignore" ((($iiJson.kept | Sort-Object) -join ',') -eq ((@('projet.owl', '.gitignore') | Sort-Object) -join ',')) $iiLignes[0]
-                Verifie "notes : le .gitignore n'a pas ebony/, storage/, .env ni .env.secrets" (($iiJson.notes.Count -eq 1) -and ($iiJson.notes[0] -match 'ebony/, storage/, \.env, \.env\.secrets')) $iiLignes[0]
+                Verifie "notes : le .gitignore n'a pas ebony/, storage/, .env ni .env.secrets, puis le registre a appeler depuis le service" (($iiJson.notes.Count -eq 2) -and ($iiJson.notes[0] -match 'ebony/, storage/, \.env, \.env\.secrets') -and ($iiJson.notes[1] -match 'POUR TOUT oFabrique DE')) $iiLignes[0]
                 Verifie "identifiant lu dans projet.owl, base, authentification" (($iiJson.identifier -eq 'MonAppli') -and ($iiJson.base -eq 'postgresql') -and ($iiJson.auth.enabled -eq $true) -and ($iiJson.auth.mode -eq 'opaque')) $iiLignes[0]
             }
             Verifie "projet.owl et .gitignore sont octet pour octet ceux d'avant" (((Get-FileHash -LiteralPath (Join-Path $iiProjet 'projet.owl')).Hash -eq $iiHashProjet) -and ((Get-FileHash -LiteralPath (Join-Path $iiProjet '.gitignore')).Hash -eq $iiHashGitignore)) ''

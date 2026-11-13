@@ -1,0 +1,41 @@
+EbCommandeAdd est une CollectionDeProcédures
+
+	// Racine de composition de « add » : ajoute un module d'ebony au projet du dossier courant (voir cEbAjoutModule). « ebony add <module> [--base sqlite|postgresql|hfsql] [--json] ».
+	// Une erreur est une exception (codes 22, 28, 30 à 32, 36, 54 à 59), donc code de sortie 1 (70 sans le lanceur) ; une option incorrecte est un code 25 (sortie 2).
+	PROCEDURE EbExecuteAdd()
+		bJson    est un booléen                            = EbOptionPresente("--json")
+		tabArgs  est un tableau de chaînes                 = EbListeArgumentsApres("add")
+		oDemande est un cEbDemandeAdd                      = EbAnalyseArgumentsAdd(tabArgs)
+		oSysteme est un cEbSystemeFichiersReel
+		oAjout   est un cEbAjoutModule(oSysteme, oSysteme)
+		oAjoute  est un cEbModuleAjoute                    = oAjout.Execute(oDemande)
+		SI bJson ALORS
+			Trace(EbJsonModuleAjoute(oAjoute))
+			RENVOYER
+		FIN
+		Trace("Module ajouté au projet : " + oAjoute.Module() + " (" + oAjoute.Chemin() + ")")
+		Trace("  Modules     : " + EbListeVirgules(oAjoute.Modules()))
+		SI oAjoute.Base() <> "" ALORS
+			Trace("  Base        : " + oAjoute.Base())
+		FIN
+		Trace("  Créés       : " + EbListeVirgules(oAjoute.Crees()))
+		Trace("  Réécrits    : " + EbListeVirgules(oAjoute.Modifies()) + " (tels qu'ebony les avait écrits)")
+		SI oAjoute.Conserves()..Occurrence > 0 ALORS
+			Trace("  Conservés   : " + EbListeVirgules(oAjoute.Conserves()) + " (modifiés par vous : non touchés)")
+		FIN
+		tabNotes est un tableau de chaînes = oAjoute.Notes()
+		SI tabNotes..Occurrence > 0 ALORS
+			Trace("")
+			Trace("À faire vous-même :")
+			POUR TOUT sNote DE tabNotes
+				Trace("  - " + sNote)
+			FIN
+		FIN
+		Trace("")
+		Trace("Pour continuer :")
+		tabEtapes est un tableau de chaînes = EbEtapesAdd(oAjoute)
+		POUR TOUT sEtape DE tabEtapes
+			Trace("  " + sEtape)
+		FIN
+	FIN
+FIN

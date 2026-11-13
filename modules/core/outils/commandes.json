@@ -5,6 +5,7 @@
 		{ "noms": ["doctor"], "procedure": "EbExecuteDoctor" },
 		{ "noms": ["new"], "procedure": "EbExecuteNew" },
 		{ "noms": ["init"], "procedure": "EbExecuteInit" },
+		{ "noms": ["add"], "procedure": "EbExecuteAdd" },
 		{ "noms": ["make"], "procedure": "EbExecuteMake" },
 		{ "noms": ["migrate"], "procedure": "EbExecuteMigrate" },
 		{ "noms": ["request"], "procedure": "EbExecuteRequest" },

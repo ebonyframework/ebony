@@ -60,13 +60,13 @@ Ce qui se passe, essayé avec l'ebony 0.1.0 installé :
 
 Les modules sont choisis à la création par le kit (voir [Modules et kits](modules.md)). Avec `"modules": ["db"]`, `ebony token create` refuse : « Ce projet n'a pas le module « auth » : « ebony token » en dépend » (code de sortie 1). Un `ebony.conf` **sans** le membre `modules` (celui d'un projet plus ancien) est lu comme « tous les modules de l'installation » : `ebony token list` y fonctionne.
 
-Ajouter un nom à la main ne **copie** pas le module : seules `ebony restore` et `ebony upgrade` recopient les modules listés dans `ebony/`. Il n'y a pas de commande pour changer de kit après la création (non essayé).
+Ajouter un nom à la main ne **copie** pas le module : seules `ebony restore` et `ebony upgrade` recopient les modules listés dans `ebony/`. Pour ajouter un module à un projet qui existe, utilisez [`ebony add`](ajouter-un-module.md) : il copie la bibliothèque du module, écrit ses fichiers et note le module ici, en dernier. Le `kit` noté ne change pas (il dit le point de départ du projet, `modules` dit ce qu'il a). Il n'y a pas de commande pour retirer un module (non essayé).
 
 ## `base.fournisseur` : la base
 
 Avec `"mysql"`, `ebony migrate` et `ebony make migration` refusent : « ebony.conf n'indique pas une base connue (base.fournisseur : « mysql » ; attendu : sqlite, postgresql ou hfsql) », code de sortie 1. Avec `"hfsql"`, `ebony migrate` refuse aussi : « n'applique pas encore de migration sur HFSQL ». Un texte qui n'est pas du JSON donne le même refus (la valeur lue est vide). `ebony env` ne regarde pas ce membre : il contrôle les variables de `.env` (voir [Configuration](configuration.md)).
 
-Le fournisseur d'`ebony.conf` doit être le même que celui du service généré : `cEbServiceBase("sqlite")` dans `ServiceBoutique.owl` ([Adopter Ebony](adopter-un-projet.md)). Changer l'un sans l'autre n'est pas détecté.
+Le fournisseur d'`ebony.conf` doit être le même que celui du registre des composants : `cEbServiceBase("sqlite")` dans `app/Composants.owl`, que `ebony new`, `ebony init` et `ebony add` écrivent d'après `ebony.conf` ([Adopter Ebony](adopter-un-projet.md)). Changer l'un à la main sans l'autre n'est pas détecté.
 
 ## Éditer à la main
 

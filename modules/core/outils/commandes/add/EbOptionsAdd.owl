@@ -1,0 +1,60 @@
+// Lecture des arguments de « ebony add <module> [--base sqlite|postgresql|hfsql] [--json] » : fonctions pures, testées dans tests/unitaires/commandes/add/.
+// --base s'écrit « --base sqlite » ou « --base=sqlite ». Les options à un seul tiret ou à barre oblique (« -racine=… » du lanceur) sont ignorées, comme pour les autres commandes.
+// Toute erreur d'usage est une exception de code 25 (code de sortie 2).
+EbOptionsAdd est une CollectionDeProcédures
+
+	// L'usage, pour les messages d'erreur.
+	PROCEDURE EbUsageAdd() : chaîne
+		RENVOYER "ebony add <module> [--base sqlite|postgresql|hfsql] [--json]"
+	FIN
+
+	// Trie les arguments qui suivent « add » : un seul nom de module, --base avec sa valeur, --json (sans effet ici : la sortie est choisie par la commande). Lève (25) pour un nom absent, invalide ou répété, une option inconnue ou une valeur de --base incorrecte.
+	PROCEDURE EbAnalyseArgumentsAdd(tabArgs est un tableau de chaînes) : cEbDemandeAdd
+		sModule est une chaîne = ""
+		sBase   est une chaîne = ""
+		nIndice est un entier  = 1
+		TANTQUE nIndice <= tabArgs..Occurrence
+			sArg est une chaîne = tabArgs[nIndice]
+			SI Gauche(sArg, 2) = "--" ALORS
+				sOption est une chaîne = sArg
+				sValeur est une chaîne = ""
+				nEgal   est un entier  = Position(sArg, "=")
+				SI nEgal > 0 ALORS
+					sOption = Gauche(sArg, nEgal - 1)
+					sValeur = Droite(sArg, Taille(sArg) - nEgal)
+				FIN
+				SELON sOption
+					CAS "--json"
+					// Sans effet sur l'analyse.
+					CAS "--base"
+					SI nEgal = 0 ALORS
+						nIndice++
+						SI nIndice <= tabArgs..Occurrence ALORS
+							sValeur = tabArgs[nIndice]
+						FIN
+					FIN
+					EbVerifieValeurOption("--base", sValeur, "sqlite|postgresql|hfsql")
+					sBase = sValeur
+					AUTRE CAS
+					ExceptionDéclenche(25, "Option inconnue : " + sOption + ". Usage : " + EbUsageAdd() + ".")
+				FIN
+			SINON
+				SI Gauche(sArg, 1) <> "-" ET Gauche(sArg, 1) <> "/" ALORS
+					SI sModule <> "" ALORS
+						ExceptionDéclenche(25, "« ebony add » ajoute un seul module à la fois (« " + sModule + " » puis « " + sArg + " »). Usage : " + EbUsageAdd() + ".")
+					FIN
+					sModule = sArg
+				FIN
+			FIN
+			nIndice++
+		FIN
+		SI sModule = "" ALORS
+			ExceptionDéclenche(25, "Il manque le nom du module à ajouter. Usage : " + EbUsageAdd() + ". Exemple : ebony add db")
+		FIN
+		SI PAS EbNomModuleValide(sModule) ALORS
+			ExceptionDéclenche(25, "« " + sModule + " » n'est pas un nom de module (lettres minuscules ASCII, chiffres et soulignés, commençant par une lettre). Usage : " + EbUsageAdd() + ".")
+		FIN
+		oDemande est un cEbDemandeAdd(sModule, sBase)
+		RENVOYER oDemande
+	FIN
+FIN

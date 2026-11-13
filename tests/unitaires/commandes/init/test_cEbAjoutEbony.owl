@@ -54,9 +54,10 @@ PROCEDURE scenario_ajout_complet()
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\AGENTS.md"), EbContenuAgents("Mon App"), "AGENTS.md créé")
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony\VERSION"), "0.1.0" + Caract(10), "bibliothèque copiée")
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\ebony\config\README.md"), "config", "sous-dossier copié")
-	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, ebony.conf", "liste des créés")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, app/Composants.owl, ebony.conf", "liste des créés")
 	dbgVérifieEgalité(EbListeVirgules(oAjoute.Conserves()), "projet.owl", "liste des conservés")
-	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 0, "aucune note : rien à faire soi-même")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 1, "une seule note : appeler le registre des composants depuis le service")
+	dbgVérifieVrai(Position(oAjoute.Notes()[1], "POUR TOUT oFabrique DE MonAppliFabriques()") > 0, "la note donne les lignes à ajouter au service")
 	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\Mon App\config\Auth.owl"), "pas de config/Auth.owl sans --auth (le dossier config existe : il porte env.json)")
 FIN
 
@@ -76,9 +77,9 @@ PROCEDURE scenario_fichiers_existants_conserves()
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\.env.secrets.exemple"), "MON_SECRET=" + Caract(10), ".env.secrets.exemple intact")
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\README.md"), "Mon texte", "README.md intact")
 	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\AGENTS.md"), "Mes consignes", "AGENTS.md intact")
-	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, config/env.json, ebony.conf", "seuls ebony/, config/env.json et ebony.conf sont créés (l'utilisateur n'avait pas de schéma)")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, config/env.json, app/Composants.owl, ebony.conf", "seuls ebony/, config/env.json, le registre et ebony.conf sont créés (l'utilisateur n'avait pas de schéma)")
 	dbgVérifieEgalité(EbListeVirgules(oAjoute.Conserves()), "projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, README.md, AGENTS.md", "six conservés")
-	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 3, "trois notes : .gitignore, .env.exemple et .env.secrets.exemple")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 4, "quatre notes : .gitignore, .env.exemple, .env.secrets.exemple et le registre à appeler")
 	dbgVérifieVrai(Position(oAjoute.Notes()[1], "storage/, .env") > 0 ET Position(oAjoute.Notes()[1], "ebony/,") = 0, "la note du .gitignore ne cite que ce qui manque : " + oAjoute.Notes()[1])
 	dbgVérifieVrai(Position(oAjoute.Notes()[2], "DB_HOTE, DB_PORT, DB_NOM, DB_UTILISATEUR") > 0 ET Position(oAjoute.Notes()[2], "DB_MOT_DE_PASSE,") = 0, "la note du .env.exemple liste les variables de PostgreSQL : " + oAjoute.Notes()[2])
 FIN
@@ -90,8 +91,9 @@ PROCEDURE scenario_identifiant_deduit()
 	oAjout  est un cEbAjoutEbony(oDisque, oDisque)
 	oAjoute est un cEbEbonyAjoute                  = oAjout.Execute(EbOptionsParDefaut())
 	dbgVérifieEgalité(oAjoute.Identifiant(), "AppMonApp", "identifiant déduit du dossier")
-	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 1, "une note")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 2, "deux notes : l'identifiant déduit, puis le registre à appeler")
 	dbgVérifieVrai(Position(oAjoute.Notes()[1], "AppMonApp") > 0, "la note donne l'identifiant : " + oAjoute.Notes()[1])
+	dbgVérifieVrai(Position(oAjoute.Notes()[2], "AppMonAppFabriques()") > 0, "le registre porte le nom de l'identifiant déduit")
 	j est un JSON = ChaîneVersJSON(oDisque.LitTexte("C:\Projets\Mon App\ebony.conf"))
 	dbgVérifieEgalité(j.projet.identifiant, "AppMonApp", "ebony.conf")
 FIN
@@ -108,7 +110,7 @@ PROCEDURE scenario_avec_options()
 	dbgVérifieVrai(j.auth.jetons, "jetons")
 	dbgVérifieEgalité(j.auth.table, "users", "table")
 	dbgVérifieEgalité(j.auth.mode, "opaque", "mode")
-	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, config/Auth.owl, ebony.conf", "config/Auth.owl dans les créés")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json, README.md, AGENTS.md, app/Composants.owl, config/Auth.owl, ebony.conf", "config/Auth.owl dans les créés")
 	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\Mon App\.env.exemple"), "DB_PORT=4900") > 0, ".env.exemple HFSQL")
 FIN
 
@@ -305,11 +307,11 @@ FIN
 
 // init avec le kit slim : seule la bibliothèque du cœur est copiée, ebony.conf déclare une liste de modules vide ; avec le kit par défaut, les modules du kit api sont notés et copiés.
 PROCEDURE scenario_kit_slim_et_kit_api()
-	oSlim       est un cEbSystemeFichiersFictif                     = EbTestDisque()
+	oSlim       est un cEbSystemeFichiersFictif               = EbTestDisque()
 	oOptionsSl  est un cEbOptionsProjet("slim", "", Faux, "")
 	oAjoutSlim  est un cEbAjoutEbony(oSlim, oSlim)
-	oAjouteSlim est un cEbEbonyAjoute                               = oAjoutSlim.Execute(oOptionsSl)
-	sConfSlim   est une chaîne                                      = oSlim.LitTexte("C:\Projets\Mon App\ebony.conf")
+	oAjouteSlim est un cEbEbonyAjoute                         = oAjoutSlim.Execute(oOptionsSl)
+	sConfSlim   est une chaîne                                = oSlim.LitTexte("C:\Projets\Mon App\ebony.conf")
 	dbgVérifieVrai(oSlim.FichierExiste("C:\Projets\Mon App\ebony\config\README.md"), "slim : le cœur est copié")
 	dbgVérifieFaux(oSlim.FichierExiste("C:\Projets\Mon App\ebony\auth\README.md"), "slim : auth n'est pas copié")
 	dbgVérifieFaux(oSlim.FichierExiste("C:\Projets\Mon App\ebony\donnees\README.md"), "slim : db n'est pas copié")
@@ -321,4 +323,57 @@ PROCEDURE scenario_kit_slim_et_kit_api()
 	sConfApi   est une chaîne                   = oApi.LitTexte("C:\Projets\Mon App\ebony.conf")
 	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(sConfApi)), "db, auth", "api : la base et l'authentification")
 	dbgVérifieVrai(oApi.FichierExiste("C:\Projets\Mon App\ebony\donnees\README.md"), "api : db est copié")
+FIN
+
+// Un registre des composants qui existe déjà est conservé tel quel, jamais réécrit : il est listé parmi les conservés, et aucune note n'est nécessaire.
+PROCEDURE scenario_registre_existant_conserve()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.CreeDossier("C:\Projets\Mon App\app")
+	oDisque.EcritTexte("C:\Projets\Mon App\app\Composants.owl", "// le mien" + Caract(10))
+	oAjout  est un cEbAjoutEbony(oDisque, oDisque)
+	oAjoute est un cEbEbonyAjoute                  = oAjout.Execute(EbOptionsParDefaut())
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\Mon App\app\Composants.owl"), "// le mien" + Caract(10), "le registre existant est intact")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Conserves()), "app/Composants.owl") > 0, "il est annoncé parmi les conservés")
+	dbgVérifieEgalité(Position(EbListeVirgules(oAjoute.Crees()), "app/Composants.owl"), 0, "et pas parmi les créés")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 0, "aucune note : le projet a déjà son registre")
+FIN
+
+// Un fichier nommé « app » empêche d'écrire le registre : conflit (28) avant toute écriture, comme pour ebony/ ou config.
+PROCEDURE scenario_app_est_un_fichier_conflit()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.EcritTexte("C:\Projets\Mon App\app", "un fichier")
+	oAjout est un cEbAjoutEbony(oDisque, oDisque)
+	sRes   est une chaîne                         = ""
+	QUAND EXCEPTION DANS
+		oAjoute est un cEbEbonyAjoute = oAjout.Execute(EbOptionsParDefaut())
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "28|", "code 28")
+	dbgVérifieVrai(Position(sRes, "app (un fichier porte ce nom)") > 0, "nomme app")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\Mon App\ebony.conf"), "rien n'est écrit : ebony.conf (écrit en dernier) manque")
+FIN
+
+// Un module dont le manifeste déclare un composant : « ebony init » l'écrit dans le registre avec le fournisseur choisi, sous l'identifiant du projet.
+PROCEDURE scenario_registre_avec_le_composant_de_db()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisque()
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\modules\db.json", `{ "nom": "db", "composant": { "fabrique": "cEbServiceBase", "arguments": ["base.fournisseur"] } }`)
+	oAjout    est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions  est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	oAjoute   est un cEbEbonyAjoute                                  = oAjout.Execute(oOptions)
+	sRegistre est une chaîne                                         = oDisque.LitTexte("C:\Projets\Mon App\app\Composants.owl")
+	dbgVérifieVrai(Position(sRegistre, "PROCEDURE MonAppliFabriques() : tableau") > 0, "sous l'identifiant lu dans projet.owl")
+	dbgVérifieVrai(Position(sRegistre, `cEbServiceBase("postgresql")`) > 0, "la base du projet")
+FIN
+
+// Un projet slim : le registre est écrit quand même, vide, pour qu'un module puisse s'y ajouter plus tard sans toucher au service.
+PROCEDURE scenario_registre_vide_pour_slim()
+	oDisque   est un cEbSystemeFichiersFictif               = EbTestDisque()
+	oAjout    est un cEbAjoutEbony(oDisque, oDisque)
+	oOptions  est un cEbOptionsProjet("slim", "", Faux, "")
+	oAjoute   est un cEbEbonyAjoute                         = oAjout.Execute(oOptions)
+	sRegistre est une chaîne                                = oDisque.LitTexte("C:\Projets\Mon App\app\Composants.owl")
+	dbgVérifieVrai(Position(sRegistre, "PROCEDURE MonAppliFabriques() : tableau") > 0, "la procédure existe")
+	dbgVérifieEgalité(Position(sRegistre, "oComposant"), 0, "aucun composant")
 FIN

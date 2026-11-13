@@ -1,0 +1,385 @@
+// « ebony add <module> » : ajoute un module d'ebony (db, auth…) à un projet ebony qui existe déjà, dans le dossier d'où l'utilisateur a lancé ebony. C'est le même chemin que « ebony new --kit » : le projet obtenu est celui qu'un
+// « ebony new » avec ce module aurait écrit, aux membres kit près (critère de réussite : un projet slim, puis « add db », puis « add auth » redonne un projet api neuf).
+//   - Copie la bibliothèque du module dans ebony/ (sans toucher au reste) et ajoute le module à « modules » d'ebony.conf (base.fournisseur aussi quand le module a besoin d'une base).
+//   - Écrit les fichiers que le module déclare (manifeste) et ses migrations, sans jamais écraser un fichier existant.
+//   - Réécrit en entier les fichiers qu'ebony avait écrits SEULEMENT s'ils sont encore tels qu'ebony les avait écrits pour les modules d'avant (config/env.json, .env.exemple, .env.secrets.exemple, app/Composants.owl) ;
+//     sinon ils sont conservés tels quels et une note dit quoi y ajouter. Le service du projet n'est jamais modifié.
+//   - Tout est vérifié AVANT d'écrire. Ordre des écritures : bibliothèque, fichiers, migrations, ebony.conf en dernier (sa présence dans « modules » dit que l'ajout est terminé).
+// Ne connaît que les ports iEbSystemeFichiers et iEbEcritureFichiers : se teste avec un faux disque. Chaque erreur est une exception de code :
+// 30 OWL mal placé, 31 pas un projet ebony, 32 ebony.conf illisible, 22 installation d'ebony illisible, 36 ebony installé plus ancien que le projet, 54 module inconnu, 55 dépendance manquante, 56 ebony/ inadapté,
+// 57 écriture interrompue, 58 module déjà dans le projet, 59 ebony.conf ne note pas ses modules (projet ancien), 28 conflit, 25 --base refusé.
+cEbAjoutModule est une Classe
+PRIVÉ
+	oSysteme  est un iEbSystemeFichiers
+	oEcriture est un iEbEcritureFichiers
+
+	PROCEDURE Constructeur(systeme est un iEbSystemeFichiers, ecriture est un iEbEcritureFichiers)
+		:oSysteme = systeme
+		:oEcriture = ecriture
+	FIN
+
+	// Les choix d'un projet pour une liste de modules : sa base et les variables que ces modules déclarent (ce dont dépendent config/env.json et les .env.exemple).
+	PROCEDURE PRIVÉE OptionsDesModules(sKit est une chaîne, sBase est une chaîne, tabModules est un tableau de chaînes) : cEbOptionsProjet
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		oInstallee.Choisit(tabModules)
+		tabVide  est un tableau
+		oBrutes  est un cEbOptionsProjet = cEbOptionsProjet(sKit, sBase, Faux, "")
+		oOptions est un cEbOptionsProjet = oBrutes.AvecModules(oInstallee.VariablesModules(), tabVide, tabVide)
+		RENVOYER oOptions
+	FIN
+
+	// Les composants que ces modules apportent à l'application, dans l'ordre de démarrage.
+	PROCEDURE PRIVÉE ComposantsDesModules(tabModules est un tableau de chaînes) : tableau
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		oInstallee.Choisit(tabModules)
+		RENVOYER oInstallee.ComposantsModules()
+	FIN
+
+	// L'état d'un fichier qu'ebony gère : « cree » s'il manque, « rien » s'il n'y a rien à changer, « modifie » s'il est encore tel qu'ebony l'avait écrit pour les modules d'avant (on peut le réécrire),
+	// « conserve » s'il a été changé par l'utilisateur. Les fins de ligne CR sont ignorées (un éditeur peut les avoir ajoutées).
+	PROCEDURE PRIVÉE LectureEtatFichier(sChemin est une chaîne, sAvant est une chaîne, sApres est une chaîne) : chaîne
+		SI PAS :oSysteme.FichierExiste(sChemin) ALORS
+			RENVOYER "cree"
+		FIN
+		SI sApres = sAvant ALORS
+			RENVOYER "rien"
+		FIN
+		sActuel est une chaîne = Remplace(:oSysteme.LitTexte(sChemin), Caract(13), "")
+		SI sActuel = sApres ALORS
+			RENVOYER "rien"
+		FIN
+		SI sActuel = sAvant ALORS
+			RENVOYER "modifie"
+		FIN
+		RENVOYER "conserve"
+	FIN
+
+	// Les noms des variables de tabApres absentes de tabAvant, séparés par des virgules ; avec bSecret, seulement les secrètes, sinon seulement les autres.
+	PROCEDURE PRIVÉE VariablesNouvelles(tabAvant est un tableau, tabApres est un tableau, bSecret est un booléen) : chaîne
+		sNoms est une chaîne = ""
+		POUR TOUT oApres DE tabApres
+			bNouvelle est un booléen = Vrai
+			POUR TOUT oAvant DE tabAvant
+				SI oAvant.Cle() = oApres.Cle() ALORS
+					bNouvelle = Faux
+				FIN
+			FIN
+			SI bNouvelle ET oApres.Secret() = bSecret ALORS
+				sNoms += EbSeparateur(sNoms) + oApres.Cle()
+			FIN
+		FIN
+		RENVOYER sNoms
+	FIN
+
+	PROCEDURE PUBLIQUE Execute(oDemande est un cEbDemandeAdd) : cEbModuleAjoute
+		sLancement est une chaîne = :oSysteme.DossierDeLancement()
+		SI PAS EbMemeChemin(sLancement, :oSysteme.DossierActif()) ALORS
+			ExceptionDéclenche(30, "owl ne travaille pas dans " + sLancement + " : les fichiers seraient écrits au mauvais endroit. Lancez « ebony doctor » pour voir pourquoi.")
+		FIN
+		sConf est une chaîne = EbJointChemin(sLancement, "ebony.conf")
+		SI PAS :oSysteme.FichierExiste(sConf) ALORS
+			ExceptionDéclenche(31, "Ce dossier n'est pas un projet ebony : ebony.conf est introuvable dans " + sLancement + ". Placez-vous dans le dossier d'un projet, ou créez-en un avec « ebony new <nom> » (« ebony init » pour un projet OWL qui existe déjà).")
+		FIN
+		sTexteConf est une chaîne = :oSysteme.LitTexte(sConf)
+		sMinimum   est une chaîne = EbVersionDeLaConf(sTexteConf)
+		SI sMinimum = "" OU PAS EbVersionValide(sMinimum) ALORS
+			ExceptionDéclenche(32, "ebony.conf ne donne pas une version valide de la bibliothèque (ebony.version, entre guillemets, par exemple 0.1.0) : « " + sMinimum + " ». Fichier : " + sConf)
+		FIN
+		SI PAS EbConfDeclareModules(sTexteConf) ALORS
+			ExceptionDéclenche(59, "ebony.conf ne note pas les modules du projet (le membre « modules » manque : projet créé avec une ebony plus ancienne) ; un tel projet a déjà tous les modules de l'installation. Rien à ajouter.")
+		FIN
+		tabAvant est un tableau de chaînes = EbModulesDeLaConf(sTexteConf)
+
+		oInstallee est un cEbBibliothequeInstallee(:oSysteme)
+		oInstallee.Verifie()
+		sInstallee est une chaîne = oInstallee.Version()
+		SI EbCompareVersions(sInstallee, sMinimum) < 0 ALORS
+			ExceptionDéclenche(36, "Ce projet demande une bibliothèque d'au moins la version " + sMinimum + ", mais l'ebony installé fournit la version " + sInstallee + ". Installez un ebony d'au moins cette version.")
+		FIN
+
+		// Le module : installé, pas déjà dans le projet, et ses dépendances présentes.
+		sModule   est une chaîne = Minuscule(oDemande.Module())
+		bInstalle est un booléen = Faux
+		POUR TOUT sInstalle DE oInstallee.ModulesInstalles()
+			SI sInstalle = sModule ALORS
+				bInstalle = Vrai
+			FIN
+		FIN
+		SI PAS bInstalle ALORS
+			ExceptionDéclenche(54, "Le module « " + sModule + " » n'existe pas dans l'ebony installé. Modules qu'on peut ajouter : " + EbListeVirgules(oInstallee.ModulesInstalles()) + ".")
+		FIN
+		POUR TOUT sDeja DE tabAvant
+			SI Minuscule(sDeja) = sModule ALORS
+				ExceptionDéclenche(58, "Le module « " + sModule + " » est déjà dans ce projet (ebony.conf). Rien à ajouter ; pour remettre sa bibliothèque à jour : ebony upgrade.")
+			FIN
+		FIN
+		sManquantes est une chaîne = ""
+		POUR TOUT sBesoin DE oInstallee.DependancesDuModule(sModule)
+			bPresent est un booléen = Faux
+			POUR TOUT sDeja DE tabAvant
+				SI Minuscule(sDeja) = Minuscule(sBesoin) ALORS
+					bPresent = Vrai
+				FIN
+			FIN
+			SI PAS bPresent ALORS
+				sManquantes += EbSeparateur(sManquantes) + sBesoin
+			FIN
+		FIN
+		SI sManquantes <> "" ALORS
+			ExceptionDéclenche(55, "Le module « " + sModule + " » a besoin de : " + sManquantes + ". Ajoutez-le d'abord (par exemple « ebony add " + Gauche(sManquantes, Position(sManquantes + ",", ",") - 1) + " »).")
+		FIN
+
+		// La bibliothèque du projet : ebony/ doit être celle de l'ebony installé (comme pour « ebony upgrade »), sinon le module copié ne s'accorderait pas avec le reste.
+		sDestination    est une chaîne = EbJointChemin(sLancement, "ebony")
+		sFichierVersion est une chaîne = EbJointChemin(sDestination, "VERSION")
+		sLocale         est une chaîne = ""
+		SI :oSysteme.FichierExiste(sFichierVersion) ALORS
+			sLocale = SansEspace(Remplace(Remplace(:oSysteme.LitTexte(sFichierVersion), Caract(13), ""), Caract(10), ""))
+		FIN
+		SI sLocale <> sInstallee ALORS
+			sTrouvee est une chaîne = "aucun fichier VERSION"
+			SI sLocale <> "" ALORS
+				sTrouvee = "version " + sLocale
+			FIN
+			ExceptionDéclenche(56, "Le dossier " + sDestination + " n'est pas la bibliothèque de l'ebony installé, version " + sInstallee + " (" + sTrouvee + "). ebony ne supprime rien : supprimez ce dossier, lancez « ebony upgrade » (ou « ebony restore »), puis relancez « ebony add " + sModule + " ».")
+		FIN
+
+		// Ce que ce module apporte, lu dans son manifeste.
+		oModuleSeul est un cEbBibliothequeInstallee(:oSysteme)
+		tabSeul     est un tableau de chaînes
+		TableauAjoute(tabSeul, sModule)
+		oModuleSeul.Choisit(tabSeul)
+		tabComposantsModule est un tableau = oModuleSeul.ComposantsModules()
+		bABase              est un booléen = Faux
+		POUR TOUT oComposantModule DE tabComposantsModule
+			POUR TOUT sSource DE oComposantModule.Sources()
+				SI sSource = "base.fournisseur" ALORS
+					bABase = Vrai
+				FIN
+			FIN
+		FIN
+
+		// La base : un module qui en a besoin prend celle du projet, ou celle de --base (sqlite par défaut) si le projet n'en a pas encore ; --base ne change jamais la base d'un projet.
+		sBaseConf est une chaîne = EbBaseDeLaConf(sTexteConf)
+		sBase     est une chaîne = sBaseConf
+		SI bABase ET sBaseConf = "" ALORS
+			sBase = oDemande.BaseDemandee()
+			SI sBase = "" ALORS
+				sBase = EbBaseDefaut()
+			FIN
+		FIN
+		SI oDemande.BaseDemandee() <> "" ET oDemande.BaseDemandee() <> sBase ALORS
+			SI sBaseConf <> "" ALORS
+				ExceptionDéclenche(25, "Ce projet utilise déjà la base " + sBaseConf + " : « ebony add » ne la change pas (--base " + oDemande.BaseDemandee() + " refusé).")
+			SINON
+				ExceptionDéclenche(25, "--base ne concerne que les modules qui ont besoin d'une base de données : « " + sModule + " » n'en a pas.")
+			FIN
+		FIN
+
+		// Nom du dossier et identifiant du projet : ceux d'ebony.conf, sinon déduits du dossier.
+		sKit est une chaîne = EbTexteDeLaConf(sTexteConf, "projet", "kit")
+		SI sKit = "" ALORS
+			sKit = EbKitDefaut()
+		FIN
+		sDossier est une chaîne = EbTexteDeLaConf(sTexteConf, "projet", "dossier")
+		SI sDossier = "" ALORS
+			sDossier = EbDossierProjet(EbNomDernierElement(sLancement))
+		FIN
+		sIdentifiant est une chaîne = EbTexteDeLaConf(sTexteConf, "projet", "identifiant")
+		SI sIdentifiant = "" ALORS
+			sIdentifiant = EbIdentifiantProjet(sDossier)
+		FIN
+
+		tabApres est un tableau de chaînes
+		POUR TOUT sDeja DE tabAvant
+			TableauAjoute(tabApres, sDeja)
+		FIN
+		TableauAjoute(tabApres, sModule)
+		oAvant est un cEbOptionsProjet = :OptionsDesModules(sKit, sBaseConf, tabAvant)
+		oApres est un cEbOptionsProjet = :OptionsDesModules(sKit, sBase, tabApres)
+
+		// Les fichiers et migrations du module. Pas de migration pour HFSQL : « ebony migrate » le refuse.
+		tabNotes      est un tableau de chaînes
+		tabFichiers   est un tableau            = EbFichiersAEcrire(oModuleSeul.FichiersModules(), oApres)
+		tabMigrations est un tableau
+		SI sBase <> "" ET sBase <> "hfsql" ALORS
+			tabMigrations = EbMigrationsAEcrire(oModuleSeul.MigrationsModules(), oApres, Faux)
+		SINON
+			SI oModuleSeul.MigrationsModules()..Occurrence > 0 ALORS
+				TableauAjoute(tabNotes, "Le module « " + sModule + " » a des migrations, que « ebony migrate » ne sait pas appliquer à cette base : elles n'ont pas été écrites.")
+			FIN
+		FIN
+
+		// Les fichiers qu'ebony gère : leur état d'abord (rien n'est écrit avant que tout soit vérifié).
+		sConfigDossier     est une chaîne = EbJointChemin(sLancement, "config")
+		sSchemaEnv         est une chaîne = EbJointChemin(sConfigDossier, "env.json")
+		sEnvExemple        est une chaîne = EbJointChemin(sLancement, ".env.exemple")
+		sSecretsExemple    est une chaîne = EbJointChemin(sLancement, ".env.secrets.exemple")
+		sApp               est une chaîne = EbJointChemin(sLancement, "app")
+		sRegistre          est une chaîne = EbJointChemin(sApp, "Composants.owl")
+		sSchemaAvant       est une chaîne = EbContenuSchemaEnv(sDossier, oAvant)
+		sSchemaApres       est une chaîne = EbContenuSchemaEnv(sDossier, oApres)
+		sEnvAvant          est une chaîne = EbContenuEnvExemple(sDossier, oAvant)
+		sEnvApres          est une chaîne = EbContenuEnvExemple(sDossier, oApres)
+		sSecretsAvant      est une chaîne = EbContenuSecretsExemple(oAvant)
+		sSecretsApres      est une chaîne = EbContenuSecretsExemple(oApres)
+		tabComposantsAvant est un tableau = :ComposantsDesModules(tabAvant)
+		tabComposantsApres est un tableau = :ComposantsDesModules(tabApres)
+		sRegistreAvant     est une chaîne = EbAligneDeclarations(EbContenuComposants(sIdentifiant, tabComposantsAvant, oAvant))
+		sRegistreApres     est une chaîne = EbAligneDeclarations(EbContenuComposants(sIdentifiant, tabComposantsApres, oApres))
+		sEtatSchema        est une chaîne = :LectureEtatFichier(sSchemaEnv, sSchemaAvant, sSchemaApres)
+		sEtatEnv           est une chaîne = :LectureEtatFichier(sEnvExemple, sEnvAvant, sEnvApres)
+		sEtatSecrets       est une chaîne = :LectureEtatFichier(sSecretsExemple, sSecretsAvant, sSecretsApres)
+		sEtatRegistre      est une chaîne = :LectureEtatFichier(sRegistre, sRegistreAvant, sRegistreApres)
+		// Un registre qui manque n'est écrit que si le module apporte un composant : sinon rien ne l'attend.
+		SI sEtatRegistre = "cree" ET tabComposantsModule..Occurrence = 0 ALORS
+			sEtatRegistre = "rien"
+		FIN
+
+		// Conflits : tous listés d'un coup, avant la moindre écriture.
+		sConflits est une chaîne = ""
+		POUR TOUT sConflit DE oInstallee.ConflitsCopieModule(sDestination, sModule)
+			sConflits += EbSeparateur(sConflits) + "ebony/" + sConflit
+		FIN
+		SI sEtatRegistre = "cree" ET :oSysteme.FichierExiste(sApp) ALORS
+			sConflits += EbSeparateur(sConflits) + "app (un fichier porte ce nom)"
+		FIN
+		POUR TOUT oFichierModule DE tabFichiers
+			SI :oSysteme.FichierExiste(EbJointChemin(sLancement, Remplace(oFichierModule.Chemin(), "/", "\"))) ALORS
+				sConflits += EbSeparateur(sConflits) + oFichierModule.Chemin()
+			FIN
+		FIN
+		SI sConflits <> "" ALORS
+			ExceptionDéclenche(28, "Rien n'a été écrit. Ces éléments existent déjà et ebony ne les écrase jamais : " + sConflits + ". Renommez-les ou déplacez-les, puis relancez « ebony add " + sModule + " ».")
+		FIN
+
+		// Le nouvel ebony.conf est préparé avant toute écriture : s'il est impossible, rien n'a été touché.
+		sConfBase est une chaîne = ""
+		SI bABase ALORS
+			sConfBase = sBase
+		FIN
+		sNouvelleConf est une chaîne = EbConfAvecModule(sTexteConf, sModule, sConfBase)
+		SI sNouvelleConf = "" ALORS
+			ExceptionDéclenche(32, "ebony.conf n'a pas pu être relu pour y ajouter le module : le fichier est inchangé. Fichier : " + sConf)
+		FIN
+
+		// Ce qui sera fait, et ce que l'utilisateur doit faire lui-même.
+		tabCrees     est un tableau de chaînes
+		tabModifies  est un tableau de chaînes
+		tabConserves est un tableau de chaînes
+		TableauAjoute(tabCrees, "ebony/ (module " + sModule + ")")
+		POUR TOUT oFichierModule DE tabFichiers
+			TableauAjoute(tabCrees, oFichierModule.Chemin())
+		FIN
+		tabVarAvant est un tableau = EbVariablesSchema(sDossier, oAvant)
+		tabVarApres est un tableau = EbVariablesSchema(sDossier, oApres)
+		SI sEtatSchema = "cree" ALORS
+			TableauAjoute(tabCrees, "config/env.json")
+		FIN
+		SI sEtatSchema = "modifie" ALORS
+			TableauAjoute(tabModifies, "config/env.json")
+		FIN
+		SI sEtatSchema = "conserve" ALORS
+			TableauAjoute(tabConserves, "config/env.json")
+			sVariables est une chaîne = :VariablesNouvelles(tabVarAvant, tabVarApres, Faux)
+			sSecretes  est une chaîne = :VariablesNouvelles(tabVarAvant, tabVarApres, Vrai)
+			sToutes    est une chaîne = sVariables
+			SI sSecretes <> "" ALORS
+				sToutes += EbSeparateur(sToutes) + sSecretes
+			FIN
+			SI sToutes <> "" ALORS
+				TableauAjoute(tabNotes, "Votre config/env.json n'a pas été modifié (il n'est plus tel qu'ebony l'avait écrit). Ajoutez-y les variables : " + sToutes + ", puis vérifiez avec « ebony env ».")
+			FIN
+		FIN
+		SI sEtatEnv = "cree" ALORS
+			TableauAjoute(tabCrees, ".env.exemple")
+		FIN
+		SI sEtatEnv = "modifie" ALORS
+			TableauAjoute(tabModifies, ".env.exemple")
+		FIN
+		SI sEtatEnv = "conserve" ALORS
+			TableauAjoute(tabConserves, ".env.exemple")
+			sNouvellesEnv est une chaîne = :VariablesNouvelles(tabVarAvant, tabVarApres, Faux)
+			SI sNouvellesEnv <> "" ALORS
+				TableauAjoute(tabNotes, "Votre .env.exemple n'a pas été modifié. Variables à y ajouter : " + sNouvellesEnv + " (leurs défauts sont dans config/env.json).")
+			FIN
+		FIN
+		SI sEtatSecrets = "cree" ALORS
+			TableauAjoute(tabCrees, ".env.secrets.exemple")
+		FIN
+		SI sEtatSecrets = "modifie" ALORS
+			TableauAjoute(tabModifies, ".env.secrets.exemple")
+		FIN
+		SI sEtatSecrets = "conserve" ALORS
+			TableauAjoute(tabConserves, ".env.secrets.exemple")
+			sNouvellesSecrets est une chaîne = :VariablesNouvelles(tabVarAvant, tabVarApres, Vrai)
+			SI sNouvellesSecrets <> "" ALORS
+				TableauAjoute(tabNotes, "Votre .env.secrets.exemple n'a pas été modifié. Mettez dans .env.secrets les secrets : " + sNouvellesSecrets + ".")
+			FIN
+		FIN
+		SI sEtatRegistre = "cree" ALORS
+			TableauAjoute(tabCrees, "app/Composants.owl")
+			TableauAjoute(tabNotes, "app/Composants.owl liste les composants des modules du projet (la base de données, par exemple) ; Ebony le gère. Votre service doit l'appeler pour les démarrer : dans son FinInitialisation, après la création de oApp, ajoutez « POUR TOUT oFabrique DE " + EbNomFabriques(sIdentifiant) + "() », puis « oApp.Ajoute(oFabrique) » et « FIN ». Si votre service crée déjà ces composants lui-même (projet créé avant le registre), retirez ces lignes : ils démarreraient deux fois.")
+		FIN
+		SI sEtatRegistre = "modifie" ALORS
+			TableauAjoute(tabModifies, "app/Composants.owl")
+		FIN
+		SI sEtatRegistre = "conserve" ALORS
+			TableauAjoute(tabConserves, "app/Composants.owl")
+			nRang est un entier = 0
+			POUR TOUT oComposant DE tabComposantsApres
+				nRang++
+				SI oComposant.Module() = sModule ALORS
+					TableauAjoute(tabNotes, "Votre app/Composants.owl n'a pas été modifié (il n'est plus tel qu'ebony l'avait écrit). Dans " + EbNomFabriques(sIdentifiant) + "(), ajoutez « " + EbLigneCreationComposant(oComposant, nRang, oApres) + " » et « TableauAjoute(tabFabriques, oComposant" + nRang + ") », à la place qui convient à l'ordre de démarrage.")
+				FIN
+			FIN
+		FIN
+		POUR TOUT oMigration DE tabMigrations
+			SI :oSysteme.FichierExiste(EbJointChemin(sLancement, Remplace(oMigration.Fichier(), "/", "\"))) ALORS
+				TableauAjoute(tabConserves, oMigration.Fichier())
+			SINON
+				TableauAjoute(tabCrees, oMigration.Fichier())
+			FIN
+		FIN
+		TableauAjoute(tabModifies, "ebony.conf")
+
+		QUAND EXCEPTION DANS
+			oInstallee.CopieModule(:oEcriture, sDestination, sModule)
+			SI sEtatSchema = "cree" OU sEtatSchema = "modifie" OU tabFichiers..Occurrence > 0 ALORS
+				:oEcriture.CreeDossier(sConfigDossier)
+			FIN
+			SI sEtatSchema = "cree" OU sEtatSchema = "modifie" ALORS
+				:oEcriture.EcritTexte(sSchemaEnv, sSchemaApres)
+			FIN
+			SI sEtatEnv = "cree" OU sEtatEnv = "modifie" ALORS
+				:oEcriture.EcritTexte(sEnvExemple, sEnvApres)
+			FIN
+			SI sEtatSecrets = "cree" OU sEtatSecrets = "modifie" ALORS
+				:oEcriture.EcritTexte(sSecretsExemple, sSecretsApres)
+			FIN
+			SI sEtatRegistre = "cree" OU sEtatRegistre = "modifie" ALORS
+				:oEcriture.CreeDossier(sApp)
+				:oEcriture.EcritTexte(sRegistre, sRegistreApres)
+			FIN
+			POUR TOUT oFichierModule DE tabFichiers
+				sFichierModule est une chaîne = EbJointChemin(sLancement, Remplace(oFichierModule.Chemin(), "/", "\"))
+				:oEcriture.CreeDossier(EbParentChemin(sFichierModule))
+				:oEcriture.EcritTexte(sFichierModule, EbAligneDeclarations(oFichierModule.Contenu()))
+			FIN
+			POUR TOUT oMigration DE tabMigrations
+				sFichierMigration est une chaîne = EbJointChemin(sLancement, Remplace(oMigration.Fichier(), "/", "\"))
+				SI PAS :oSysteme.FichierExiste(sFichierMigration) ALORS
+					:oEcriture.CreeDossier(EbJointChemin(EbJointChemin(sLancement, "database"), "migrations"))
+					:oEcriture.EcritTexte(sFichierMigration, EbContenuMigrationModule(oMigration))
+				FIN
+			FIN
+			:oEcriture.EcritTexte(sConf, sNouvelleConf)
+		FAIRE
+			ExceptionDéclenche(57, "Ajout interrompu : " + ExceptionInfo(errMessage) + ". ebony.conf n'a pas été modifié ; ebony a pu laisser une partie de ce qu'il écrit (" + EbListeVirgules(tabCrees) + "). Supprimez-la (le dossier du module dans ebony/ d'abord), puis relancez « ebony add " + sModule + " ».")
+		FIN
+
+		tabModulesApres est un tableau de chaînes                                                                                          = EbModulesDeLaConf(sNouvelleConf)
+		oAjoute         est un cEbModuleAjoute(sModule, sLancement, sBase, tabModulesApres, tabCrees, tabModifies, tabConserves, tabNotes)
+		RENVOYER oAjoute
+	FIN
+FIN

@@ -48,7 +48,7 @@ rm -f "$SORTIE_FICHIER"
 # Un mini-projet par commande (scripts/construit-entrees.ps1) : OWL analyse tout le projet à chaque lancement. Il est utilisé s'il existe (archive de distribution).
 # Le nom du dossier vient de CETTE liste, jamais du texte tapé : pas de chemin forgé.
 ENTREE=$RACINE/ebony.owl
-for C in doctor new init make migrate token env request restore upgrade install uninstall; do
+for C in doctor new init add make migrate token env request restore upgrade install uninstall; do
     if [ "${1:-}" = "$C" ] && [ -f "$RACINE/.commandes/$C/ebony.owl" ]; then
         ENTREE=$RACINE/.commandes/$C/ebony.owl
     fi

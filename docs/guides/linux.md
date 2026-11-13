@@ -1,6 +1,6 @@
 # ebony sous Linux
 
-Le parcours du guide [premiers pas](premiers-pas.md) (`new`, `make`, `migrate`, `token`, `owl serve`, `curl`) marche sous Linux avec le lanceur `bin/ebony`. Vérifié avec Ubuntu sous WSL 2, OWL 1.8.1 (archive `neowl-1.8.1-linux-x86_64.tar.gz`), SQLite. `tests/integration/linux.sh` le rejoue.
+Le parcours du guide [premiers pas](premiers-pas.md) (`new`, `make`, `migrate`, `token`, `owl serve`, `curl`) marche sous Linux avec le lanceur `bin/ebony`. Vérifié avec Ubuntu sous WSL 2, OWL 1.8.1 (archive `neowl-1.8.1-linux-x86_64.tar.gz`), SQLite. `tests/integration/linux.sh` le rejoue, avec [`ebony add`](ajouter-un-module.md) : un projet `slim`, puis `add db` et `add auth`, donne les mêmes fichiers, octet pour octet, qu'un `ebony new` api, compile, migre et répond.
 
 ## Installer
 

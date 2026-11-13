@@ -1,0 +1,63 @@
+// Tests de EbLectureDependances : les modules dont un module a besoin, déclarés dans son manifeste (membre « dependances »), lus comme des DONNÉES. Aucun disque : le texte du manifeste est passé en argument.
+// Une entrée invalide est une exception de code 22 qui la nomme.
+
+// Lance la lecture et rend « code|message » si elle lève, ou « » si elle réussit.
+PROCEDURE EbTestRefusDependances(sTexte est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		tabDependances est un tableau de chaînes = EbDependancesDuManifeste(sTexte, "essai.json", "auth")
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Un manifeste qui dépend de db : la dépendance est lue, dans l'ordre du fichier.
+PROCEDURE scenario_lit_les_dependances()
+	tabDependances est un tableau de chaînes = EbDependancesDuManifeste(`{ "nom": "auth", "dependances": ["db", "journal"] }`, "essai.json", "auth")
+	dbgVérifieEgalité(EbListeVirgules(tabDependances), "db, journal", "deux dépendances, dans l'ordre")
+FIN
+
+// Un manifeste sans « dependances », ou avec une liste vide, ne dépend de rien.
+PROCEDURE scenario_sans_dependances_aucune()
+	dbgVérifieEgalité(EbDependancesDuManifeste(`{ "nom": "db" }`, "essai.json", "db")..Occurrence, 0, "sans membre")
+	dbgVérifieEgalité(EbDependancesDuManifeste(`{ "dependances": [] }`, "essai.json", "db")..Occurrence, 0, "liste vide")
+FIN
+
+// Un texte qui n'est pas du JSON est refusé (22) avec le nom du manifeste.
+PROCEDURE scenario_json_invalide_refuse()
+	sRes est une chaîne = EbTestRefusDependances("{ pas du json")
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sRes, "essai.json") > 0, "nomme le manifeste")
+FIN
+
+// « dependances » doit être une liste de noms : un texte, un objet ou un nombre sont refusés plutôt que lus de travers (OWL parcourt un objet en rendant ses valeurs, et un texte fait avorter sans erreur attrapable).
+PROCEDURE scenario_formes_inattendues_refusees()
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": "db" }`), 3), "22|", "texte")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": { "a": "db" } }`), 3), "22|", "objet")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": 5 }`), 3), "22|", "nombre")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": [5] }`), 3), "22|", "élément numérique")
+FIN
+
+// Un nom qui ne peut pas être un dossier de modules/ est refusé, et un module ne dépend pas de lui-même.
+PROCEDURE scenario_noms_invalides_refuses()
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": ["DB"] }`), 3), "22|", "majuscules")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": ["a/b"] }`), 3), "22|", "barre oblique")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": [".."] }`), 3), "22|", "deux points")
+	dbgVérifieEgalité(Gauche(EbTestRefusDependances(`{ "dependances": [""] }`), 3), "22|", "vide")
+	sSoi est une chaîne = EbTestRefusDependances(`{ "dependances": ["auth"] }`)
+	dbgVérifieEgalité(Gauche(sSoi, 3), "22|", "dépend de lui-même")
+	dbgVérifieVrai(Position(sSoi, "lui-même") > 0, "le dit")
+FIN
+
+// Les noms de module permis : lettres minuscules ASCII, chiffres et soulignés, commençant par une lettre, 40 caractères au plus.
+PROCEDURE scenario_noms_de_module()
+	dbgVérifieVrai(EbNomModuleValide("db"), "db")
+	dbgVérifieVrai(EbNomModuleValide("validation"), "validation")
+	dbgVérifieVrai(EbNomModuleValide("mod_2"), "souligné et chiffre")
+	dbgVérifieFaux(EbNomModuleValide(""), "vide")
+	dbgVérifieFaux(EbNomModuleValide("2db"), "commence par un chiffre")
+	dbgVérifieFaux(EbNomModuleValide("Db"), "majuscule")
+	dbgVérifieFaux(EbNomModuleValide("a-b"), "tiret")
+	dbgVérifieFaux(EbNomModuleValide("é"), "lettre accentuée")
+FIN

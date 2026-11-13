@@ -1,0 +1,33 @@
+// Ce que « ebony add » dit à la fin : les consignes (« next ») et l'objet JSON de --json, lu par les outils (un IDE, par exemple). Fonctions pures, testées dans tests/unitaires/commandes/add/.
+// Format de --json : { "ok": true, "dir", "module", "modules", "base", "files", "updated", "kept", "notes", "next" }
+// « files » = ce qui a été CRÉÉ, « updated » = ce qui existait, n'avait pas été changé par l'utilisateur et a été réécrit (ebony.conf toujours), « kept » = ce qui existait, a été changé par l'utilisateur et n'a pas été touché,
+// « notes » = ce que l'utilisateur doit faire dans ses propres fichiers. En cas d'échec : { "ok": false, "error": ... } (voir EbSignaleEchec), rien n'a été écrit sauf erreur 57.
+EbSortieAdd est une CollectionDeProcédures
+
+	// Les étapes à suivre : appliquer les migrations écrites (s'il y en a), puis vérifier la configuration.
+	PROCEDURE EbEtapesAdd(oAjoute est un cEbModuleAjoute) : tableau de chaînes
+		tabEtapes est un tableau de chaînes
+		POUR TOUT sCree DE oAjoute.Crees()
+			SI Position(sCree, "database/migrations/") = 1 ET tabEtapes..Occurrence = 0 ALORS
+				TableauAjoute(tabEtapes, "ebony migrate")
+			FIN
+		FIN
+		TableauAjoute(tabEtapes, "ebony env")
+		RENVOYER tabEtapes
+	FIN
+
+	// L'objet JSON de « ebony add --json » : une seule ligne, rien d'autre sur la sortie.
+	PROCEDURE EbJsonModuleAjoute(oAjoute est un cEbModuleAjoute) : chaîne
+		tabEtapes est un tableau de chaînes = EbEtapesAdd(oAjoute)
+		sJson     est une chaîne            = "{" + EbJsonChaine("ok") + ":true," + EbJsonChaine("dir") + ":" + EbJsonChaine(oAjoute.Chemin())
+		sJson += "," + EbJsonChaine("module") + ":" + EbJsonChaine(oAjoute.Module())
+		sJson += "," + EbJsonChaine("modules") + ":" + EbJsonListe(oAjoute.Modules())
+		sJson += "," + EbJsonChaine("base") + ":" + EbJsonChaine(oAjoute.Base())
+		sJson += "," + EbJsonChaine("files") + ":" + EbJsonListe(oAjoute.Crees())
+		sJson += "," + EbJsonChaine("updated") + ":" + EbJsonListe(oAjoute.Modifies())
+		sJson += "," + EbJsonChaine("kept") + ":" + EbJsonListe(oAjoute.Conserves())
+		sJson += "," + EbJsonChaine("notes") + ":" + EbJsonListe(oAjoute.Notes())
+		sJson += "," + EbJsonChaine("next") + ":" + EbJsonListe(tabEtapes) + "}"
+		RENVOYER sJson
+	FIN
+FIN

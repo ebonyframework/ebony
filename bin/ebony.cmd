@@ -39,7 +39,7 @@ rem Un mini-projet par commande (scripts\construit-entrees.ps1) : OWL analyse to
 rem Il est utilise s'il existe (archive, ou depot apres scripts\verifier.ps1). Sinon, ou pour une commande qui n'en a pas (aide, commande inconnue), le point d'entree complet.
 rem Le nom du dossier vient de CETTE liste, jamais du texte tape : pas de chemin forge.
 set "ENTREE=%RACINE%\ebony.owl"
-for %%C in (doctor new init make migrate token env request restore upgrade install uninstall) do if /i "%~1"=="%%C" if exist "%RACINE%\.commandes\%%C\ebony.owl" set "ENTREE=%RACINE%\.commandes\%%C\ebony.owl"
+for %%C in (doctor new init add make migrate token env request restore upgrade install uninstall) do if /i "%~1"=="%%C" if exist "%RACINE%\.commandes\%%C\ebony.owl" set "ENTREE=%RACINE%\.commandes\%%C\ebony.owl"
 owl "%ENTREE%" "-racine=%RACINE%" "-affiche=%RACINE_AFFICHEE%" "-owl=%VERSION_OWL%" "-cwd=%LANCEMENT%" "-programmes=%PROGRAMMES_COURT%" "-sortie=%SORTIE_FICHIER%" %*
 set "CODE_OWL=%ERRORLEVEL%"
 if exist "%SORTIE_FICHIER%" call :lit_code_sortie

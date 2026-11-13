@@ -1,0 +1,88 @@
+// Tests de EbContenuComposants : le registre des composants du projet (app/Composants.owl), écrit d'après les manifestes des modules, sans connaître aucun module par son nom.
+
+// Le composant de la base, tel que le manifeste de db le déclare : cEbServiceBase avec le fournisseur d'ebony.conf.
+PROCEDURE EbTestComposantBase() : cEbComposantModule
+	tabSources est un tableau de chaînes
+	TableauAjoute(tabSources, "base.fournisseur")
+	oComposant est un cEbComposantModule("db", "cEbServiceBase", tabSources)
+	RENVOYER oComposant
+FIN
+
+// Les noms du registre se déduisent de l'identifiant du projet : la Collection et la procédure que le service appelle.
+PROCEDURE scenario_noms_du_registre()
+	dbgVérifieEgalité(EbNomComposants("AppBoutique"), "AppBoutiqueComposants", "la Collection")
+	dbgVérifieEgalité(EbNomFabriques("AppBoutique"), "AppBoutiqueFabriques", "la procédure")
+FIN
+
+// La ligne qui crée une fabrique : la classe du manifeste, et le fournisseur de base du projet entre guillemets pour la source « base.fournisseur ».
+PROCEDURE scenario_ligne_de_creation()
+	oOptions est un cEbOptionsProjet("api", "postgresql", Faux, "")
+	dbgVérifieEgalité(EbLigneCreationComposant(EbTestComposantBase(), 1, oOptions), `oComposant1 est un cEbServiceBase("postgresql")`, "la base du projet")
+	dbgVérifieEgalité(EbLigneCreationComposant(EbTestComposantBase(), 3, oOptions), `oComposant3 est un cEbServiceBase("postgresql")`, "le rang numérote la variable")
+FIN
+
+// Une fabrique sans argument se crée sans argument ; plusieurs sources donnent plusieurs arguments, dans l'ordre.
+PROCEDURE scenario_arguments_selon_les_sources()
+	oOptions  est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	tabAucune est un tableau de chaînes
+	oSans     est un cEbComposantModule("essai", "cEbFabriqueEssai", tabAucune)
+	dbgVérifieEgalité(EbLigneCreationComposant(oSans, 1, oOptions), "oComposant1 est un cEbFabriqueEssai()", "sans argument")
+	tabDeux est un tableau de chaînes
+	TableauAjoute(tabDeux, "base.fournisseur")
+	TableauAjoute(tabDeux, "base.fournisseur")
+	oDeux est un cEbComposantModule("essai", "cEbFabriqueEssai", tabDeux)
+	dbgVérifieEgalité(EbLigneCreationComposant(oDeux, 1, oOptions), `oComposant1 est un cEbFabriqueEssai("sqlite", "sqlite")`, "deux arguments")
+FIN
+
+// Une source que le cœur ne connaît pas est refusée (22) même si le lecteur de manifeste l'avait laissée passer : seconde garde.
+PROCEDURE scenario_source_inconnue_refusee()
+	oOptions est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	sRes     est une chaîne                                     = ""
+	QUAND EXCEPTION DANS
+		sTexte est une chaîne = EbArgumentComposant("projet.nom", oOptions)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	dbgVérifieEgalité(Gauche(sRes, 3), "22|", "code 22")
+	dbgVérifieVrai(Position(sRes, "projet.nom") > 0, "cite la source")
+FIN
+
+// Un projet avec la base : le registre rend une liste dont la première fabrique est la base, créée avec le fournisseur choisi.
+PROCEDURE scenario_registre_avec_la_base()
+	oOptions      est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	tabComposants est un tableau
+	TableauAjoute(tabComposants, EbTestComposantBase())
+	sContenu est une chaîne = EbContenuComposants("AppBoutique", tabComposants, oOptions)
+	dbgVérifieVrai(Position(sContenu, "AppBoutiqueComposants est une CollectionDeProcédures") > 0, "la Collection")
+	dbgVérifieVrai(Position(sContenu, "PROCEDURE AppBoutiqueFabriques() : tableau") > 0, "la procédure, sans paramètre")
+	dbgVérifieVrai(Position(sContenu, `oComposant1 est un cEbServiceBase("sqlite")`) > 0, "la base")
+	dbgVérifieVrai(Position(sContenu, "TableauAjoute(tabFabriques, oComposant1)") > 0, "ajoutée à la liste")
+	dbgVérifieVrai(Position(sContenu, "RENVOYER tabFabriques") > 0, "la liste est rendue")
+	dbgVérifieVrai(Position(sContenu, "géré par Ebony") > 0, "dit que le fichier est géré par Ebony")
+FIN
+
+// Un projet sans composant (slim) : la procédure existe, rend une liste vide, et ne reçoit aucun paramètre (un paramètre inutilisé donnerait un avertissement d'OWL).
+PROCEDURE scenario_registre_vide()
+	oOptions est un cEbOptionsProjet("slim", "", Faux, "")
+	tabAucun est un tableau
+	sContenu est une chaîne                                = EbContenuComposants("AppMonApp", tabAucun, oOptions)
+	dbgVérifieVrai(Position(sContenu, "PROCEDURE AppMonAppFabriques() : tableau") > 0, "la procédure existe")
+	dbgVérifieEgalité(Position(sContenu, "oComposant"), 0, "aucun composant")
+	dbgVérifieEgalité(Position(sContenu, "TableauAjoute"), 0, "rien n'est ajouté")
+	dbgVérifieVrai(Position(sContenu, "RENVOYER tabFabriques") > 0, "la liste vide est rendue")
+FIN
+
+// Deux composants : numérotés, ajoutés dans l'ordre du tableau (c'est l'ordre de démarrage).
+PROCEDURE scenario_deux_composants_dans_l_ordre()
+	oOptions      est un cEbOptionsProjet("api", "sqlite", Faux, "")
+	tabAucune     est un tableau de chaînes
+	oSecond       est un cEbComposantModule("essai", "cEbFabriqueEssai", tabAucune)
+	tabComposants est un tableau
+	TableauAjoute(tabComposants, EbTestComposantBase())
+	TableauAjoute(tabComposants, oSecond)
+	sContenu est une chaîne = EbContenuComposants("AppBoutique", tabComposants, oOptions)
+	nUn      est un entier  = Position(sContenu, "oComposant1 est un cEbServiceBase")
+	nDeux    est un entier  = Position(sContenu, "oComposant2 est un cEbFabriqueEssai()")
+	dbgVérifieVrai(nUn > 0 ET nDeux > nUn, "la base d'abord, puis le second")
+	dbgVérifieVrai(Position(sContenu, "TableauAjoute(tabFabriques, oComposant2)") > nDeux, "le second est ajouté")
+FIN

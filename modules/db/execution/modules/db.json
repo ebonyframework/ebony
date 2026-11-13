@@ -1,0 +1,7 @@
+{
+	"nom": "db",
+	"composant": {
+		"fabrique": "cEbServiceBase",
+		"arguments": ["base.fournisseur"]
+	}
+}

@@ -219,7 +219,7 @@ EbContenuProjet est une CollectionDeProcédures
 
 	// app/http/Service<Nom>.owl : le service REST du projet (jalon M1). Il possède UNE cEbApplication (configuration, journal, base) démarrée dans FinInitialisation, arrêtée dans Fermeture,
 	// répond aux erreurs de route par un JSON sans détail interne (le détail va au journal), et expose GET /api/health (200, ou 503 quand la base ne répond pas). Le fichier est à l'utilisateur ensuite : il y ajoute ses routes.
-	PROCEDURE EbContenuService(sNom est une chaîne, sIdentifiant est une chaîne, oOptions est un cEbOptionsProjet) : chaîne
+	PROCEDURE EbContenuService(sNom est une chaîne, sIdentifiant est une chaîne) : chaîne
 		sTab       est une chaîne = Caract(9)
 		sLigne     est une chaîne = Caract(10)
 		sGuillemet est une chaîne = Caract(34)
@@ -232,21 +232,17 @@ EbContenuProjet est une CollectionDeProcédures
 		sContenu += sTab + "FIN" + sLigne + sLigne
 		sContenu += sTab + "// L'application unique est posée dans cEbServiceApplication, pas dans une variable du bloc du service : une variable de bloc d'une classe du projet fait planter « owl test »." + sLigne
 		sContenu += sTab + "// Vos propres objets partagés (un repository, par exemple) suivent la même règle : un membre GLOBAL d'une classe à vous, posé dans FinInitialisation." + sLigne
-		SI oOptions.ABase() ALORS
-			sContenu += sTab + "// La base de données est un composant de l'application (oApp.Ajoute) : un projet qui n'en veut pas n'ajoute pas oBase, et GET /api/health ne parle plus de base." + sLigne
-		SINON
-			sContenu += sTab + "// Ce projet n'a pas de base de données (kit slim) : l'application n'a aucun composant, et GET /api/health ne parle que d'elle. Un composant s'ajoute avec oApp.Ajoute(...)." + sLigne
-		FIN
+		sContenu += sTab + "// Les composants de l'application (la base de données, par exemple) viennent des modules du projet : ils sont déclarés dans app/Composants.owl, que gère Ebony. Ajouter un module ne modifie pas ce service." + sLigne
+		sContenu += sTab + "// Sans composant, GET /api/health ne parle que de l'application ; avec la base, il en donne l'état." + sLigne
 		sContenu += sTab + "// Une configuration invalide arrête ici le démarrage : le service n'écoute pas, et toutes les erreurs sont listées." + sLigne
 		sContenu += sTab + "PROCEDURE FinInitialisation()" + sLigne
 		sContenu += sTab + sTab + "oLecture est un cEbLectureEnvReelle" + sLigne
 		sContenu += sTab + sTab + "oSortie est un cEbSortieJournalConsole" + sLigne
 		sContenu += sTab + sTab + "oHorloge est un cEbHorlogeSysteme" + sLigne
 		sContenu += sTab + sTab + "oApp est un cEbApplication(oLecture, oSortie, oHorloge)" + sLigne
-		SI oOptions.ABase() ALORS
-			sContenu += sTab + sTab + "oBase est un cEbServiceBase(" + sGuillemet + oOptions.BaseDonnees() + sGuillemet + ")" + sLigne
-			sContenu += sTab + sTab + "oApp.Ajoute(oBase)" + sLigne
-		FIN
+		sContenu += sTab + sTab + "POUR TOUT oFabrique DE " + EbNomFabriques(sIdentifiant) + "()" + sLigne
+		sContenu += sTab + sTab + sTab + "oApp.Ajoute(oFabrique)" + sLigne
+		sContenu += sTab + sTab + "FIN" + sLigne
 		sContenu += sTab + sTab + "cEbServiceApplication.Definit(oApp)" + sLigne
 		sContenu += sTab + sTab + "cEbServiceApplication.Application().Démarre()" + sLigne
 		sContenu += sTab + "FIN" + sLigne + sLigne

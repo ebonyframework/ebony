@@ -52,11 +52,17 @@ PRIVÉ
 			tabMigrations = EbMigrationsAEcrire(oInstallee.MigrationsModules(), options, Faux)
 		FIN
 		options = options.AvecModules(oInstallee.VariablesModules(), tabMigrations, EbFichiersAEcrire(oInstallee.FichiersModules(), options))
+		// Les composants que ces modules apportent à l'application : ils vont dans le registre app/Composants.owl.
+		tabComposants est un tableau = oInstallee.ComposantsModules()
 
 		// Conflits : tous listés d'un coup, avant la moindre écriture.
 		sConflits est une chaîne = ""
 		SI :Occupe(EbJointChemin(sLancement, "ebony")) ALORS
 			sConflits = "ebony/"
+		FIN
+		// app doit pouvoir porter le registre : un fichier de ce nom l'en empêcherait (un dossier app existant est normal, le projet en a le plus souvent un).
+		SI :oSysteme.FichierExiste(EbJointChemin(sLancement, "app")) ALORS
+			sConflits += EbSeparateur(sConflits) + "app (un fichier porte ce nom)"
 		FIN
 		SI options.FichiersModules()..Occurrence > 0 ALORS
 			sConfig est une chaîne = EbJointChemin(sLancement, "config")
@@ -147,6 +153,16 @@ PRIVÉ
 		SINON
 			TableauAjoute(tabConserves, "AGENTS.md")
 		FIN
+		// Le registre des composants : écrit s'il manque, conservé sinon (un fichier du projet n'est jamais écrasé). Le service du projet n'est pas touché : c'est à son auteur de l'appeler, la note dit comment.
+		sApp      est une chaîne = EbJointChemin(sLancement, "app")
+		sRegistre est une chaîne = EbJointChemin(sApp, "Composants.owl")
+		bRegistre est un booléen = PAS :oSysteme.FichierExiste(sRegistre)
+		SI bRegistre ALORS
+			TableauAjoute(tabCrees, "app/Composants.owl")
+			TableauAjoute(tabNotes, "app/Composants.owl liste les composants des modules du projet (la base de données, par exemple) ; Ebony le gère. Votre service doit l'appeler pour les démarrer : dans son FinInitialisation, après la création de oApp, ajoutez « POUR TOUT oFabrique DE " + EbNomFabriques(sIdentifiant) + "() », puis « oApp.Ajoute(oFabrique) » et « FIN » (voir le guide d'adoption).")
+		SINON
+			TableauAjoute(tabConserves, "app/Composants.owl")
+		FIN
 		// Les fichiers que les modules fournissent (leur manifeste : par exemple config/Auth.owl avec --auth).
 		POUR TOUT oFichierModule DE options.FichiersModules()
 			TableauAjoute(tabCrees, oFichierModule.Chemin())
@@ -177,6 +193,10 @@ PRIVÉ
 			FIN
 			SI bAgents ALORS
 				:oEcriture.EcritTexte(sAgents, EbContenuAgentsAvecOptions(sNom, options))
+			FIN
+			SI bRegistre ALORS
+				:oEcriture.CreeDossier(sApp)
+				:oEcriture.EcritTexte(sRegistre, EbAligneDeclarations(EbContenuComposants(sIdentifiant, tabComposants, options)))
 			FIN
 			SI bSchemaEnv OU options.FichiersModules()..Occurrence > 0 ALORS
 				:oEcriture.CreeDossier(sConfigDossier)

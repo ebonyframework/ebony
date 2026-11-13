@@ -1,0 +1,55 @@
+// Lecture du membre « dependances » du manifeste d'un module (modules/<nom>/execution/modules/<nom>.json) : les modules dont il a besoin, par exemple auth demande db (ses jetons vivent dans la base). Des DONNÉES, jamais du code.
+// « ebony add » refuse d'ajouter un module dont une dépendance manque au projet, et dit laquelle. Un manifeste sans « dependances » n'en a aucune. Une entrée invalide est une exception de code 22 qui la nomme.
+// Fonctions sans accès au disque : le texte lu est passé en argument, ce qui les rend testables sans faux disque.
+EbLectureDependances est une CollectionDeProcédures
+
+	// Les modules dont dépend celui que décrit le manifeste, dans l'ordre du fichier. sChemin ne sert qu'aux messages. Lève (22) si le texte n'est pas du JSON, si « dependances » n'est pas une liste de noms de module valides, ou si un module dépend de lui-même.
+	PROCEDURE EbDependancesDuManifeste(sTexte est une chaîne, sChemin est une chaîne, sModule est une chaîne) : tableau de chaînes
+		tabDependances est un tableau de chaînes
+		j              est un JSON
+		SI PAS JSONValide(sTexte) ALORS
+			ExceptionDéclenche(22, "Le manifeste " + sChemin + " n'est pas du JSON valide. Réinstallez ebony.")
+		FIN
+		j = ChaîneVersJSON(sTexte)
+		SI JSONExiste(j, "dependances") ALORS
+			// Une liste, et rien d'autre : parcourir un objet rendrait ses valeurs, et parcourir un texte plante sans erreur attrapable (mesuré). Le type d'un JSON ne distingue pas une liste d'un objet : on regarde sa forme écrite.
+			SI Gauche(JSONVersChaîne(j.dependances, psdMinifie), 1) <> "[" ALORS
+				ExceptionDéclenche(22, sChemin + " : « dependances » doit être une liste de noms de module. Réinstallez ebony.")
+			FIN
+			nIndice est un entier = 0
+			POUR TOUT sNom DE j.dependances
+				nIndice++
+				SI TypeVar(sNom) <> owlChaîne ALORS
+					ExceptionDéclenche(22, sChemin + " : dependances[" + nIndice + "] doit être un texte. Réinstallez ebony.")
+				FIN
+				SI PAS EbNomModuleValide(sNom) ALORS
+					ExceptionDéclenche(22, sChemin + " : dependances[" + nIndice + "] « " + sNom + " » n'est pas un nom de module (lettres minuscules ASCII, chiffres et soulignés, commençant par une lettre). Réinstallez ebony.")
+				FIN
+				SI Minuscule(sNom) = Minuscule(sModule) ALORS
+					ExceptionDéclenche(22, sChemin + " : le module « " + sModule + " » ne peut pas dépendre de lui-même. Réinstallez ebony.")
+				FIN
+				TableauAjoute(tabDependances, sNom)
+			FIN
+		FIN
+		RENVOYER tabDependances
+	FIN
+
+	// Vrai si le texte peut être le nom d'un module : lettres minuscules ASCII, chiffres et soulignés, commençant par une lettre, 40 caractères au plus (c'est un nom de dossier de modules/).
+	PROCEDURE EbNomModuleValide(sNom est une chaîne) : booléen
+		SI Taille(sNom) < 1 OU Taille(sNom) > 40 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sNom)
+			nCode    est un entier  = Asc(Milieu(sNom, i, 1))
+			bLettre  est un booléen = nCode >= 97 ET nCode <= 122
+			bChiffre est un booléen = (nCode >= 48 ET nCode <= 57) OU nCode = 95
+			SI i = 1 ET PAS bLettre ALORS
+				RENVOYER Faux
+			FIN
+			SI PAS bLettre ET PAS bChiffre ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+FIN

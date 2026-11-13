@@ -16,14 +16,14 @@ mon-projet/
 └── ebony/                la bibliothèque d'exécution
 ```
 
-`ebony/` n'est pas à vous : c'est la bibliothèque, que `ebony upgrade` aligne sur la version installée. Tout le reste est à vous.
+`ebony/` n'est pas à vous : c'est la bibliothèque, que `ebony upgrade` aligne sur la version installée. `app/Composants.owl` (le **registre des composants**, présent dans tous les kits, vide pour `slim`) est géré par Ebony : [`ebony add`](ajouter-un-module.md) le réécrit quand un module s'ajoute, tant que vous ne l'avez pas modifié. Tout le reste est à vous.
 
 ## Ce que chaque kit ajoute
 
 | Kit | État | Dossiers propres à ce kit |
 |---|---|---|
 | **api** (par défaut) | Disponible | `app/http/` (service REST, contrôleurs), `app/services/`, `app/donnees/`, `app/domaine/`, `database/migrations/`, `tests/`, `storage/` (SQLite local) ; `config/Auth.owl` avec `--auth`. Détail ci-dessous. |
-| **slim** | Disponible | `app/http/` seulement : le service REST, sans base de données ni migrations, ni variable `DB_*`. |
+| **slim** | Disponible | `app/http/` seulement : le service REST, sans base de données ni migrations, ni variable `DB_*` (`ebony add db` en ajoute une plus tard). |
 | **web** | Prévu | Ceux de l'API, plus `app/http/pages/` (routes de pages), `vues/` (gabarits HTML), `public/` (CSS, images, scripts) et `ebony/gabarits/`. |
 | **desktop** (bureau) | Prévu | `app/ui/` (une fenêtre par fichier), `app/presentation/` (contrôleurs ou présentateurs), `ressources/` (icônes) ; plus de `app/http/`, sauf si l'application expose aussi une API. |
 | **mobile** | À l'étude | Structure non définie. |
@@ -45,6 +45,7 @@ boutique/
 │   ├── env.json          le schéma de la configuration
 │   └── Auth.owl          l'authentification (avec --auth)
 ├── app/
+│   ├── Composants.owl    le registre des composants (géré par Ebony)
 │   ├── http/             le service REST et les contrôleurs
 │   ├── services/produit/ les règles métier
 │   ├── donnees/produit/  les repositories : SQL et mémoire

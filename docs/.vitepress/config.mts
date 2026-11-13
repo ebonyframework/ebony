@@ -53,7 +53,8 @@ export default defineConfig({
           { text: 'Premiers pas', link: '/guides/premiers-pas' },
           { text: "Structure d'un projet", link: '/guides/structure' },
           { text: 'Tutoriel : une petite boutique', link: '/guides/tutoriel' },
-          { text: 'Adopter Ebony dans un projet existant', link: '/guides/adopter-un-projet' }
+          { text: 'Adopter Ebony dans un projet existant', link: '/guides/adopter-un-projet' },
+          { text: 'Ajouter un module', link: '/guides/ajouter-un-module' }
         ]
       },
       {

@@ -1,0 +1,88 @@
+// Tests de EbOptionsAdd : la lecture des arguments de « ebony add <module> [--base …] [--json] ». Fonctions pures, aucun disque.
+// Toute erreur d'usage est une exception de code 25 qui dit l'usage.
+
+// Analyse les arguments et rend « module|base » si ça réussit, ou « code:message » si ça lève.
+PROCEDURE EbTestAnalyseAdd(sArguments est une chaîne) : chaîne
+	tabArgs est un tableau de chaînes
+	SI sArguments <> "" ALORS
+		tabArgs = EbTestDecoupeEspaces(sArguments)
+	FIN
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oDemande est un cEbDemandeAdd = EbAnalyseArgumentsAdd(tabArgs)
+		sRes = oDemande.Module() + "|" + oDemande.BaseDemandee()
+	FAIRE
+		sRes = ExceptionInfo(errCode) + ":" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Coupe un texte aux espaces (les essais n'ont pas d'argument qui en contienne).
+PROCEDURE EbTestDecoupeEspaces(sTexte est une chaîne) : tableau de chaînes
+	tabMots  est un tableau de chaînes
+	sCourant est une chaîne            = ""
+	POUR i = 1 À Taille(sTexte)
+		sLettre est une chaîne = Milieu(sTexte, i, 1)
+		SI sLettre = " " ALORS
+			SI sCourant <> "" ALORS
+				TableauAjoute(tabMots, sCourant)
+				sCourant = ""
+			FIN
+		SINON
+			sCourant = sCourant + sLettre
+		FIN
+	FIN
+	SI sCourant <> "" ALORS
+		TableauAjoute(tabMots, sCourant)
+	FIN
+	RENVOYER tabMots
+FIN
+
+// Le module seul : pas de base demandée.
+PROCEDURE scenario_module_seul()
+	dbgVérifieEgalité(EbTestAnalyseAdd("db"), "db|", "ebony add db")
+	dbgVérifieEgalité(EbTestAnalyseAdd("auth --json"), "auth|", "--json n'est pas une demande de base")
+	dbgVérifieEgalité(EbTestAnalyseAdd("--json validation"), "validation|", "--json avant le module")
+FIN
+
+// --base s'écrit avec un espace ou un signe égal, et sa valeur est vérifiée.
+PROCEDURE scenario_base()
+	dbgVérifieEgalité(EbTestAnalyseAdd("db --base postgresql"), "db|postgresql", "--base valeur")
+	dbgVérifieEgalité(EbTestAnalyseAdd("db --base=hfsql"), "db|hfsql", "--base=valeur")
+	dbgVérifieEgalité(EbTestAnalyseAdd("--base sqlite db"), "db|sqlite", "--base avant le module")
+FIN
+
+// Une valeur de --base inconnue ou absente est refusée (25), en disant les valeurs possibles.
+PROCEDURE scenario_base_refusee()
+	sInconnue est une chaîne = EbTestAnalyseAdd("db --base oracle")
+	dbgVérifieEgalité(Gauche(sInconnue, 3), "25:", "valeur inconnue : code 25")
+	dbgVérifieVrai(Position(sInconnue, "sqlite, postgresql, hfsql") > 0, "dit les valeurs possibles")
+	dbgVérifieEgalité(Gauche(EbTestAnalyseAdd("db --base"), 3), "25:", "valeur absente : code 25")
+FIN
+
+// Les options à un seul tiret ou à barre oblique (celles du lanceur) sont ignorées.
+PROCEDURE scenario_options_du_lanceur_ignorees()
+	dbgVérifieEgalité(EbTestAnalyseAdd("-racine=D:\ebony -cwd=C:\Projets db"), "db|", "options du lanceur")
+	dbgVérifieEgalité(EbTestAnalyseAdd("/x db"), "db|", "option à barre oblique")
+FIN
+
+// Sans module, avec deux modules ou avec une option inconnue : refusé (25) avec l'usage.
+PROCEDURE scenario_usage_refuse()
+	sAucun est une chaîne = EbTestAnalyseAdd("")
+	dbgVérifieEgalité(Gauche(sAucun, 3), "25:", "aucun module : code 25")
+	dbgVérifieVrai(Position(sAucun, "ebony add <module>") > 0, "dit l'usage")
+	dbgVérifieEgalité(Gauche(EbTestAnalyseAdd("--json"), 3), "25:", "seulement --json")
+	sDeux est une chaîne = EbTestAnalyseAdd("db auth")
+	dbgVérifieEgalité(Gauche(sDeux, 3), "25:", "deux modules : code 25")
+	dbgVérifieVrai(Position(sDeux, "un seul module") > 0, "dit pourquoi")
+	sOption est une chaîne = EbTestAnalyseAdd("db --force")
+	dbgVérifieEgalité(Gauche(sOption, 3), "25:", "option inconnue : code 25")
+	dbgVérifieVrai(Position(sOption, "--force") > 0, "nomme l'option")
+FIN
+
+// Un nom qui ne peut pas être un dossier de modules/ est refusé (25) : lettres minuscules ASCII, chiffres, soulignés.
+PROCEDURE scenario_nom_de_module_invalide()
+	dbgVérifieEgalité(Gauche(EbTestAnalyseAdd("DB"), 3), "25:", "majuscules")
+	dbgVérifieEgalité(Gauche(EbTestAnalyseAdd("a..b"), 3), "25:", "points")
+	dbgVérifieEgalité(Gauche(EbTestAnalyseAdd("2db"), 3), "25:", "commence par un chiffre")
+FIN

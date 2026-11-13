@@ -93,6 +93,46 @@ echo "token revoke"
 SORTIE=$("$EBONY" token revoke "$IDENTIFIANT" 2>&1); CODE=$?
 verifie "token revoke : code 0" $([ $CODE -eq 0 ] && echo 0 || echo 1) "code=$CODE $SORTIE"
 
+echo "add : slim + add db + add auth redonne un projet api neuf"
+mkdir -p "$TRAVAIL/ajout" "$TRAVAIL/reference"
+cd "$TRAVAIL/ajout" || exit 1
+SORTIE=$("$EBONY" new demo --kit slim 2>&1); CODE=$?
+verifie "new demo --kit slim : code 0" $([ $CODE -eq 0 ] && echo 0 || echo 1) "code=$CODE $SORTIE"
+cd demo || exit 1
+SORTIE=$("$EBONY" add auth 2>&1); CODE=$?
+verifie "add auth avant db : refusé (code 1), dit d'ajouter db d'abord" $([ $CODE -eq 1 ] && contient "$SORTIE" "ebony add db" && echo 0 || echo 1) "code=$CODE $SORTIE"
+SORTIE=$("$EBONY" add db --json 2>&1); CODE=$?
+verifie "add db : code 0, base sqlite, ebony.conf réécrit" $([ $CODE -eq 0 ] && contient "$SORTIE" '"base":"sqlite"' && contient "$SORTIE" '"ebony.conf"' && echo 0 || echo 1) "code=$CODE $SORTIE"
+SORTIE=$("$EBONY" add db 2>&1); CODE=$?
+verifie "add db une seconde fois : refusé (code 1), déjà présent" $([ $CODE -eq 1 ] && contient "$SORTIE" "dans ce projet" && echo 0 || echo 1) "code=$CODE $SORTIE"
+SORTIE=$("$EBONY" add auth --json 2>&1); CODE=$?
+verifie "add auth : code 0, la migration des jetons est écrite (chemin avec /)" $([ $CODE -eq 0 ] && contient "$SORTIE" 'database/migrations/M202611100000_CreeEbJetons.owl' && echo 0 || echo 1) "code=$CODE $SORTIE"
+SORTIE=$("$EBONY" add db --base oracle 2>&1); CODE=$?
+verifie "add --base oracle : usage incorrect (code 2)" $([ $CODE -eq 2 ] && echo 0 || echo 1) "code=$CODE $SORTIE"
+cd "$TRAVAIL/reference" || exit 1
+"$EBONY" new demo >/dev/null 2>&1
+DIFFERENCES=$(diff -rq -x ebony.conf -x README.md -x AGENTS.md "$TRAVAIL/ajout/demo" "$TRAVAIL/reference/demo" 2>&1)
+NB_FICHIERS=$(find "$TRAVAIL/reference/demo" -type f | wc -l)
+verifie "mêmes fichiers, mêmes octets qu'un projet api neuf (hors ebony.conf, README.md, AGENTS.md)" $([ -z "$DIFFERENCES" ] && [ "$NB_FICHIERS" -ge 30 ] && echo 0 || echo 1) "$NB_FICHIERS fichiers de référence ; $DIFFERENCES"
+sed 's/"kit": "slim"/"kit": "api"/' "$TRAVAIL/ajout/demo/ebony.conf" | cmp -s - "$TRAVAIL/reference/demo/ebony.conf"
+verifie "ebony.conf : seul le kit noté diffère (slim contre api)" $?
+cd "$TRAVAIL/ajout/demo" || exit 1
+SORTIE=$("$EBONY" migrate 2>&1); CODE=$?
+verifie "migrate applique la migration écrite par add auth" $([ $CODE -eq 0 ] && contient "$SORTIE" "1 migration(s)" && echo 0 || echo 1) "code=$CODE $SORTIE"
+PORT=$(( 20000 + RANDOM % 20000 ))
+owl serve --port "$PORT" >"$TRAVAIL/serve-ajout.out" 2>"$TRAVAIL/serve-ajout.err" &
+PID_SERVICE=$!
+PRET=1
+for _ in $(seq 1 90); do
+    CODE_HTTP=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/health")
+    if [ "$CODE_HTTP" != "000" ]; then PRET=0; break; fi
+    sleep 0.7
+done
+verifie "le service du projet obtenu par add répond (owl serve)" $PRET "$(head -3 "$TRAVAIL/serve-ajout.err" 2>/dev/null)"
+SORTIE=$(curl -s -w ' [%{http_code}]' "http://127.0.0.1:$PORT/api/health")
+verifie "GET /api/health : 200, la base répond" $(contient "$SORTIE" '{"statut":"ok","base":"ok"} [200]' && echo 0 || echo 1) "$SORTIE"
+kill "$PID_SERVICE" 2>/dev/null; wait "$PID_SERVICE" 2>/dev/null; PID_SERVICE=""
+
 echo
 if [ "$ECHECS" -eq 0 ]; then echo "LINUX : TOUT PASSE"; exit 0; fi
 echo "LINUX : $ECHECS ECHEC(S)"

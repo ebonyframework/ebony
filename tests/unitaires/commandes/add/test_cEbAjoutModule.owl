@@ -1,0 +1,286 @@
+// Tests de cEbAjoutModule (« ebony add ») avec un faux disque : le cas normal, le critère de réussite (slim + db + auth redonne un projet api neuf), la règle des fichiers que l'utilisateur a changés,
+// chaque refus avec son code, et que rien n'est écrit quand une vérification échoue.
+
+// Un disque où ebony est installé dans D:\ebony avec trois modules : core, db (son composant : la fabrique de la base) et auth (qui dépend de db, déclare AUTH_ROUTES et une migration).
+// L'utilisateur est dans C:\Projets\mon-app, un projet SLIM tel qu'« ebony new --kit slim » l'écrit : ebony.conf, ebony/ (le cœur), config/env.json, les .env.exemple et le registre des composants vide.
+PROCEDURE EbTestDisqueAddModuleAvec(bRegistre est un booléen) : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution\config")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\config\README.md", "config")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\donnees")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\donnees\README.md", "donnees")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\modules\db.json", `{ "nom": "db", "composant": { "fabrique": "cEbServiceBase", "arguments": ["base.fournisseur"] } }`)
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\README.md", "auth")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	sAuth est une chaîne = `{ "nom": "auth", "dependances": ["db"], `
+	sAuth += `"environnement": [ { "cle": "AUTH_ROUTES", "type": "liste", "valeurs": ["protegees", "ouvertes"], "defaut": "protegees", "description": "Routes protegees ou ouvertes." } ], `
+	sAuth += `"migrations": [ { "horodatage": "202611100000", "nom": "CreeEbJetons", "monte": ["CREATE TABLE eb_jetons (id INTEGER)"], "descend": ["DROP TABLE eb_jetons"] } ] }`
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", sAuth)
+	oSlim est un cEbOptionsProjet("slim", "", Faux, "")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\config")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\config\README.md", "config")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony.conf", EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oSlim))
+	oDisque.CreeDossier("C:\Projets\mon-app\config")
+	oDisque.EcritTexte("C:\Projets\mon-app\config\env.json", EbContenuSchemaEnv("mon-app", oSlim))
+	oDisque.EcritTexte("C:\Projets\mon-app\.env.exemple", EbContenuEnvExemple("mon-app", oSlim))
+	oDisque.EcritTexte("C:\Projets\mon-app\.env.secrets.exemple", EbContenuSecretsExemple(oSlim))
+	tabAucun est un tableau
+	SI bRegistre ALORS
+		oDisque.CreeDossier("C:\Projets\mon-app\app")
+		oDisque.EcritTexte("C:\Projets\mon-app\app\Composants.owl", EbAligneDeclarations(EbContenuComposants("AppMonApp", tabAucun, oSlim)))
+	FIN
+	RENVOYER oDisque
+FIN
+
+// Le disque d'un projet slim créé par la version courante d'ebony.
+PROCEDURE EbTestDisqueAddModule() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModuleAvec(Vrai)
+	RENVOYER oDisque
+FIN
+
+// Ce que « ebony new » écrirait pour ce projet avec les modules db et auth (kit api) : la référence du critère de réussite.
+PROCEDURE EbTestOptionsApiNeuf(sBase est une chaîne) : cEbOptionsProjet
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueAddModule()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	tabModules est un tableau de chaînes
+	TableauAjoute(tabModules, "db")
+	TableauAjoute(tabModules, "auth")
+	oInstallee.Choisit(tabModules)
+	tabVide  est un tableau
+	oBrutes  est un cEbOptionsProjet = cEbOptionsProjet("slim", sBase, Faux, "")
+	oOptions est un cEbOptionsProjet = oBrutes.AvecModules(oInstallee.VariablesModules(), tabVide, tabVide)
+	RENVOYER oOptions
+FIN
+
+// Ajoute le module (et la base demandée, vide si l'option n'est pas donnée) et rend le résultat.
+PROCEDURE EbTestAjouteModule(oDisque est un cEbSystemeFichiersFictif, sModule est une chaîne, sBase est une chaîne) : cEbModuleAjoute
+	oDemande est un cEbDemandeAdd(sModule, sBase)
+	oAjout   est un cEbAjoutModule(oDisque, oDisque)
+	oAjoute  est un cEbModuleAjoute                  = oAjout.Execute(oDemande)
+	RENVOYER oAjoute
+FIN
+
+// Lance l'ajout et rend « code|message » s'il lève, ou « » s'il réussit.
+PROCEDURE EbTestRefusAddModule(oDisque est un cEbSystemeFichiersFictif, sModule est une chaîne, sBase est une chaîne) : chaîne
+	sRes est une chaîne = ""
+	QUAND EXCEPTION DANS
+		oAjoute est un cEbModuleAjoute = EbTestAjouteModule(oDisque, sModule, sBase)
+	FAIRE
+		sRes = ExceptionInfo(errCode) + "|" + ExceptionInfo(errMessage)
+	FIN
+	RENVOYER sRes
+FIN
+
+// Ajouter db à un projet slim : la bibliothèque du module est copiée, ebony.conf note le module et la base (sqlite par défaut), le registre devient celui d'un projet avec une base, le reste est conservé.
+PROCEDURE scenario_ajoute_db_a_un_projet_slim()
+	oDisque  est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oAjoute  est un cEbModuleAjoute          = EbTestAjouteModule(oDisque, "db", "")
+	oOptions est un cEbOptionsProjet         = cEbOptionsProjet("slim", "sqlite", Faux, "")
+	dbgVérifieEgalité(oAjoute.Module(), "db", "module")
+	dbgVérifieEgalité(oAjoute.Base(), "sqlite", "base par défaut")
+	dbgVérifieEgalité(oAjoute.Chemin(), "C:\Projets\mon-app", "chemin")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Modules()), "db", "modules du projet")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\donnees\README.md"), "donnees", "le module est copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\modules\db.json"), oDisque.LitTexte("D:\ebony\modules\db\execution\modules\db.json"), "son manifeste aussi")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\mon-app\ebony\auth"), "auth n'est pas copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\config\README.md"), "config", "le cœur déjà là est intact")
+	dbgVérifieEgalité(EbModulesDeLaConf(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"))[1], "db", "ebony.conf note le module")
+	dbgVérifieEgalité(EbBaseDeLaConf(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf")), "sqlite", "et la base")
+	dbgVérifieEgalité(EbTexteDeLaConf(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), "projet", "kit"), "slim", "le kit noté n'est pas changé")
+	tabComposants est un tableau = EbComposantsDuManifeste(oDisque.LitTexte("D:\ebony\modules\db\execution\modules\db.json"), "db.json", "db")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), EbAligneDeclarations(EbContenuComposants("AppMonApp", tabComposants, oOptions)), "le registre porte la base")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), "cEbServiceBase(" + Caract(34) + "sqlite" + Caract(34) + ")") > 0, "avec le fournisseur d'ebony.conf")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\config\env.json"), EbContenuSchemaEnv("mon-app", oOptions), "env.json : les variables de la base")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\.env.exemple"), "DB_FICHIER=storage/app.db") > 0, ".env.exemple : la base")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/ (module db)", "seule la bibliothèque est créée")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Modifies()), "config/env.json, .env.exemple, .env.secrets.exemple, app/Composants.owl, ebony.conf", "les fichiers d'ebony réécrits")
+	dbgVérifieEgalité(oAjoute.Conserves()..Occurrence, 0, "aucun fichier de l'utilisateur laissé de côté")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 0, "aucune note : rien à faire soi-même")
+FIN
+
+// Le critère de réussite : slim, puis add db, puis add auth donne les mêmes fichiers qu'un projet api neuf (aux membres kit de ebony.conf près), et la migration d'auth est écrite.
+PROCEDURE scenario_slim_plus_db_plus_auth_redonne_api()
+	oDisque  est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oAjoutDb est un cEbModuleAjoute          = EbTestAjouteModule(oDisque, "db", "")
+	oAjoute  est un cEbModuleAjoute          = EbTestAjouteModule(oDisque, "auth", "")
+	oApi     est un cEbOptionsProjet         = EbTestOptionsApiNeuf("sqlite")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Modules()), "db, auth", "modules : db puis auth")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\config\env.json"), EbContenuSchemaEnv("mon-app", oApi), "env.json comme un projet api")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\.env.exemple"), EbContenuEnvExemple("mon-app", oApi), ".env.exemple comme un projet api")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\.env.secrets.exemple"), EbContenuSecretsExemple(oApi), ".env.secrets.exemple comme un projet api")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), EbAligneDeclarations(EbContenuComposants("AppMonApp", oInstallee.ComposantsModules(), oApi)), "registre comme un projet api")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\auth\README.md"), "auth", "la bibliothèque d'auth est copiée")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Crees()), "ebony/ (module auth), database/migrations/M202611100000_CreeEbJetons.owl", "auth : sa bibliothèque et sa migration")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\database\migrations\M202611100000_CreeEbJetons.owl"), "la migration est écrite")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\database\migrations\M202611100000_CreeEbJetons.owl"), "CREATE TABLE eb_jetons") > 0, "avec son SQL")
+	// ebony.conf d'un api neuf, au kit près.
+	oApiConf   est un cEbOptionsProjet = cEbOptionsProjet("api", "sqlite", Faux, "")
+	sConfApi   est une chaîne          = EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", oApiConf)
+	sGuillemet est une chaîne          = Caract(34)
+	dbgVérifieEgalité(Remplace(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), sGuillemet + "kit" + sGuillemet + ": " + sGuillemet + "slim" + sGuillemet, sGuillemet + "kit" + sGuillemet + ": " + sGuillemet + "api" + sGuillemet), sConfApi, "ebony.conf comme un projet api, au kit près")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Notes()), "", "aucune note")
+	dbgVérifieEgalité(EbListeVirgules(EbEtapesAdd(oAjoute)), "ebony migrate, ebony env", "migrate puis env")
+	dbgVérifieEgalité(EbListeVirgules(EbEtapesAdd(oAjoutDb)), "ebony env", "db n'a pas de migration : seulement env")
+FIN
+
+// --base choisit la base quand le module en a besoin et que le projet n'en a pas : ici PostgreSQL, avec ses variables.
+PROCEDURE scenario_base_choisie_avec_base()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oAjoute est un cEbModuleAjoute          = EbTestAjouteModule(oDisque, "db", "postgresql")
+	dbgVérifieEgalité(oAjoute.Base(), "postgresql", "base choisie")
+	dbgVérifieEgalité(EbBaseDeLaConf(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf")), "postgresql", "notée dans ebony.conf")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\config\env.json"), "DB_HOTE") > 0, "env.json : les variables de PostgreSQL")
+	dbgVérifieVrai(Position(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), "cEbServiceBase(" + Caract(34) + "postgresql" + Caract(34) + ")") > 0, "le registre l'utilise")
+FIN
+
+// --base ne change jamais la base d'un projet et ne concerne que les modules qui en ont besoin : refusé (25) sinon.
+PROCEDURE scenario_base_refusee()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	EbTestAjouteModule(oDisque, "db", "sqlite")
+	sChangeBase est une chaîne = EbTestRefusAddModule(oDisque, "auth", "postgresql")
+	dbgVérifieEgalité(Gauche(sChangeBase, 3), "25|", "projet avec une base : --base différent refusé")
+	dbgVérifieVrai(Position(sChangeBase, "sqlite") > 0, "dit la base du projet")
+	oSansBase est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	// auth a besoin de db : sans elle ce serait 55 ; on le vérifie séparément, ici un module sans base ne reçoit pas --base.
+	oSansBase.EcritTexte("C:\Projets\mon-app\ebony.conf", EbConfAvecModule(oSansBase.LitTexte("C:\Projets\mon-app\ebony.conf"), "db", "sqlite"))
+	sSansBesoin est une chaîne = EbTestRefusAddModule(oSansBase, "auth", "postgresql")
+	dbgVérifieEgalité(Gauche(sSansBesoin, 3), "25|", "module sans base : --base refusé")
+FIN
+
+// Un module installé et inconnu, ou le cœur, ne s'ajoute pas (54) : le message liste ce qu'on peut ajouter.
+PROCEDURE scenario_module_inconnu_refuse()
+	oDisque  est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	sInconnu est une chaîne                  = EbTestRefusAddModule(oDisque, "validation", "")
+	dbgVérifieEgalité(Gauche(sInconnu, 3), "54|", "module inconnu : code 54")
+	dbgVérifieVrai(Position(sInconnu, "auth, db") > 0, "liste les modules qu'on peut ajouter")
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oDisque, "core", ""), 3), "54|", "le cœur n'est pas à ajouter")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), EbContenuConfAvecOptions("Mon App", "mon-app", "AppMonApp", "0.1.0", cEbOptionsProjet("slim", "", Faux, "")), "rien n'a été écrit")
+FIN
+
+// Un module dont la dépendance manque est refusé (55) en nommant la dépendance et la commande qui l'ajoute ; sans rien écrire.
+PROCEDURE scenario_dependance_manquante_refusee()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	sAvant  est une chaîne                  = oDisque.LitTexte("C:\Projets\mon-app\ebony.conf")
+	sRes    est une chaîne                  = EbTestRefusAddModule(oDisque, "auth", "")
+	dbgVérifieEgalité(Gauche(sRes, 3), "55|", "code 55")
+	dbgVérifieVrai(Position(sRes, "ebony add db") > 0, "dit quoi ajouter d'abord")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), sAvant, "ebony.conf intact")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\mon-app\ebony\auth"), "rien n'a été copié")
+FIN
+
+// Un module déjà dans le projet est refusé (58), le nom en capitales aussi.
+PROCEDURE scenario_module_deja_present()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	EbTestAjouteModule(oDisque, "db", "")
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oDisque, "db", ""), 3), "58|", "db deux fois : code 58")
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oDisque, "DB", ""), 3), "58|", "DB aussi")
+FIN
+
+// Les fichiers qu'ebony avait écrits mais que l'utilisateur a changés ne sont pas touchés : conservés, avec une note qui dit quoi y ajouter (config/env.json, .env.exemple, registre).
+PROCEDURE scenario_fichiers_changes_par_l_utilisateur_conserves()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	EbTestAjouteModule(oDisque, "db", "")
+	sSchemaPerso est une chaîne = oDisque.LitTexte("C:\Projets\mon-app\config\env.json") + "// ma variable" + Caract(10)
+	sEnvPerso    est une chaîne = oDisque.LitTexte("C:\Projets\mon-app\.env.exemple") + "MA_VARIABLE=1" + Caract(10)
+	sRegPerso    est une chaîne = oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl") + "// mon commentaire" + Caract(10)
+	oDisque.EcritTexte("C:\Projets\mon-app\config\env.json", sSchemaPerso)
+	oDisque.EcritTexte("C:\Projets\mon-app\.env.exemple", sEnvPerso)
+	oDisque.EcritTexte("C:\Projets\mon-app\app\Composants.owl", sRegPerso)
+	oAjoute est un cEbModuleAjoute = EbTestAjouteModule(oDisque, "auth", "")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\config\env.json"), sSchemaPerso, "env.json de l'utilisateur intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\.env.exemple"), sEnvPerso, ".env.exemple de l'utilisateur intact")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), sRegPerso, "registre de l'utilisateur intact")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Conserves()), "config/env.json, .env.exemple", "conservés : env.json et .env.exemple")
+	dbgVérifieEgalité(EbListeVirgules(oAjoute.Modifies()), "ebony.conf", "seul ebony.conf est réécrit (.env.secrets.exemple et le registre ne changent pas avec auth)")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 2, "une note par fichier conservé")
+	dbgVérifieVrai(Position(oAjoute.Notes()[1], "AUTH_ROUTES") > 0, "la note d'env.json nomme la variable à ajouter")
+	dbgVérifieVrai(Position(oAjoute.Notes()[2], "AUTH_ROUTES") > 0, "la note de .env.exemple aussi")
+	dbgVérifieEgalité(EbListeVirgules(EbModulesDeLaConf(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"))), "db, auth", "le module est noté malgré tout")
+FIN
+
+// Un registre changé par l'utilisateur qui doit recevoir le composant d'un module : la note donne les deux lignes à écrire.
+PROCEDURE scenario_registre_change_note_les_lignes()
+	oDisque   est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	sRegPerso est une chaîne                  = oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl") + "// mon commentaire" + Caract(10)
+	oDisque.EcritTexte("C:\Projets\mon-app\app\Composants.owl", sRegPerso)
+	oAjoute est un cEbModuleAjoute = EbTestAjouteModule(oDisque, "db", "")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\app\Composants.owl"), sRegPerso, "registre intact")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Conserves()), "app/Composants.owl") > 0, "conservé")
+	sNote est une chaîne = EbListeVirgules(oAjoute.Notes())
+	dbgVérifieVrai(Position(sNote, "oComposant1 est un cEbServiceBase(" + Caract(34) + "sqlite" + Caract(34) + ")") > 0, "la note donne la ligne de la fabrique")
+	dbgVérifieVrai(Position(sNote, "TableauAjoute(tabFabriques, oComposant1)") > 0, "et celle de l'ajout")
+FIN
+
+// Un projet sans registre (créé avant le registre des composants) : il est créé quand le module apporte un composant, avec la note qui dit d'appeler le registre depuis le service ; sinon rien.
+PROCEDURE scenario_projet_sans_registre()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModuleAvec(Faux)
+	oAjoute est un cEbModuleAjoute          = EbTestAjouteModule(oDisque, "db", "")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\app\Composants.owl"), "le registre est créé")
+	dbgVérifieVrai(Position(EbListeVirgules(oAjoute.Crees()), "app/Composants.owl") > 0, "dans les créés")
+	dbgVérifieEgalité(oAjoute.Notes()..Occurrence, 1, "une note : appeler le registre")
+	dbgVérifieVrai(Position(oAjoute.Notes()[1], "POUR TOUT oFabrique DE AppMonAppFabriques()") > 0, "avec les lignes à ajouter au service")
+FIN
+
+// Un ebony.conf sans « modules » (projet ancien, qui a déjà tous les modules) : rien à ajouter (59). Sans ebony.conf : pas un projet ebony (31).
+PROCEDURE scenario_conf_ancienne_et_absente()
+	oAncien est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oAncien.EcritTexte("C:\Projets\mon-app\ebony.conf", `{ "ebony": { "version": "0.1.0" } }`)
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oAncien, "db", ""), 3), "59|", "projet ancien : code 59")
+	oSansConf est un cEbSystemeFichiersFictif = cEbSystemeFichiersFictif("C:\Projets\vide")
+	oSansConf.DefinitInstallation("D:\ebony")
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oSansConf, "db", ""), 3), "31|", "sans ebony.conf : code 31")
+	oVersionIllisible est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oVersionIllisible.EcritTexte("C:\Projets\mon-app\ebony.conf", `{ "modules": [] }`)
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oVersionIllisible, "db", ""), 3), "32|", "sans version : code 32")
+FIN
+
+// ebony/ doit être celle de l'ebony installé : une autre version, ou pas de VERSION, est refusé (56) ; un ebony installé plus ancien que le projet aussi (36). Rien n'est écrit.
+PROCEDURE scenario_bibliotheque_inadaptee()
+	oAutre est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oAutre.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.0.9" + Caract(10))
+	sAutre est une chaîne = EbTestRefusAddModule(oAutre, "db", "")
+	dbgVérifieEgalité(Gauche(sAutre, 3), "56|", "autre version : code 56")
+	dbgVérifieVrai(Position(sAutre, "ebony upgrade") > 0, "dit d'aligner la bibliothèque")
+	dbgVérifieFaux(oAutre.DossierExiste("C:\Projets\mon-app\ebony\donnees"), "rien n'a été copié")
+	oPlusAncien est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oPlusAncien.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.0.5" + Caract(10))
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oPlusAncien, "db", ""), 3), "36|", "ebony installé plus ancien : code 36")
+FIN
+
+// Un dossier du module déjà présent dans ebony/ (non vide) est un conflit (28) : tout est listé, rien n'est écrit, ebony.conf reste tel quel.
+PROCEDURE scenario_conflit_refuse_sans_rien_ecrire()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\donnees")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\donnees\a-moi.owl", "x")
+	sAvant est une chaîne = oDisque.LitTexte("C:\Projets\mon-app\ebony.conf")
+	sRes   est une chaîne = EbTestRefusAddModule(oDisque, "db", "")
+	dbgVérifieEgalité(Gauche(sRes, 3), "28|", "conflit : code 28")
+	dbgVérifieVrai(Position(sRes, "ebony/donnees/") > 0, "le conflit est nommé")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), sAvant, "ebony.conf intact")
+	dbgVérifieFaux(oDisque.FichierExiste("C:\Projets\mon-app\ebony\modules\db.json"), "le manifeste n'a pas été copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\donnees\a-moi.owl"), "x", "le fichier de l'utilisateur est intact")
+FIN
+
+// Une écriture qui échoue en route est une erreur 57 et ebony.conf n'est pas modifié (il est écrit en dernier : relancer termine le travail après nettoyage).
+PROCEDURE scenario_ecriture_interrompue()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	sAvant  est une chaîne                  = oDisque.LitTexte("C:\Projets\mon-app\ebony.conf")
+	oDisque.DefinitEchecSur("env.json")
+	sRes est une chaîne = EbTestRefusAddModule(oDisque, "db", "")
+	dbgVérifieEgalité(Gauche(sRes, 3), "57|", "écriture en échec : code 57")
+	dbgVérifieVrai(Position(sRes, "échec simulé sur") > 0, "la cause est dite")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony.conf"), sAvant, "ebony.conf intact")
+FIN
+
+// Le dossier de lancement doit être le dossier actif : sinon les fichiers iraient au mauvais endroit (30).
+PROCEDURE scenario_owl_mal_place()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAddModule()
+	oDisque.DefinitActif("C:\Autre")
+	dbgVérifieEgalité(Gauche(EbTestRefusAddModule(oDisque, "db", ""), 3), "30|", "code 30")
+FIN

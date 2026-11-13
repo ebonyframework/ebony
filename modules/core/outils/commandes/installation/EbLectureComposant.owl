@@ -1,0 +1,80 @@
+// Lecture du membre « composant » du manifeste d'un module (modules/<nom>/execution/modules/<nom>.json) : la fabrique du composant que le module apporte à l'application, lue comme des DONNÉES.
+// Un manifeste sans « composant » n'en apporte aucun (le module n'a rien à démarrer). Une entrée invalide est une exception de code 22 qui la nomme (installation d'ebony abîmée : il faut la réinstaller).
+// Ce qui est lu finit en CODE dans le registre des composants du projet : le nom de la fabrique est donc contraint (lettres ASCII, chiffres et soulignés) et les arguments ne sont que des sources connues, jamais du texte libre.
+// Fonctions sans accès au disque : le texte lu est passé en argument, ce qui les rend testables sans faux disque.
+EbLectureComposant est une CollectionDeProcédures
+
+	// Les sources d'argument qu'une fabrique peut demander au cœur, noms de membres d'ebony.conf : le fournisseur de base de données. Une autre source est refusée à la lecture.
+	PROCEDURE EbSourcesComposant() : tableau de chaînes
+		tabSources est un tableau de chaînes
+		TableauAjoute(tabSources, "base.fournisseur")
+		RENVOYER tabSources
+	FIN
+
+	// Le composant déclaré dans le texte d'un manifeste : un tableau d'un cEbComposantModule, ou vide si le manifeste n'en déclare pas. sModule est le nom du dossier du module.
+	PROCEDURE EbComposantsDuManifeste(sTexte est une chaîne, sChemin est une chaîne, sModule est une chaîne) : tableau
+		tabComposants est un tableau
+		j             est un JSON
+		SI PAS JSONValide(sTexte) ALORS
+			ExceptionDéclenche(22, "Le manifeste " + sChemin + " n'est pas du JSON valide. Réinstallez ebony.")
+		FIN
+		j = ChaîneVersJSON(sTexte)
+		SI JSONExiste(j, "composant") ALORS
+			oComposant est un cEbComposantModule = EbComposantDuManifeste(j.composant, sChemin + " : composant", sModule)
+			TableauAjoute(tabComposants, oComposant)
+		FIN
+		RENVOYER tabComposants
+	FIN
+
+	// L'entrée « composant » du manifeste. sOu situe l'entrée dans les messages. Lève (22) si elle est invalide.
+	PROCEDURE EbComposantDuManifeste(v est un JSON, sOu est une chaîne, sModule est une chaîne) : cEbComposantModule
+		tabSources est un tableau de chaînes
+		sFabrique  est une chaîne            = ""
+		SI JSONExiste(v, "fabrique") ALORS
+			SI TypeVar(v.fabrique) = owlChaîne ALORS
+				sFabrique = v.fabrique
+			FIN
+		FIN
+		SI PAS EbNomFabriqueValide(sFabrique) ALORS
+			ExceptionDéclenche(22, sOu + " : « fabrique » doit être le nom d'une classe (lettres ASCII, chiffres et soulignés, commençant par une lettre, 60 caractères au plus). Réinstallez ebony.")
+		FIN
+		SI JSONExiste(v, "arguments") ALORS
+			// Une liste, et rien d'autre : parcourir un objet rendrait ses valeurs comme des arguments, et parcourir un texte plante sans erreur attrapable (mesuré). Le type d'un JSON ne distingue pas une liste d'un objet : on regarde sa forme écrite.
+			SI Gauche(JSONVersChaîne(v.arguments, psdMinifie), 1) <> "[" ALORS
+				ExceptionDéclenche(22, sOu + " : « arguments » doit être une liste de textes. Réinstallez ebony.")
+			FIN
+			nIndice est un entier = 0
+			POUR TOUT sSource DE v.arguments
+				nIndice++
+				SI TypeVar(sSource) <> owlChaîne ALORS
+					ExceptionDéclenche(22, sOu + " : arguments[" + nIndice + "] doit être un texte. Réinstallez ebony.")
+				FIN
+				SI TableauCherche(EbSourcesComposant(), sSource) < 1 ALORS
+					ExceptionDéclenche(22, sOu + " : arguments[" + nIndice + "] « " + sSource + " » n'est pas une source connue (permises : base.fournisseur). Réinstallez ebony.")
+				FIN
+				TableauAjoute(tabSources, sSource)
+			FIN
+		FIN
+		oComposant est un cEbComposantModule(sModule, sFabrique, tabSources)
+		RENVOYER oComposant
+	FIN
+
+	// Vrai si le texte peut être le nom d'une classe fabrique : lettres ASCII, chiffres et soulignés, commençant par une lettre, 60 caractères au plus.
+	PROCEDURE EbNomFabriqueValide(sNom est une chaîne) : booléen
+		SI Taille(sNom) < 1 OU Taille(sNom) > 60 ALORS
+			RENVOYER Faux
+		FIN
+		POUR i = 1 À Taille(sNom)
+			nCode    est un entier  = Asc(Milieu(sNom, i, 1))
+			bLettre  est un booléen = (nCode >= 65 ET nCode <= 90) OU (nCode >= 97 ET nCode <= 122)
+			bChiffre est un booléen = (nCode >= 48 ET nCode <= 57) OU nCode = 95
+			SI i = 1 ET PAS bLettre ALORS
+				RENVOYER Faux
+			FIN
+			SI PAS bLettre ET PAS bChiffre ALORS
+				RENVOYER Faux
+			FIN
+		FIN
+		RENVOYER Vrai
+	FIN
+FIN

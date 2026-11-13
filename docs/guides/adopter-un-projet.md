@@ -12,27 +12,38 @@ Copy-Item .env.exemple .env
 Copy-Item .env.secrets.exemple .env.secrets
 ```
 
-`ebony init` accepte les mêmes options que `ebony new` (`--base sqlite|postgresql|hfsql`, `--auth [--table …]`), sans nom de projet. Il écrit : `ebony/` (la bibliothèque), `ebony.conf`, `config/env.json`, `.env.exemple` et `.env.secrets.exemple`, `.gitignore`, `README.md` et `AGENTS.md` (consignes pour un assistant de code) s'ils n'existent pas, et les migrations et fichiers des modules (la migration des jetons). **Il conserve tout fichier existant**, `projet.owl` compris, et le dit : « Conservés : projet.owl (non modifiés) ». Le projet compile ensuite sans autre changement.
+`ebony init` accepte les mêmes options que `ebony new` (`--base sqlite|postgresql|hfsql`, `--auth [--table …]`), sans nom de projet. Il écrit : `ebony/` (la bibliothèque), `ebony.conf`, `config/env.json`, `.env.exemple` et `.env.secrets.exemple`, `.gitignore`, `README.md` et `AGENTS.md` (consignes pour un assistant de code) s'ils n'existent pas, `app/Composants.owl` (le registre des composants : la base de données y est déclarée), et les migrations et fichiers des modules (la migration des jetons). **Il conserve tout fichier existant**, `projet.owl` compris, et le dit : « Conservés : projet.owl (non modifiés) ». Le projet compile ensuite sans autre changement.
+
+Il termine par une note sur ce qu'il vous reste à faire, ici appeler le registre depuis votre service (étape suivante) :
+
+```text
+À faire vous-même :
+  - app/Composants.owl liste les composants des modules du projet (…) Votre service doit l'appeler pour les démarrer : dans son FinInitialisation, après la création de oApp, ajoutez « POUR TOUT oFabrique DE boutiqueFabriques() », puis « oApp.Ajoute(oFabrique) » et « FIN » (voir le guide d'adoption).
+```
+
+Le nom de la procédure du registre est celui du bloc `est un Projet` de votre `projet.owl` (ici `boutique`), suivi de `Fabriques` : copiez-le tel que la note l'écrit.
 
 ## 2. Ajouter le service qui démarre l'application
 
-Créez `app/http/ServiceMonProjet.owl` (le nom est libre, il doit être unique dans le projet) :
+Créez `app/http/ServiceBoutique.owl` (le nom est libre, il doit être unique dans le projet) :
 
 ```owl
-ServiceMonProjet est un ServiceREST
+ServiceBoutique est un ServiceREST
 	PROPRIETES
 		UrlBase = ["api"]
 	FIN
 
 	// L'application unique est posée dans cEbServiceApplication, pas dans une variable du bloc du service.
+	// Les composants (la base de données) viennent du registre app/Composants.owl, que gère Ebony.
 	// Une configuration invalide arrête ici le démarrage : le service n'écoute pas, et toutes les erreurs sont listées.
 	PROCEDURE FinInitialisation()
 		oLecture est un cEbLectureEnvReelle
 		oSortie  est un cEbSortieJournalConsole
 		oHorloge est un cEbHorlogeSysteme
 		oApp     est un cEbApplication(oLecture, oSortie, oHorloge)
-		oBase    est un cEbServiceBase("sqlite")
-		oApp.Ajoute(oBase)
+		POUR TOUT oFabrique DE boutiqueFabriques()
+			oApp.Ajoute(oFabrique)
+		FIN
 		cEbServiceApplication.Definit(oApp)
 		cEbServiceApplication.Application().Démarre()
 	FIN
@@ -70,7 +81,7 @@ ServiceMonProjet est un ServiceREST
 FIN
 ```
 
-L'argument de `cEbServiceBase(…)`, ici `"sqlite"`, est le fournisseur de base : le même que dans `ebony.conf` (`sqlite`, `postgresql` ou `hfsql`). La base est un **composant** de l'application : sans les deux lignes `oBase` et `oApp.Ajoute(oBase)`, l'application démarre quand même, sans base, et `GET /api/health` répond `{"statut":"ok"}` sans parler de base. Un service généré par `ebony new` contient aussi une route d'accueil `GET /api` ; ajoutez-la si vous la voulez.
+Le registre `app/Composants.owl` rend la liste des composants des modules du projet, dans l'ordre de démarrage ; la base de données en est un, avec le fournisseur noté dans `ebony.conf` (`sqlite`, `postgresql` ou `hfsql`). **Ebony gère ce fichier** : quand vous ajoutez un module avec [`ebony add`](ajouter-un-module.md), il le réécrit, et votre service ne change pas. Sans la boucle `POUR TOUT oFabrique DE …`, l'application démarre quand même, sans base, et `GET /api/health` répond `{"statut":"ok"}` sans parler de base. Un service généré par `ebony new` contient aussi une route d'accueil `GET /api` ; ajoutez-la si vous la voulez.
 
 Si votre projet a déjà un `ServiceREST`, vous pouvez y ajouter `FinInitialisation` et `Fermeture` au lieu de créer un second service : une seule application est partagée par tous les contrôleurs.
 
@@ -96,6 +107,18 @@ curl.exe -s -i http://127.0.0.1:8080/api/produits                               
 
 La suite est celle des [premiers pas](premiers-pas.md) : les couches sont décrites dans [le chemin d'une requête](architecture.md).
 
+## Ajouter un module plus tard
+
+Vous pouvez adopter Ebony sans base de données et en ajouter une ensuite, **sans toucher à votre service** : `ebony init --kit slim` écrit un registre vide, que le service appelle déjà.
+
+```powershell
+ebony init --kit slim
+# … le service ci-dessus, qui appelle le registre …
+ebony add db
+```
+
+Avant `ebony add db`, `GET /api/health` répond `{"statut":"ok"}` ; après, `{"statut":"ok","base":"ok"}`, et `app/http/ServiceAtelier.owl` est resté identique octet pour octet : seul le registre est réécrit. Voir [Ajouter un module](ajouter-un-module.md).
+
 ## Ce qui n'est pas essayé
 
-Un projet OWL réel avec ses propres services et classes (seul un projet vide créé par `owl new projet` l'a été), l'ajout de `FinInitialisation` à un `ServiceREST` déjà présent (proposé plus haut, non rejoué), `--base postgresql` après `init`, et Linux.
+Un projet OWL réel avec ses propres services et classes (seuls des projets vides créés par `owl new projet` l'ont été), l'ajout de `FinInitialisation` à un `ServiceREST` déjà présent (proposé plus haut, non rejoué), `--base postgresql` après `init`, et Linux.

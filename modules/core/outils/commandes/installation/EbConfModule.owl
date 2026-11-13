@@ -1,0 +1,70 @@
+// ebony.conf et les modules d'un projet, pour « ebony add » : lire un membre texte d'ebony.conf, et réécrire le fichier avec un module de plus.
+// Même prudence que EbConf : un texte qui n'est pas du JSON, un membre absent ou d'un autre type donnent une chaîne vide, sans exception ; l'appelant décide du message.
+// Fonctions sans accès au disque : le texte lu est passé en argument, ce qui les rend testables sans faux disque.
+EbConfModule est une CollectionDeProcédures
+
+	// Un membre texte de la forme « groupe.membre » d'ebony.conf (projet.dossier, projet.identifiant, base.fournisseur), ou « » si le texte n'est pas du JSON, si le groupe ou le membre manque, ou si le membre n'est pas un texte.
+	PROCEDURE EbTexteDeLaConf(sTexte est une chaîne, sGroupe est une chaîne, sMembre est une chaîne) : chaîne
+		SI PAS JSONValide(sTexte) ALORS
+			RENVOYER ""
+		FIN
+		sRes est une chaîne = ""
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			SI JSONExiste(j, sGroupe) ALORS
+				SI JSONExiste(j[sGroupe], sMembre) ET TypeVar(j[sGroupe][sMembre]) = owlChaîne ALORS
+					sRes = j[sGroupe][sMembre]
+				FIN
+			FIN
+		FAIRE
+			sRes = ""
+		FIN
+		RENVOYER sRes
+	FIN
+
+	// Une liste de noms de modules écrite comme un tableau JSON ([“db”,“auth”], [] pour aucun) : OWL rend « null » quand on affecte un tableau OWL à un membre JSON, d'où ce texte.
+	PROCEDURE EbListeModulesEnJson(tabModules est un tableau de chaînes) : chaîne
+		sTexte est une chaîne = ""
+		POUR TOUT sModule DE tabModules
+			SI sTexte <> "" ALORS
+				sTexte += ","
+			FIN
+			sTexte += Caract(34) + sModule + Caract(34)
+		FIN
+		RENVOYER "[" + sTexte + "]"
+	FIN
+
+	// Le texte d'ebony.conf avec sModule ajouté à la fin de « modules » et, si sBase n'est pas vide, base.fournisseur écrit (le groupe « base » est créé s'il manque : un projet slim n'en a pas). Tous les autres membres sont conservés (ordre, valeurs, accents),
+	// mis en forme comme « ebony new » le fait (tabulations, fin de ligne LF, saut de ligne final). Rend « » si le texte n'est pas un JSON qui déclare déjà « modules » : on ne fabrique pas un ebony.conf à partir d'un texte abîmé ou d'un projet ancien.
+	// Un module déjà listé n'est pas ajouté une seconde fois.
+	PROCEDURE EbConfAvecModule(sTexte est une chaîne, sModule est une chaîne, sBase est une chaîne) : chaîne
+		SI PAS EbConfDeclareModules(sTexte) ALORS
+			RENVOYER ""
+		FIN
+		tabModules est un tableau de chaînes = EbModulesDeLaConf(sTexte)
+		bPresent   est un booléen            = Faux
+		POUR TOUT sDeja DE tabModules
+			SI Minuscule(sDeja) = Minuscule(sModule) ALORS
+				bPresent = Vrai
+			FIN
+		FIN
+		SI PAS bPresent ALORS
+			TableauAjoute(tabModules, sModule)
+		FIN
+		sRes est une chaîne = ""
+		QUAND EXCEPTION DANS
+			j est un JSON = ChaîneVersJSON(sTexte)
+			j.modules = ChaîneVersJSON(EbListeModulesEnJson(tabModules))
+			SI sBase <> "" ALORS
+				SI PAS JSONExiste(j, "base") ALORS
+					j.base = ChaîneVersJSON("{}")
+				FIN
+				j.base.fournisseur = sBase
+			FIN
+			sRes = JSONVersChaîne(j, psdMiseEnForme) + Caract(10)
+		FAIRE
+			sRes = ""
+		FIN
+		RENVOYER sRes
+	FIN
+FIN

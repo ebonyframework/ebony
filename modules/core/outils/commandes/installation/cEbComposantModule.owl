@@ -1,0 +1,32 @@
+// Le composant qu'un module apporte à l'application (manifeste « composant »), tel que le cœur le lit : la classe de sa fabrique et d'où viennent ses arguments. Objet valeur immuable.
+// Le cœur n'en sait pas plus : il écrit, dans le registre des composants du projet (app/Composants.owl), la ligne qui crée cette fabrique, sans connaître le module par son nom.
+// Les arguments sont des SOURCES nommées dans ebony.conf (« base.fournisseur »), jamais du code : voir EbSourcesComposant pour la liste permise.
+cEbComposantModule est une Classe
+PRIVÉ
+	sModule    est une chaîne            = ""
+	sFabrique  est une chaîne            = ""
+	tabSources est un tableau de chaînes
+
+	PROCEDURE Constructeur(Module est une chaîne, Fabrique est une chaîne, Sources est un tableau de chaînes)
+		:sModule = Module
+		:sFabrique = Fabrique
+		POUR TOUT sSource DE Sources
+			TableauAjoute(:tabSources, sSource)
+		FIN
+	FIN
+
+	// Le module qui l'apporte (le nom de son dossier dans modules/).
+	PROCEDURE PUBLIQUE Module() : chaîne
+		RENVOYER :sModule
+	FIN
+
+	// La classe de la fabrique (cEbServiceBase) : elle implémente iEbFabriqueComposant.
+	PROCEDURE PUBLIQUE Fabrique() : chaîne
+		RENVOYER :sFabrique
+	FIN
+
+	// Les sources des arguments du constructeur de la fabrique, dans l'ordre (« base.fournisseur » : le fournisseur de base noté dans ebony.conf).
+	PROCEDURE PUBLIQUE Sources() : tableau de chaînes
+		RENVOYER :tabSources
+	FIN
+FIN

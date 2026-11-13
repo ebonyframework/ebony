@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Ebony
   text: Des applications OWL structurées, générées par une commande
-  tagline: Inspiré d'AdonisJS, pour le langage OWL. Préversion 0.1.0.
+  tagline: Inspiré d'AdonisJS, pour le langage OWL. Préversion 0.1.1.
   image:
     src: /logo-ebony.png
     alt: Logo Ebony

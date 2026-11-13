@@ -1,4 +1,4 @@
-// « ebony new <nom> » : crée un projet minimal (ebony.conf, projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json (le schéma de la configuration), app/http/Service<Nom>.owl (le service REST), README.md et ebony/, copie de la bibliothèque d'exécution) dans un dossier neuf
+// « ebony new <nom> » : crée un projet minimal (ebony.conf, projet.owl, .gitignore, .env.exemple, .env.secrets.exemple, config/env.json (le schéma de la configuration), app/http/Service<Nom>.owl (le service REST), app/Composants.owl (le registre des composants), README.md et ebony/, copie de la bibliothèque d'exécution) dans un dossier neuf
 // du dossier d'où l'utilisateur a lancé ebony. Le nom est libre ; le dossier et l'identifiant OWL en sont déduits (voir EbNomProjet).
 // Tout est vérifié AVANT d'écrire : nom, placement d'OWL, installation d'ebony, version de la bibliothèque, dossier cible. OWL n'a pas de suppression récursive
 // de dossier : on ne tente pas de « défaire » une création, on dit précisément ce qui a pu rester si une écriture échoue malgré tout.
@@ -46,6 +46,8 @@ PRIVÉ
 			tabMigrations = EbMigrationsAEcrire(oInstallee.MigrationsModules(), options, Vrai)
 		FIN
 		options = options.AvecModules(oInstallee.VariablesModules(), tabMigrations, EbFichiersAEcrire(oInstallee.FichiersModules(), options))
+		// Les composants que ces modules apportent à l'application : ils vont dans le registre app/Composants.owl, que le service appelle.
+		tabComposants est un tableau = oInstallee.ComposantsModules()
 
 		sCible est une chaîne = EbJointChemin(sLancement, sDossier)
 		SI :oSysteme.FichierExiste(sCible) ALORS
@@ -72,7 +74,8 @@ PRIVÉ
 			sHttp est une chaîne = EbJointChemin(sApp, "http")
 			:oEcriture.CreeDossier(sApp)
 			:oEcriture.CreeDossier(sHttp)
-			:oEcriture.EcritTexte(EbJointChemin(sHttp, EbNomService(sIdentifiant) + ".owl"), EbAligneDeclarations(EbContenuService(nom, sIdentifiant, options)))
+			:oEcriture.EcritTexte(EbJointChemin(sHttp, EbNomService(sIdentifiant) + ".owl"), EbAligneDeclarations(EbContenuService(nom, sIdentifiant)))
+			:oEcriture.EcritTexte(EbJointChemin(sApp, "Composants.owl"), EbAligneDeclarations(EbContenuComposants(sIdentifiant, tabComposants, options)))
 			POUR TOUT oFichierModule DE options.FichiersModules()
 				sFichierModule est une chaîne = EbJointChemin(sCible, Remplace(oFichierModule.Chemin(), "/", "\"))
 				:oEcriture.CreeDossier(EbParentChemin(sFichierModule))

@@ -1,0 +1,105 @@
+// Tests des méthodes de cEbBibliothequeInstallee qui servent « ebony add » : quels modules sont installés, de quoi dépend l'un d'eux, ce qui empêcherait de le copier sans rien écraser, et sa copie seule. Faux disque.
+
+// Un disque où ebony est installé dans D:\ebony avec trois modules : core, db (donnees/ et son manifeste) et auth (auth/ et son manifeste, qui dépend de db).
+// Le projet C:\Projets\mon-app a un dossier ebony/ qui ne contient que la bibliothèque du cœur.
+PROCEDURE EbTestDisqueAjout() : cEbSystemeFichiersFictif
+	oDisque est un cEbSystemeFichiersFictif("C:\Projets\mon-app")
+	oDisque.DefinitInstallation("D:\ebony")
+	oDisque.CreeDossier("D:\ebony\modules\core\execution\config")
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("D:\ebony\modules\core\execution\config\README.md", "config")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\donnees")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\donnees\README.md", "donnees")
+	oDisque.CreeDossier("D:\ebony\modules\db\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\db\execution\modules\db.json", `{ "nom": "db" }`)
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\auth")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\auth\README.md", "auth")
+	oDisque.CreeDossier("D:\ebony\modules\auth\execution\modules")
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", `{ "nom": "auth", "dependances": ["db"] }`)
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\config")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\VERSION", "0.1.0" + Caract(10))
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\config\README.md", "config")
+	RENVOYER oDisque
+FIN
+
+// Les modules installés, hors le cœur, quel que soit le choix d'un projet : ce que « ebony add » peut ajouter.
+PROCEDURE scenario_modules_installes()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueAjout()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.ModulesInstalles()), "auth, db", "auth et db, pas le cœur")
+	// Un choix restreint ne change pas ce qui est installé.
+	tabChoix est un tableau de chaînes
+	TableauAjoute(tabChoix, "db")
+	oInstallee.Choisit(tabChoix)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.ModulesInstalles()), "auth, db", "toujours auth et db après Choisit")
+FIN
+
+// De quoi dépend un module : auth demande db ; db et un module sans manifeste ne demandent rien.
+PROCEDURE scenario_dependances_du_module()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueAjout()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.DependancesDuModule("auth")), "db", "auth dépend de db")
+	dbgVérifieEgalité(oInstallee.DependancesDuModule("db")..Occurrence, 0, "db ne dépend de rien")
+	dbgVérifieEgalité(oInstallee.DependancesDuModule("inconnu")..Occurrence, 0, "un module sans manifeste non plus")
+FIN
+
+// Un manifeste illisible est une exception de code 22, pas une liste vide.
+PROCEDURE scenario_manifeste_illisible_leve_22()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAjout()
+	oDisque.EcritTexte("D:\ebony\modules\auth\execution\modules\auth.json", "{ pas du json")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	sRes       est une chaîne                           = ""
+	QUAND EXCEPTION DANS
+		tabDependances est un tableau de chaînes = oInstallee.DependancesDuModule("auth")
+	FAIRE
+		sRes = ExceptionInfo(errCode)
+	FIN
+	dbgVérifieEgalité(sRes, "22", "code 22")
+FIN
+
+// Sans rien de déjà là, la copie d'un module est possible : aucun conflit.
+PROCEDURE scenario_aucun_conflit()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueAjout()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(oInstallee.ConflitsCopieModule("C:\Projets\mon-app\ebony", "db")..Occurrence, 0, "db : aucun conflit")
+	dbgVérifieEgalité(oInstallee.ConflitsCopieModule("C:\Projets\mon-app\ebony", "auth")..Occurrence, 0, "auth : aucun conflit")
+FIN
+
+// Un sous-dossier du module déjà présent et non vide, ou son manifeste déjà copié, empêchent la copie : ils sont nommés, relatifs à ebony/.
+PROCEDURE scenario_conflits_nommes()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAjout()
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\donnees")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\donnees\a-moi.owl", "x")
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\modules")
+	oDisque.EcritTexte("C:\Projets\mon-app\ebony\modules\db.json", "{}")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee.ConflitsCopieModule("C:\Projets\mon-app\ebony", "db")), "donnees/, modules/db.json", "db : son dossier et son manifeste")
+	dbgVérifieEgalité(oInstallee.ConflitsCopieModule("C:\Projets\mon-app\ebony", "auth")..Occurrence, 0, "auth : le dossier modules/ partagé n'est pas un conflit")
+FIN
+
+// Un dossier du module déjà là mais VIDE n'est pas un conflit ; un fichier qui porte le nom du dossier en est un.
+PROCEDURE scenario_dossier_vide_et_fichier_homonyme()
+	oDisque est un cEbSystemeFichiersFictif = EbTestDisqueAjout()
+	oDisque.CreeDossier("C:\Projets\mon-app\ebony\donnees")
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	dbgVérifieEgalité(oInstallee.ConflitsCopieModule("C:\Projets\mon-app\ebony", "db")..Occurrence, 0, "un dossier vide ne gêne pas")
+	oDisque2 est un cEbSystemeFichiersFictif = EbTestDisqueAjout()
+	oDisque2.EcritTexte("C:\Projets\mon-app\ebony\auth", "un fichier")
+	oInstallee2 est un cEbBibliothequeInstallee(oDisque2)
+	dbgVérifieEgalité(EbListeVirgules(oInstallee2.ConflitsCopieModule("C:\Projets\mon-app\ebony", "auth")), "auth/", "un fichier nommé auth gêne")
+FIN
+
+// La copie d'un seul module ajoute ses fichiers et son manifeste à ebony/, sans toucher au reste ni copier les autres modules.
+PROCEDURE scenario_copie_d_un_seul_module()
+	oDisque    est un cEbSystemeFichiersFictif          = EbTestDisqueAjout()
+	oInstallee est un cEbBibliothequeInstallee(oDisque)
+	oInstallee.CopieModule(oDisque, "C:\Projets\mon-app\ebony", "db")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\donnees\README.md"), "donnees", "le dossier du module est copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\modules\db.json"), `{ "nom": "db" }`, "son manifeste va dans modules/")
+	dbgVérifieFaux(oDisque.DossierExiste("C:\Projets\mon-app\ebony\auth"), "auth n'est pas copié")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\config\README.md"), "config", "le cœur déjà là est intact")
+	dbgVérifieEgalité(oDisque.LitTexte("D:\ebony\modules\db\execution\donnees\README.md"), "donnees", "la source est intacte")
+	oInstallee.CopieModule(oDisque, "C:\Projets\mon-app\ebony", "auth")
+	dbgVérifieEgalité(oDisque.LitTexte("C:\Projets\mon-app\ebony\auth\README.md"), "auth", "puis auth")
+	dbgVérifieVrai(oDisque.FichierExiste("C:\Projets\mon-app\ebony\modules\db.json") ET oDisque.FichierExiste("C:\Projets\mon-app\ebony\modules\auth.json"), "les deux manifestes sont côte à côte")
+FIN

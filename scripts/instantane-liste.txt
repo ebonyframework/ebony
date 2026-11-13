@@ -11,6 +11,7 @@ install/
 assets/
 docs/guides/installation.md
 docs/guides/adopter-un-projet.md
+docs/guides/ajouter-un-module.md
 docs/guides/premiers-pas.md
 docs/guides/tutoriel.md
 docs/guides/architecture.md

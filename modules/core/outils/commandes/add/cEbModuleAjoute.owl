@@ -1,0 +1,73 @@
+// Résultat de « ebony add » : ce qui a été fait pour ajouter un module à un projet ebony existant. Objet valeur immuable, rempli par le constructeur.
+cEbModuleAjoute est une Classe
+PRIVÉ
+	sModule      est une chaîne            = ""
+	sChemin      est une chaîne            = ""
+	sBase        est une chaîne            = ""
+	tabModules   est un tableau de chaînes
+	tabCrees     est un tableau de chaînes
+	tabModifies  est un tableau de chaînes
+	tabConserves est un tableau de chaînes
+	tabNotes     est un tableau de chaînes
+
+	PROCEDURE Constructeur(Module est une chaîne, Chemin est une chaîne, Base est une chaîne, Modules est un tableau de chaînes, Crees est un tableau de chaînes, Modifies est un tableau de chaînes, Conserves est un tableau de chaînes, Notes est un tableau de chaînes)
+		:sModule = Module
+		:sChemin = Chemin
+		:sBase = Base
+		POUR TOUT sNom DE Modules
+			TableauAjoute(:tabModules, sNom)
+		FIN
+		POUR TOUT sCree DE Crees
+			TableauAjoute(:tabCrees, sCree)
+		FIN
+		POUR TOUT sModifie DE Modifies
+			TableauAjoute(:tabModifies, sModifie)
+		FIN
+		POUR TOUT sConserve DE Conserves
+			TableauAjoute(:tabConserves, sConserve)
+		FIN
+		POUR TOUT sNote DE Notes
+			TableauAjoute(:tabNotes, sNote)
+		FIN
+	FIN
+
+	// Le module qui vient d'être ajouté.
+	PROCEDURE PUBLIQUE Module() : chaîne
+		RENVOYER :sModule
+	FIN
+
+	// Le chemin complet du projet (le dossier où ebony a été lancé).
+	PROCEDURE PUBLIQUE Chemin() : chaîne
+		RENVOYER :sChemin
+	FIN
+
+	// Le fournisseur de base de données du projet après l'ajout (sqlite, postgresql ou hfsql), vide s'il n'en a pas.
+	PROCEDURE PUBLIQUE Base() : chaîne
+		RENVOYER :sBase
+	FIN
+
+	// Les modules du projet après l'ajout (hors cœur), dans l'ordre de ebony.conf.
+	PROCEDURE PUBLIQUE Modules() : tableau de chaînes
+		RENVOYER :tabModules
+	FIN
+
+	// Les fichiers et dossiers créés (« ebony/donnees/ » n'y est pas : la bibliothèque du module est notée « ebony/ »), relatifs au projet.
+	PROCEDURE PUBLIQUE Crees() : tableau de chaînes
+		RENVOYER :tabCrees
+	FIN
+
+	// Les fichiers qui existaient déjà, que le projet n'avait pas modifiés depuis qu'ebony les avait écrits, et qu'ebony a réécrits (ebony.conf, le registre des composants, les fichiers de configuration).
+	PROCEDURE PUBLIQUE Modifies() : tableau de chaînes
+		RENVOYER :tabModifies
+	FIN
+
+	// Les fichiers de l'utilisateur qu'ebony n'a pas touchés parce qu'ils ne sont plus tels qu'il les avait écrits ; une note dit quoi y ajouter.
+	PROCEDURE PUBLIQUE Conserves() : tableau de chaînes
+		RENVOYER :tabConserves
+	FIN
+
+	// Ce que l'utilisateur doit faire lui-même dans ses propres fichiers (une phrase par note).
+	PROCEDURE PUBLIQUE Notes() : tableau de chaînes
+		RENVOYER :tabNotes
+	FIN
+FIN
